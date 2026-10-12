@@ -1347,7 +1347,7 @@ export class Game implements ToolHost {
     }
     a.happiness = Math.min(100, a.happiness + 0.4);
     b.happiness = Math.min(100, b.happiness + 0.4);
-    if (moved.length && Math.random() < 0.3) this.life.events.push(t('A train brought {goods} from {a} to {b}', { goods: moved.join(', '), a: a.name, b: b.name }));
+    if (moved.length && Math.random() < 0.1) this.life.events.push(t('A train brought {goods} from {a} to {b}', { goods: moved.join(', '), a: a.name, b: b.name }));
   }
 
   /** Navruz and New Year: confetti by day, fireworks at night over parks and town halls. */
