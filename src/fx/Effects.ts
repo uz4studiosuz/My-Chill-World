@@ -1,0 +1,119 @@
+import * as THREE from 'three';
+import { Tile, tileToWorld } from '../world/grid';
+
+interface Particle {
+  x: number; y: number; z: number;
+  vx: number; vy: number; vz: number;
+  life: number; max: number;
+  size: number;
+  delay: number;
+  color: THREE.Color;
+  flat: boolean;
+  /** Smoke: floats up and grows instead of falling. */
+  rise?: boolean;
+}
+
+const MAX = 600;
+const DUST = ['#d8d2c4', '#c9c1ae', '#e8e3d6', '#b9b09c'];
+
+/** Small juice effects: dust puffs for building/removing, a "paving" shine for new roads. */
+export class Effects {
+  readonly group = new THREE.Group();
+  private parts: Particle[] = [];
+  private cubes: THREE.InstancedMesh;
+  private shines: THREE.InstancedMesh;
+  private m = new THREE.Matrix4();
+  private q = new THREE.Quaternion();
+  private p = new THREE.Vector3();
+  private s = new THREE.Vector3();
+
+  constructor() {
+    this.cubes = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial(), MAX);
+    const flatGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    this.shines = new THREE.InstancedMesh(flatGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), MAX);
+    for (const m of [this.cubes, this.shines]) {
+      m.setColorAt(0, new THREE.Color('#ffffff'));
+      m.count = 0;
+      m.frustumCulled = false;
+      this.group.add(m);
+    }
+    this.shines.renderOrder = 5;
+  }
+
+  /** Dust cloud, e.g. when a building appears or is removed. */
+  puff(x: number, z: number, radius: number, count = 14, palette = DUST) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, r = Math.random() * radius;
+      this.add({
+        x: x + Math.cos(a) * r, y: 0.05, z: z + Math.sin(a) * r,
+        vx: Math.cos(a) * (0.4 + Math.random() * 0.6), vy: 0.6 + Math.random() * 0.8, vz: Math.sin(a) * (0.4 + Math.random() * 0.6),
+        life: 0, max: 0.6 + Math.random() * 0.4, size: 0.06 + Math.random() * 0.08, delay: 0,
+        color: new THREE.Color(palette[Math.floor(Math.random() * palette.length)]), flat: false,
+      });
+    }
+  }
+
+  /** A wave of light squares running along a freshly paved road. */
+  pave(tiles: Tile[]) {
+    tiles.forEach((t, i) => {
+      const x = tileToWorld(t.x), z = tileToWorld(t.z);
+      this.add({ x, y: 0.05, z, vx: 0, vy: 0, vz: 0, life: 0, max: 0.45, size: 1, delay: i * 0.025, color: new THREE.Color('#ffffff'), flat: true });
+      if (i % 2 === 0) this.puff(x, z, 0.4, 2);
+    });
+  }
+
+  /** A puff of chimney smoke. */
+  smoke(x: number, y: number, z: number) {
+    const g = 0.55 + Math.random() * 0.2;
+    this.add({
+      x: x + (Math.random() - 0.5) * 0.06, y, z: z + (Math.random() - 0.5) * 0.06,
+      vx: 0.12 + Math.random() * 0.08, vy: 0.35 + Math.random() * 0.15, vz: -0.05,
+      life: 0, max: 3 + Math.random(), size: 0.08, delay: 0, color: new THREE.Color(g, g, g), flat: false, rise: true,
+    });
+  }
+
+  private add(p: Particle) {
+    if (this.parts.length < MAX * 2) this.parts.push(p);
+  }
+
+  update(dt: number) {
+    let nc = 0, ns = 0;
+    for (let i = this.parts.length - 1; i >= 0; i--) {
+      const p = this.parts[i];
+      if (p.delay > 0) { p.delay -= dt; continue; }
+      p.life += dt;
+      if (p.life >= p.max) { this.parts.splice(i, 1); continue; }
+      const t = p.life / p.max;
+      if (p.flat) {
+        if (ns >= MAX) continue;
+        const sc = 0.4 + 0.6 * Math.sin(t * Math.PI);
+        this.s.set(sc, 1, sc);
+        this.p.set(p.x, p.y, p.z);
+        this.q.identity();
+        this.m.compose(this.p, this.q, this.s);
+        this.shines.setMatrixAt(ns, this.m);
+        this.shines.setColorAt(ns++, p.color);
+      } else {
+        if (nc >= MAX) continue;
+        if (!p.rise) {
+          p.vy -= dt * 2.2;
+          p.vx *= 0.96; p.vz *= 0.96;
+        }
+        p.x += p.vx * dt; p.y = Math.max(0.02, p.y + p.vy * dt); p.z += p.vz * dt;
+        const sc = p.rise ? p.size * (1 + t * 2.5) * (1 - t * t * t) : p.size * (1 - t * t);
+        this.s.set(sc, sc, sc);
+        this.p.set(p.x, p.y, p.z);
+        this.q.setFromAxisAngle(this.p.clone().set(0, 1, 0), p.life * 4);
+        this.m.compose(this.p, this.q, this.s);
+        this.cubes.setMatrixAt(nc, this.m);
+        this.cubes.setColorAt(nc++, p.color);
+      }
+    }
+    this.cubes.count = nc;
+    this.shines.count = ns;
+    for (const m of [this.cubes, this.shines]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
+  }
+}
