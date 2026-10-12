@@ -279,11 +279,11 @@ export class Buildings {
   }
 
   /** Grow / shrink animations and crop growth (only in the growing season, with farmers and water). */
-  update(dt: number, simDt: number, dayLength: number, growing: boolean, buildSpeed: (city: number) => number = () => 1) {
+  update(dt: number, simDt: number, dayLength: number, growing: boolean, buildSpeed: (b: Building) => number = () => 1) {
     this.animTime += dt;
     for (const b of this.list) {
       if (b.built < 1 && simDt > 0) {
-        b.built = Math.min(1, b.built + (simDt / (dayLength * BUILD_DAYS[BUILDINGS[b.kind].size])) * buildSpeed(b.city));
+        b.built = Math.min(1, b.built + (simDt / (dayLength * BUILD_DAYS[BUILDINGS[b.kind].size])) * buildSpeed(b));
         if (b.built >= 1) this.onBuilt(b);
       }
       if (b.grow < 1) b.grow = Math.min(1, b.grow + dt * 2.2);

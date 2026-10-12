@@ -1,5 +1,5 @@
 import { SaveStore, WorldMeta } from '../save/SaveStore';
-import { el, icon } from './dom';
+import { el, icon, IconName } from './dom';
 import { Lang, getLang, setLang, t } from '../i18n/i18n';
 
 export interface MenuHandlers {
@@ -34,11 +34,12 @@ export class Menu {
       'My Chill World',
       'Build roads, grow your town.',
       [
-        worlds.length ? button('Continue', () => this.h.loadWorld(worlds[0].id), 'primary', worlds[0].name) : null,
-        button('New World', () => this.showNew(), worlds.length ? '' : 'primary'),
-        worlds.length ? button('Load World', () => this.showLoad()) : null,
-        button('Gallery', () => this.h.openGallery('main'), '', 'Inspect every model in 3D'),
+        worlds.length ? button('Continue', () => this.h.loadWorld(worlds[0].id), 'primary', worlds[0].name, 'play') : null,
+        button('New World', () => this.showNew(), worlds.length ? '' : 'primary', undefined, 'plus'),
+        worlds.length ? button('Load World', () => this.showLoad(), '', undefined, 'folder') : null,
+        button('Gallery', () => this.h.openGallery('main'), '', 'Inspect every model in 3D', 'gallery'),
         this.languagePicker(() => this.showMain()),
+        footer(),
       ],
       true,
     );
@@ -55,8 +56,8 @@ export class Menu {
       button('Create', () => {
         const s = parseInt(seed.value, 10);
         this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9));
-      }, 'primary'),
-      button('Back', () => this.showMain()),
+      }, 'primary', undefined, 'check'),
+      button('Back', () => this.showMain(), '', undefined, 'undo'),
     ]);
   }
 
@@ -65,15 +66,15 @@ export class Menu {
     if (!worlds.length) return this.showMain();
     const list = el('div', 'worlds');
     for (const w of worlds) list.appendChild(this.worldRow(w));
-    this.render('Your Worlds', '', [list, button('Back', () => this.showMain())]);
+    this.render('Your Worlds', '', [list, button('Back', () => this.showMain(), '', undefined, 'undo')]);
   }
 
   showPause() {
     this.render('Paused', '', [
-      button('Resume', () => this.h.resume(), 'primary'),
-      button('Save', (b) => { this.h.save(); b.textContent = t('Saved ✓'); }),
-      button('Gallery', () => this.h.openGallery('pause')),
-      button('Main Menu', () => this.h.exitToMenu()),
+      button('Resume', () => this.h.resume(), 'primary', undefined, 'play'),
+      button('Save', (b) => { this.h.save(); b.querySelector('.mtxt b')!.textContent = t('Saved ✓'); }, '', undefined, 'save'),
+      button('Gallery', () => this.h.openGallery('pause'), '', undefined, 'gallery'),
+      button('Main Menu', () => this.h.exitToMenu(), '', undefined, 'home'),
       this.languagePicker(() => this.showPause()),
     ]);
   }
@@ -90,18 +91,20 @@ export class Menu {
     const meta = el('small', '');
     meta.textContent = `${t('Day {n}', { n: w.day })} · ${t('{n} people', { n: w.population })} · $${Math.floor(w.money).toLocaleString('en-US')} · ${new Date(w.updated).toLocaleDateString()}`;
     info.append(name, meta);
-    const play = button('Play', () => this.h.loadWorld(w.id), 'primary small');
+    const play = button('Play', () => this.h.loadWorld(w.id), 'primary small', undefined, 'play');
+    const thumb = el('div', 'world-thumb');
+    thumb.textContent = '🏙️';
     const del = button('Delete', () => {
       if (del.dataset.confirm) {
         SaveStore.remove(w.id);
         this.showLoad();
       } else {
         del.dataset.confirm = '1';
-        del.textContent = t('Sure?');
+        del.querySelector('.mtxt b')!.textContent = t('Sure?');
         del.classList.add('danger');
       }
     }, 'small');
-    row.append(info, play, del);
+    row.append(thumb, info, play, del);
     return row;
   }
 
@@ -125,6 +128,12 @@ export class Menu {
 
   private render(title: string, sub: string, items: (HTMLElement | null)[], big = false) {
     this.panel.replaceChildren();
+    this.panel.classList.toggle('main', big);
+    if (big) {
+      const logo = el('div', 'menu-logo');
+      logo.textContent = '🏡';
+      this.panel.appendChild(logo);
+    }
     const h = el('h1', big ? 'big' : '');
     h.textContent = t(title);
     this.panel.appendChild(h);
@@ -138,16 +147,27 @@ export class Menu {
   }
 }
 
-function button(label: string, onClick: (b: HTMLButtonElement) => void, cls = '', sub?: string) {
+function button(label: string, onClick: (b: HTMLButtonElement) => void, cls = '', sub?: string, ic?: IconName) {
   const b = el('button', `mbtn ${cls}`);
-  b.textContent = t(label);
+  if (ic) b.innerHTML = icon(ic);
+  const txt = el('span', 'mtxt');
+  const main = el('b', '');
+  main.textContent = t(label);
+  txt.appendChild(main);
   if (sub) {
     const s = el('small', '');
     s.textContent = t(sub);
-    b.appendChild(s);
+    txt.appendChild(s);
   }
+  b.appendChild(txt);
   b.addEventListener('click', () => onClick(b));
   return b;
+}
+
+function footer() {
+  const f = el('div', 'menu-foot');
+  f.textContent = 'My Chill World · v0.8';
+  return f;
 }
 
 function input(label: string, value: string, max: number) {

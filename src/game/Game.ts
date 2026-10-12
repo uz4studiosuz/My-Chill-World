@@ -261,27 +261,32 @@ export class Game implements ToolHost {
   }
 
   update(dt: number) {
-    const sdt = this.menuPaused ? 0 : dt * this.speed;
-    if (sdt > 0) {
-      this.time += sdt;
-      this.life.update(sdt);
-      this.animals.update(sdt);
-      this.history.update(sdt, () => ({
-        t: this.time, day: this.eco.day, pop: this.pop.size, employed: this.pop.counts().workers,
-        money: Math.round(this.eco.totalMoney), stone: Math.round(this.eco.totalStone), food: Math.round(this.eco.totalFood),
-        wood: Math.round(this.eco.totalWood), energy: Math.round(this.eco.powered * 100),
-        cars: this.traffic.count('car'), trucks: this.traffic.count('truck'), walkers: this.walkers.list.length,
-        animals: this.animals.list.length,
-      }));
-      this.chimneySmoke(sdt);
-      if (this.eco.day !== this.lastDay) this.onNewDay();
-    }
+    // fast speeds are split into small steps so cars, walkers and the economy stay stable
+    const total = this.menuPaused ? 0 : dt * this.speed;
+    const steps = total > 0 ? Math.min(60, Math.ceil(total / 0.2)) : 1;
+    const sdt = total / steps;
     this.traffic.setParked(this.life.parkedCars());
-    this.traffic.update(sdt);
-    this.walkers.update(sdt);
-    this.buildings.update(dt, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)), (city) => this.buildSpeed(city));
+    for (let i = 0; i < steps; i++) {
+      if (sdt > 0) {
+        this.time += sdt;
+        this.life.update(sdt);
+        this.animals.update(sdt);
+        this.history.update(sdt, () => ({
+          t: this.time, day: this.eco.day, pop: this.pop.size, employed: this.pop.counts().workers,
+          money: Math.round(this.eco.totalMoney), stone: Math.round(this.eco.totalStone), food: Math.round(this.eco.totalFood),
+          wood: Math.round(this.eco.totalWood), energy: Math.round(this.eco.powered * 100),
+          cars: this.traffic.count('car'), trucks: this.traffic.count('truck'), walkers: this.walkers.list.length,
+          animals: this.animals.list.length,
+        }));
+        this.chimneySmoke(sdt);
+        if (this.eco.day !== this.lastDay) this.onNewDay();
+      }
+      this.traffic.update(sdt);
+      this.walkers.update(sdt);
+      this.buildings.update(i === 0 ? dt : 0, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)), (b) => this.life.buildSpeed(b));
+    }
     this.effects.update(dt);
-    this.weather.update(dt, sdt, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
+    this.weather.update(dt, total, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
     this.seasonT -= dt;
     if (this.seasonT <= 0) {
       this.seasonT = 0.4;
@@ -495,12 +500,7 @@ export class Game implements ToolHost {
     this.hud?.setPending(info);
   }
 
-  /** Construction speed of a city: a construction company with workers makes builders faster. */
-  private buildSpeed(city: number) {
-    let crew = 0;
-    for (const b of this.buildings.list) if (b.kind === 'construction' && b.city === city && b.built >= 1) crew += b.workers;
-    return 0.6 + 0.2 * Math.min(8, crew);
-  }
+
 
   // ---------- internals ----------
 
@@ -830,6 +830,8 @@ export class Game implements ToolHost {
     if (b.built < 1) {
       tags.push({ text: t('Under construction'), tone: 'info' });
       bars.push({ label: t('Construction'), value: b.built, color: '#f2b33d' });
+      const crew = this.life.crewSize(b);
+      rows.push([t('Builders on site'), crew ? `${crew}` : t('None — build a construction company'), crew ? 'good' : undefined]);
     }
     if (b.fire > 0) tags.push({ text: t('On fire!'), tone: 'bad' });
     if (def.energy) tags.push(b.powered ? { text: t('Powered'), tone: 'good' } : { text: t('No power'), tone: 'bad' });

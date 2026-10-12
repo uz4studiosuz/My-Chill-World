@@ -519,4 +519,9 @@ export const UZ: Record<string, string> = {
   "Business owner": "Biznes egasi",
   "The {family} family bought the {name} for ${price}": "{family} oilasi {name}ni ${price} ga sotib oldi",
   "The {family} family is building a {name}": "{family} oilasi o'z puliga {name} qurmoqda",
+  "Builders on site": "Qurilishdagi quruvchilar",
+  "None — build a construction company": "Yo'q — qurilish kompaniyasi quring",
+  "Walking to a construction site": "Qurilish joyiga ketmoqda",
+  "Building": "Qurmoqda",
+  "Waiting for a new order": "Yangi buyurtma kutmoqda",
 };

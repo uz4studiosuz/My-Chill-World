@@ -56,6 +56,11 @@ const ICONS = {
   follow: '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  play: '<path d="M8 5v14l11-7z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  folder: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
+  save: '<path d="M5 3h11l3 3v13a2 2 0 01-2 2H7a2 2 0 01-2-2z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
+  home: '<path d="M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   cemetery: '<path d="M6 21V10a6 6 0 0 1 12 0v11zM12 9v6M9 12h6M4 21h16"/>',
 };

@@ -100,7 +100,7 @@ export interface HudHandlers {
   cancelBuild: () => void;
 }
 
-export const SPEEDS = [0, 1, 2, 3, 10];
+export const SPEEDS = [0, 1, 3, 10, 50, 100];
 
 export class Hud {
 

@@ -56,6 +56,9 @@ export class Life {
   private immigrationT = 0;
   private stormT = 40;
   private porters = new Set<number>();
+  /** Builders currently working on each construction site. */
+  private crews = new Map<number, Set<number>>();
+  private busyBuilders = new Set<number>();
   private presentT = 0;
   private fireT = 0;
   private gridIds = new Set<number>();
@@ -83,7 +86,7 @@ export class Life {
     pop.tickNeeds(dt / DAY_SECONDS);
     this.updateEnergy(dt);
     this.presentT -= dt;
-    if (this.presentT <= 0) { this.presentT = 0.5; this.countPresent(); this.checkRain(); }
+    if (this.presentT <= 0) { this.presentT = 0.5; this.countPresent(); this.checkRain(); this.dispatchBuilders(); }
     this.produce(dt);
     this.schedule();
     this.updateFires(dt);
@@ -303,6 +306,8 @@ export class Life {
     for (const c of pop.citizens.values()) if (c.state !== 'home') this.teleportHome(c);
     for (const w of [...this.c.walkers.list]) if (!w.leaving) this.c.walkers.dismiss(w);
     this.porters.clear();
+    this.crews.clear();
+    this.busyBuilders.clear();
     this.cleanupSpots();
     terrain.regrow();
     this.rained.clear();
@@ -672,6 +677,7 @@ export class Life {
     c.activity = c.job === b.id ? 'At work' : c.school === b.id ? 'At school' : 'Visiting';
     if (work === 'woodcutter') this.woodcutterLoop(c, b);
     else if (work === 'farmer') this.farmLoop(c, b);
+    else if (work === 'builder') this.builderLoop(c, b);
     else if (c.walker) { this.c.walkers.dismiss(c.walker); c.walker = undefined; }
   }
 
@@ -800,6 +806,73 @@ export class Life {
           else this.walk(c, buildings.door(drop), buildings.frontTile(drop), hut, () => { if (c.walker) c.walker.leaving = false; this.woodcutterLoop(c, hut); });
         }, 'log');
       }, treeCenter);
+    }, 'none', stand);
+  }
+
+  /**
+   * Construction speed of one site: slow on its own, much faster while builders from a construction company work on it.
+   */
+  buildSpeed(b: Building) {
+    const crew = this.crews.get(b.id);
+    let n = 0;
+    if (crew) for (const id of crew) if (this.c.pop.citizens.get(id)?.activity === 'Building') n++;
+    return 0.5 + 0.6 * Math.min(4, n);
+  }
+
+  crewSize(b: Building) {
+    let n = 0;
+    for (const id of this.crews.get(b.id) ?? []) if (this.c.pop.citizens.get(id)?.activity === 'Building') n++;
+    return n;
+  }
+
+  /** Builders waiting at the yard pick up the next site. */
+  private dispatchBuilders() {
+    const { pop, buildings } = this.c;
+    for (const c of pop.citizens.values()) {
+      if (c.job < 0 || c.state !== 'away' || c.at !== c.job || this.busyBuilders.has(c.id) || c.walker) continue;
+      const yard = buildings.get(c.job);
+      if (yard?.kind === 'construction' && buildings.list.some((b) => b.built < 1 && b.city === yard.city)) this.builderLoop(c, yard);
+    }
+  }
+
+  /** A builder walks from the yard to the least-crewed unfinished building of the city and works there. */
+  private builderLoop(c: Citizen, yard: Building) {
+    const { buildings, walkers, eco, effects } = this.c;
+    const atWork = () => this.alive(c) && c.state === 'away' && c.at === yard.id && !yard.removed && eco.timeOfDay < c.returnAt;
+    const leave = (site?: Building) => { if (site) this.crews.get(site.id)?.delete(c.id); };
+    if (!atWork()) { this.busyBuilders.delete(c.id); return; }
+    const sites = buildings.list.filter((b) => b.built < 1 && b.city === yard.city && !b.removed);
+    if (!sites.length) {
+      this.busyBuilders.delete(c.id);
+      c.activity = 'Waiting for a new order';
+      if (c.walker && !c.walker.leaving) {
+        this.walk(c, { x: c.walker.x, z: c.walker.z }, tileAt(c.walker), yard, () => { if (c.walker) { walkers.dismiss(c.walker); c.walker = undefined; } c.activity = 'At work'; });
+      }
+      return;
+    }
+    const from = c.walker && !c.walker.leaving ? { x: c.walker.x, z: c.walker.z } : buildings.door(yard);
+    const site = sites.sort((a, b) => (this.crewSize(a) - this.crewSize(b)) * 20 + dist(a, yard) - dist(b, yard))[0];
+    this.busyBuilders.add(c.id);
+    if (!this.crews.has(site.id)) this.crews.set(site.id, new Set());
+    this.crews.get(site.id)!.add(c.id);
+    const half = BUILDINGS[site.kind].size / 2 + 0.18;
+    const ang = Math.random() * Math.PI * 2;
+    const center = { x: site.mesh.position.x, z: site.mesh.position.z };
+    const stand = { x: center.x + Math.cos(ang) * half, z: center.z + Math.sin(ang) * half };
+    c.activity = 'Walking to a construction site';
+    const fromTile = c.walker && !c.walker.leaving ? tileAt(from) : buildings.frontTile(yard);
+    this.walk(c, from, fromTile, null, () => {
+      const w = c.walker;
+      if (!w || !atWork() || site.removed) { leave(site); this.busyBuilders.delete(c.id); return; }
+      const work = () => {
+        const ww = c.walker;
+        if (!ww || !atWork() || site.removed) { leave(site); this.busyBuilders.delete(c.id); return; }
+        if (site.built >= 1) { leave(site); this.builderLoop(c, yard); return; }
+        c.activity = 'Building';
+        if (Math.random() < 0.35) effects.puff(stand.x, stand.z, 0.15, 3, ['#d8c9a6', '#bdb7aa']);
+        walkers.holdFor(ww, 1.6, 'chop', work, center);
+      };
+      work();
     }, 'none', stand);
   }
 

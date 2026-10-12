@@ -5,7 +5,7 @@ export type BuildingKind =
 
 
 /** How a building's workers behave while at work. */
-export type WorkStyle = 'indoor' | 'woodcutter' | 'farmer';
+export type WorkStyle = 'indoor' | 'woodcutter' | 'farmer' | 'builder';
 
 /** Parking slot in local model space: x, z, rotation. Models face +z (towards the road). */
 export type Slot = [number, number, number];
@@ -82,7 +82,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   gasstation: def({ kind: 'gasstation', name: 'Gas Station', size: 1, money: 600, stone: 10, wood: 5, jobs: 2, salary: 11, energy: 2, revenue: 60 }),
   factory: def({ kind: 'factory', name: 'Factory', size: 3, money: 2500, stone: 60, wood: 30, jobs: 14, salary: 16, energy: 8, revenue: 280 }),
   carfactory: def({ kind: 'carfactory', name: 'Car Factory', size: 3, money: 4500, stone: 90, wood: 40, jobs: 18, salary: 20, energy: 12, revenue: 450 }),
-  construction: def({ kind: 'construction', name: 'Construction Company', size: 2, money: 700, stone: 15, wood: 20, jobs: 6, salary: 14, energy: 2, revenue: 90 }),
+  construction: def({ kind: 'construction', name: 'Construction Company', size: 2, money: 700, stone: 15, wood: 20, jobs: 6, salary: 14, energy: 2, revenue: 90, work: 'builder' }),
 };
 
 /** Construction time as a fraction of a day, by building size (before builders speed it up). */
