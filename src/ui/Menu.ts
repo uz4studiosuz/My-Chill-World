@@ -1,6 +1,7 @@
 import { SaveStore, WorldMeta } from '../save/SaveStore';
 import { el, icon, IconName } from './dom';
 import { Lang, getLang, setLang, t } from '../i18n/i18n';
+import { sound } from '../audio/Sound';
 
 export interface MenuHandlers {
   newWorld: (name: string, seed: number) => void;
@@ -75,6 +76,7 @@ export class Menu {
       button('Save', (b) => { this.h.save(); b.querySelector('.mtxt b')!.textContent = t('Saved ✓'); }, '', undefined, 'save'),
       button('Gallery', () => this.h.openGallery('pause'), '', undefined, 'gallery'),
       button('Main Menu', () => this.h.exitToMenu(), '', undefined, 'home'),
+      this.audioRow(),
       this.languagePicker(() => this.showPause()),
     ]);
   }
@@ -105,6 +107,22 @@ export class Menu {
       }
     }, 'small');
     row.append(thumb, info, play, del);
+    return row;
+  }
+
+  private audioRow() {
+    const row = el('div', 'langs');
+    const mk = (label: string, on: () => boolean, set: (v: boolean) => void) => {
+      const b = el('button', `chipbtn${on() ? ' active' : ''}`);
+      const paint = () => { b.textContent = `${t(label)}: ${on() ? t('On') : t('Off')}`; b.classList.toggle('active', on()); };
+      paint();
+      b.addEventListener('click', () => { set(!on()); paint(); });
+      return b;
+    };
+    row.append(
+      mk('Sound', () => sound.sfxOn, (v) => sound.setSfx(v)),
+      mk('Music', () => sound.musicOn, (v) => sound.setMusic(v)),
+    );
     return row;
   }
 

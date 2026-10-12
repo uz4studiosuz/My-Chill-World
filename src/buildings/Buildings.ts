@@ -6,7 +6,7 @@ import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
-  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
+  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, fireStationGeometry, busDepotGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
   carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
@@ -57,6 +57,8 @@ export interface Building {
   /** Family that owns this business (-1 = owned by the city). */
   owner: number;
   scaffold?: THREE.LineSegments;
+  /** A fire truck is already on its way. */
+  fireCrew?: boolean;
   /** Cemetery: buried records. */
   graves?: GraveRecord[];
   gravesGroup?: THREE.Group;
@@ -103,6 +105,8 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'cemetery': return cemeteryGeometry();
     case 'park': return parkGeometry();
     case 'police': return policeGeometry();
+    case 'firestation': return fireStationGeometry();
+    case 'busdepot': return busDepotGeometry();
     case 'grocery': return groceryGeometry();
     case 'clothes': return clothesGeometry();
     case 'hospital': return hospitalGeometry();
@@ -234,6 +238,14 @@ export class Buildings {
     b.level = level;
     const old = b.mesh.getObjectByName('levelDeco') as THREE.Mesh | undefined;
     if (old) { b.mesh.remove(old); old.geometry.dispose(); }
+    if (b.kind === 'house') {
+      const variant = hash2(b.x, b.z) % 16;
+      const key = `house:${variant}:${level}`;
+      let g = this.geoCache.get(key);
+      if (!g) { g = houseGeometry(variant, level); this.geoCache.set(key, g); }
+      (b.mesh.children[0] as THREE.Mesh).geometry = g;
+      return;
+    }
     if (b.kind !== 'cemetery' || level < 2) return;
     const parts = [
       box(0.2, 0.06, 0.2, 0, 0.05, -0.2, '#9a968f'),

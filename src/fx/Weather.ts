@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { box, merge } from '../utils/voxel';
 import type { Season } from '../sim/Calendar';
+import { sound } from '../audio/Sound';
 
 interface RainArea { x: number; z: number; r: number; t: number }
 interface Drop { x: number; y: number; z: number; v: number; area: number }
@@ -34,6 +35,8 @@ export class Weather {
   /** 0..1 sky flash after a lightning strike. */
   flash = 0;
   private naturalOn = false;
+  /** Days of drought left (no rain, poor harvest). */
+  drought = 0;
 
   constructor() {
     this.dropMesh = this.make(new THREE.BoxGeometry(0.012, 0.22, 0.012), new THREE.MeshBasicMaterial({ color: '#b8d6f0', transparent: true, opacity: 0.6, depthWrite: false }), DROPS);
@@ -54,7 +57,8 @@ export class Weather {
   /** Roll the natural weather for a new day. */
   newDay(season: Season) {
     const r = Math.random();
-    const chance = season === 'summer' ? 0.15 : season === 'winter' ? 0.45 : 0.35;
+    if (this.drought > 0) this.drought--;
+    const chance = this.drought > 0 ? 0 : season === 'summer' ? 0.15 : season === 'winter' ? 0.45 : 0.35;
     this.kind = r < chance ? (season === 'winter' ? 'snow' : 'rain') : 'clear';
     this.from = 0.1 + Math.random() * 0.5;
     this.to = this.from + 0.15 + Math.random() * 0.3;
@@ -94,6 +98,7 @@ export class Weather {
     this.group.add(mesh);
     this.bolts.push({ mesh, t: 0.35 });
     this.flash = 1;
+    sound.play('thunder');
 
   }
 

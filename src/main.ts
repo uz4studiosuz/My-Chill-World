@@ -8,8 +8,9 @@ import { Gallery } from './gallery/Gallery';
 import { SaveStore } from './save/SaveStore';
 import { renderThumbnails } from './models/catalog';
 import { getLang, setLang, t } from './i18n/i18n';
+import { sound } from './audio/Sound';
 
-const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry', 'townhall', 'grocery', 'clothes', 'police', 'park', 'hospital', 'university', 'market', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'cemetery'];
+const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry', 'townhall', 'grocery', 'clothes', 'police', 'firestation', 'busdepot', 'park', 'hospital', 'university', 'market', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'cemetery'];
 
 async function boot() {
   setLang(getLang());
@@ -20,8 +21,12 @@ async function boot() {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_TOUCH || devicePixelRatio < 2, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
   window.addEventListener('contextmenu', (e) => e.preventDefault());
+  window.addEventListener('pointerdown', () => sound.unlock(), true);
+  window.addEventListener('keydown', () => sound.unlock(), true);
+  document.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest?.('button')) sound.play('click'); }, true);
+  document.addEventListener('visibilitychange', () => sound.suspend(document.hidden));
 
   // Build-panel pictures are rendered once from the real 3D models
   let thumbs = new Map<string, string>();
@@ -108,8 +113,24 @@ async function boot() {
   openMainMenu();
 
   const clock = new THREE.Clock();
+  // automatic quality: if the device can't keep ~40 fps, drop shadows and render resolution
+  let fpsTime = 0, fpsFrames = 0, lowQuality = false;
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.1);
+    if (!lowQuality && game && !game.demo) {
+      fpsTime += dt;
+      fpsFrames++;
+      if (fpsTime > 5) {
+        if (fpsFrames / fpsTime < 40) {
+          lowQuality = true;
+          renderer.setPixelRatio(1);
+          game.setLowQuality();
+          resize();
+        }
+        fpsTime = 0;
+        fpsFrames = 0;
+      }
+    }
     if (gallery.visible) {
       gallery.update();
       renderer.render(gallery.scene, gallery.camera);

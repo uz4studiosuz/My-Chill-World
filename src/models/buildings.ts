@@ -7,16 +7,23 @@ const WALLS = ['#efe6d2', '#dbe5ec', '#f1dcc6', '#e8e0f0'];
 const ROOFS = ['#c4553d', '#3f6fb5', '#6d4c3d', '#4f7d4a'];
 const GLASS = '#a8d0e6';
 
-export function houseGeometry(variant: number): THREE.BufferGeometry {
+export function houseGeometry(variant: number, floors = 1): THREE.BufferGeometry {
   const wall = WALLS[variant % 4], roof = ROOFS[(variant >> 2) % 4];
+  const up = (floors - 1) * 0.34;
+  const extra: THREE.BufferGeometry[] = [];
+  for (let f = 1; f < floors; f++) {
+    const y = 0.26 + f * 0.34;
+    extra.push(box(0.12, 0.1, 0.02, -0.19, y, 0.205, GLASS), box(0.12, 0.1, 0.02, 0.19, y, 0.205, GLASS), box(0.64, 0.025, 0.54, 0, 0.42 + (f - 1) * 0.34, -0.06, '#cfc8b6'));
+  }
   return merge([
+    ...extra,
     box(0.22, 0.02, 0.32, 0.2, 0.01, 0.34, '#bdb7aa'),
     box(0.1, 0.015, 0.3, -0.12, 0.008, 0.35, '#cfc8b6'),
-    box(0.62, 0.42, 0.52, 0, 0.21, -0.06, wall),
-    box(0.72, 0.1, 0.62, 0, 0.47, -0.06, roof),
-    box(0.56, 0.1, 0.46, 0, 0.57, -0.06, roof),
-    box(0.36, 0.08, 0.28, 0, 0.66, -0.06, roof),
-    box(0.08, 0.18, 0.08, 0.18, 0.68, -0.14, '#8a7d70'),
+    box(0.62, 0.42 + up, 0.52, 0, (0.42 + up) / 2, -0.06, wall),
+    box(0.72, 0.1, 0.62, 0, 0.47 + up, -0.06, roof),
+    box(0.56, 0.1, 0.46, 0, 0.57 + up, -0.06, roof),
+    box(0.36, 0.08, 0.28, 0, 0.66 + up, -0.06, roof),
+    box(0.08, 0.18, 0.08, 0.18, 0.68 + up, -0.14, '#8a7d70'),
     box(0.12, 0.2, 0.02, 0, 0.1, 0.205, '#6b4a2e'),
     box(0.12, 0.1, 0.02, -0.19, 0.26, 0.205, GLASS),
     box(0.12, 0.1, 0.02, 0.19, 0.26, 0.205, GLASS),
@@ -382,6 +389,33 @@ export function groceryGeometry(): THREE.BufferGeometry {
 
 export function clothesGeometry(): THREE.BufferGeometry {
   return shopGeometry('#efe2ef', '#b0478f', ['#3a6fd1', '#d9568f']);
+}
+
+export function fireStationGeometry(): THREE.BufferGeometry {
+  return merge([
+    box(0.98, 0.02, 0.98, 0, 0.01, 0, '#9aa0a6'),
+    box(0.8, 0.5, 0.6, 0, 0.26, -0.12, '#c4553d'),
+    box(0.86, 0.07, 0.66, 0, 0.54, -0.12, '#6d3a2e'),
+    box(0.3, 0.3, 0.02, -0.18, 0.16, 0.19, '#e8e3d6'),
+    box(0.3, 0.3, 0.02, 0.18, 0.16, 0.19, '#e8e3d6'),
+    box(0.16, 0.7, 0.16, 0.32, 0.6, -0.32, '#a6463a'),
+    box(0.2, 0.06, 0.2, 0.32, 0.97, -0.32, '#6d3a2e'),
+    box(0.1, 0.1, 0.02, 0, 0.44, 0.19, '#f2c230'),
+    box(0.22, 0.1, 0.36, -0.18, 0.08, 0.36, '#d9443b'),
+  ]);
+}
+
+export function busDepotGeometry(): THREE.BufferGeometry {
+  const parts = [
+    box(1.9, 0.02, 1.9, 0, 0.01, 0, '#8d8f93'),
+    box(1.6, 0.5, 0.8, 0, 0.26, -0.5, '#dfe3e8'),
+    box(1.7, 0.06, 0.9, 0, 0.54, -0.5, '#3a6fd1'),
+    box(1.5, 0.04, 0.6, 0, 0.5, 0.35, '#3a6fd1'),
+    box(0.04, 0.48, 0.04, -0.7, 0.24, 0.6, '#cfd6dc'),
+    box(0.04, 0.48, 0.04, 0.7, 0.24, 0.6, '#cfd6dc'),
+  ];
+  for (const x of [-0.45, 0.45]) parts.push(box(0.26, 0.2, 0.7, x, 0.12, 0.25, '#f1c232'), box(0.24, 0.07, 0.6, x, 0.18, 0.25, '#a8d0e6'));
+  return merge(parts);
 }
 
 export function policeGeometry(): THREE.BufferGeometry {

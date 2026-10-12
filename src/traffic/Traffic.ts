@@ -3,10 +3,10 @@ import { DIRS, N, oppositeBit, tileToWorld, worldToTile } from '../world/grid';
 import { RoadNetwork, ROAD_RING } from '../roads/RoadNetwork';
 import { RING_RADIUS } from '../roads/RoadMesh';
 import { findPath } from './Pathfinder';
-import { carGeometry, cargoGeometry, truckGeometry } from '../models/vehicles';
+import { busGeometry, carGeometry, cargoGeometry, truckGeometry } from '../models/vehicles';
 import { trafficLampGeometry, trafficPoleGeometry } from '../models/buildings';
 
-export type VehicleKind = 'car' | 'truck';
+export type VehicleKind = 'car' | 'truck' | 'bus';
 export interface Point { x: number; z: number }
 
 export interface Trip {
@@ -57,6 +57,7 @@ const SPEED_FACTOR: Record<number, number> = { 1: 1, 2: 1, 3: 0.6 };
 const ROAD_Y = 0.03;
 const MAX_CARS = 220;
 const MAX_TRUCKS = 60;
+const MAX_BUSES = 40;
 const MAX_PARKED = 400;
 const APPEAR_SPEED = 3;
 const RING_TRIM = 0.35;
@@ -83,6 +84,7 @@ export class Traffic {
   private carMesh: THREE.InstancedMesh;
   private truckMesh: THREE.InstancedMesh;
   private cargoMesh: THREE.InstancedMesh;
+  private busMesh: THREE.InstancedMesh;
   private poleMesh: THREE.InstancedMesh;
   private lampMesh: THREE.InstancedMesh;
   private lamps: { tile: number; travelBit: number }[] = [];
@@ -98,6 +100,7 @@ export class Traffic {
     this.carMesh.setColorAt(0, new THREE.Color('#ffffff'));
     this.truckMesh = this.makeMesh(truckGeometry(), vc, MAX_TRUCKS);
     this.cargoMesh = this.makeMesh(cargoGeometry(), vc, MAX_TRUCKS);
+    this.busMesh = this.makeMesh(busGeometry(), vc, MAX_BUSES);
     this.poleMesh = this.makeMesh(trafficPoleGeometry(), vc, 1024);
     this.lampMesh = this.makeMesh(trafficLampGeometry(), new THREE.MeshBasicMaterial(), 1024);
     this.lampMesh.setColorAt(0, RED);
@@ -132,7 +135,7 @@ export class Traffic {
   }
 
   spawn(trip: Trip): boolean {
-    if (this.count(trip.kind) >= (trip.kind === 'car' ? MAX_CARS : MAX_TRUCKS)) return false;
+    if (this.count(trip.kind) >= (trip.kind === 'car' ? MAX_CARS : trip.kind === 'bus' ? MAX_BUSES : MAX_TRUCKS)) return false;
     const tiles = findPath(this.net, trip.from, trip.to);
     if (!tiles || tiles.length < 2) return false;
     const r = this.buildRoute(tiles, trip.fromPos, trip.toPos);
@@ -140,8 +143,8 @@ export class Traffic {
     const v: Vehicle = {
       id: this.nextId++, trip, color: trip.color ?? new THREE.Color('#ffffff'),
       ...r, seg: 0, tiles, ti: 0, held: [], s: 0, speed: 0,
-      maxSpeed: (truck ? 2.3 : 3.2) * (0.9 + Math.random() * 0.2),
-      halfLen: truck ? 0.23 : 0.16,
+      maxSpeed: (truck ? 2.3 : trip.kind === 'bus' ? 2.6 : 3.2) * (0.9 + Math.random() * 0.2),
+      halfLen: truck ? 0.23 : trip.kind === 'bus' ? 0.27 : 0.16,
       x: r.pts[0], z: r.pts[1], hx: 0, hz: 1, stuck: 0, scale: 0, leaving: false,
     };
     this.place(v);
@@ -417,14 +420,16 @@ export class Traffic {
   }
 
   private render() {
-    let nc = 0, nt = 0, ng = 0;
+    let nc = 0, nt = 0, ng = 0, nb = 0;
     for (const v of this.vehicles) {
       const s = easeOut(Math.max(0, v.scale));
       this.q.setFromAxisAngle(this.up, Math.atan2(v.hx, v.hz));
       this.p.set(v.x, ROAD_Y, v.z);
       this.sc.set(s, s, s);
       this.m.compose(this.p, this.q, this.sc);
-      if (v.trip.kind === 'car') {
+      if (v.trip.kind === 'bus') {
+        this.busMesh.setMatrixAt(nb++, this.m);
+      } else if (v.trip.kind === 'car') {
         this.carMesh.setMatrixAt(nc, this.m);
         this.carMesh.setColorAt(nc, v.color);
         nc++;
@@ -446,6 +451,8 @@ export class Traffic {
     this.carMesh.count = nc;
     this.truckMesh.count = nt;
     this.cargoMesh.count = ng;
+    this.busMesh.count = nb;
+    this.busMesh.instanceMatrix.needsUpdate = true;
     this.carMesh.instanceMatrix.needsUpdate = true;
     if (this.carMesh.instanceColor) this.carMesh.instanceColor.needsUpdate = true;
     this.truckMesh.instanceMatrix.needsUpdate = true;

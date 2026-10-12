@@ -1,5 +1,5 @@
 import { DAYS_PER_YEAR } from '../config';
-import { BUILDINGS } from '../buildings/BuildingTypes';
+import { BUILDINGS, JOB_PRIORITY } from '../buildings/BuildingTypes';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { Walker } from './Walkers';
 import { clanName, firstName } from './names';
@@ -76,6 +76,8 @@ export interface DailyOptions {
   carMarket: boolean;
   /** 0..1 — how much policing reduces fights and murders. */
   safety: number;
+  /** Income tax rate. */
+  taxRate: number;
 }
 
 export interface DayReport {
@@ -102,7 +104,6 @@ export const CAR_COLORS = ['#d9443b', '#3a6fd1', '#f2f2ee', '#f1c232', '#4c9a52'
 
 const CAR_PRICE = 700;
 const CAR_UPKEEP = 2;
-const INCOME_TAX = 0.25;
 const PROPERTY_TAX = 4;
 const FOOD_PRICE = 1;
 const RETIRE_AGE = 65;
@@ -222,7 +223,7 @@ export class Population {
         const b = buildings.get(id)!;
         if (kind && b.kind !== kind) continue;
         if (from && b.city !== from.city) continue;
-        const d = from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0;
+        const d = (from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0) + (kind ? 0 : (JOB_PRIORITY[b.kind] ?? 5) * 200);
         if (d < bd) { bd = d; best = id; }
       }
       return best;
@@ -279,7 +280,7 @@ export class Population {
   }
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
-  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, shops: { market: false, grocery: false, clothes: false }, carMarket: false, safety: 0 }): DayReport {
+  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, shops: { market: false, grocery: false, clothes: false }, carMarket: false, safety: 0, taxRate: 0.25 }): DayReport {
     const r: DayReport = { spent: { market: 0, grocery: 0, clothes: 0 }, utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
@@ -297,8 +298,8 @@ export class Population {
         const b = buildings.get(c.job);
         const gross = this.wage(c, b);
         if (b && BUILDINGS[b.kind].publicJob) r.publicWages += gross;
-        r.incomeTax += gross * INCOME_TAX;
-        earned += gross * (1 - INCOME_TAX);
+        r.incomeTax += gross * opts.taxRate;
+        earned += gross * (1 - opts.taxRate);
       }
       // evening meal: everyone who gets food is full again, the family pays for it
       for (const c of people) {
@@ -310,8 +311,9 @@ export class Population {
           c.hunger = 100;
         }
       }
-      earned -= PROPERTY_TAX;
-      r.propertyTax += PROPERTY_TAX;
+      const propTax = PROPERTY_TAX * (buildings.get(f.home)?.level ?? 1);
+      earned -= propTax;
+      r.propertyTax += propTax;
       // utilities (power, water) and, where there is a market, everyday shopping
       const bills = people.length * UTILITY_PER_PERSON;
       earned -= bills;

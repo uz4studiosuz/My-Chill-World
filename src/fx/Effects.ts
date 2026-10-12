@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Tile, tileToWorld } from '../world/grid';
+import { carGeometry } from '../models/vehicles';
 
 interface Particle {
   x: number; y: number; z: number;
@@ -26,6 +27,8 @@ export class Effects {
   private q = new THREE.Quaternion();
   private p = new THREE.Vector3();
   private s = new THREE.Vector3();
+  private wrecks: { group: THREE.Group; t: number; x: number; z: number }[] = [];
+  private carGeo = carGeometry();
 
   constructor() {
     this.cubes = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial(), MAX);
@@ -101,7 +104,34 @@ export class Effects {
     if (this.parts.length < MAX * 2) this.parts.push(p);
   }
 
+  /** Two crashed cars with smoke, cleared after a while. */
+  wreck(x: number, z: number) {
+    const g = new THREE.Group();
+    const colors = ['#d9443b', '#3a6fd1', '#f2f2ee', '#4c9a52'];
+    for (let i = 0; i < 2; i++) {
+      const m = new THREE.Mesh(this.carGeo, new THREE.MeshLambertMaterial({ vertexColors: true, color: colors[Math.floor(Math.random() * colors.length)] }));
+      m.position.set(x + (i ? 0.14 : -0.1), 0.03, z + (i ? -0.06 : 0.08));
+      m.rotation.y = Math.random() * Math.PI * 2;
+      m.rotation.z = i ? 0.12 : -0.08;
+      m.castShadow = true;
+      g.add(m);
+    }
+    this.group.add(g);
+    this.wrecks.push({ group: g, t: 30, x, z });
+    this.puff(x, z, 0.25, 10, ['#6b6b6b', '#3a3a3a', '#d8d2c4']);
+  }
+
   update(dt: number) {
+    for (let i = this.wrecks.length - 1; i >= 0; i--) {
+      const w = this.wrecks[i];
+      w.t -= dt;
+      if (Math.random() < dt * 3) this.smoke(w.x, 0.15, w.z);
+      if (w.t <= 0) {
+        this.group.remove(w.group);
+        w.group.traverse((o) => { const m = o as THREE.Mesh; if (m.material) (m.material as THREE.Material).dispose(); });
+        this.wrecks.splice(i, 1);
+      }
+    }
     let nc = 0, ns = 0;
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const p = this.parts[i];

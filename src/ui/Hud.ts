@@ -4,6 +4,7 @@ import { BUILDINGS, BuildingKind } from '../buildings/BuildingTypes';
 import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
+import { sound } from '../audio/Sound';
 
 type Category = 'roads' | 'buildings' | 'services' | 'business' | 'production';
 
@@ -38,6 +39,8 @@ const ITEMS: ToolItem[] = [
   b('cemetery', 'buildings', '16 graves', 'Resting place for deceased citizens. Families buy graves. Can be upgraded.', 'cemetery'),
   b('school', 'services', '40 pupils', 'Children aged 6–17 study here. Educated adults earn 50% more.', 'school'),
   b('university', 'services', '30 students', 'Young adults with a school diploma study for 4 years and become specialists with a degree.', 'school'),
+  b('firestation', 'services', 'Firefighters', 'Fire trucks drive to burning buildings nearby and put the fire out.', 'energy'),
+  b('busdepot', 'services', 'Public transport', 'People without a car ride the bus on longer trips. Makes the city happier.', 'car'),
   b('police', 'services', 'Safety', 'Officers cut down fights, accidents and murders in the city.', 'jobs'),
   b('hospital', 'services', 'Heals people', 'Doctors and nurses treat the sick. Reduces deaths from illness, fights and accidents.', 'heart'),
   b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one.', 'heart'),
@@ -85,7 +88,7 @@ export interface HudStats {
   money: number; daily: number; stone: number; wood: number; food: number; foodDaily: number;
   powered: number; water: number; population: number; workers: number; workforce: number;
   dateText: string; seasonIcon: string; timeOfDay: number; broke: boolean;
-  cityName: string; cities: number;
+  cityName: string; cities: number; happiness: number;
 }
 
 export interface HudHandlers {
@@ -95,6 +98,8 @@ export interface HudHandlers {
   setSpeed: (s: number) => void;
   openMenu: () => void;
   openStats: () => void;
+  openGoals: () => void;
+  toggleSound: () => boolean;
   cycleCity: () => void;
   confirmBuild: () => void;
   cancelBuild: () => void;
@@ -132,7 +137,8 @@ export class Hud {
     this.root = el('div', 'hud');
 
     const top = el('div', 'topbar');
-    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats));
+    const soundBtn = this.iconButton(sound.sfxOn ? 'sound' : 'mute', t('Sound'), () => { soundBtn.innerHTML = icon(h.toggleSound() ? 'sound' : 'mute'); });
+    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats), this.iconButton('trophy', t('Goals'), h.openGoals), soundBtn);
     const chips = el('div', 'chips');
     for (const [key, ic, title] of [
       ['city', 'buildings', 'City you are building for (click to switch)'],
@@ -143,6 +149,7 @@ export class Hud {
       ['energy', 'energy', 'Energy supplied'],
       ['water', 'water', 'Drinking water supplied'],
       ['pop', 'people', 'Population'],
+      ['happy', 'heart', 'Happiness'],
       ['jobs', 'jobs', 'Employed / workforce'],
       ['day', 'calendar', 'Date and time'],
     ] as const) {
@@ -345,6 +352,8 @@ export class Hud {
     this.chip.food.classList.toggle('warn', s.food < s.population * 2);
     this.chip.wood.classList.toggle('warn', s.wood < 15);
     this.stat.pop.textContent = fmt(s.population);
+    this.stat.happy.textContent = `${Math.round(s.happiness)}%`;
+    this.chip.happy.classList.toggle('warn', s.happiness < 45);
     this.stat.jobs.textContent = `${s.workers}/${s.workforce}`;
     const mins = Math.floor(s.timeOfDay * 24 * 60);
     this.stat.day.textContent = `${s.seasonIcon} ${s.dateText} · ${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;

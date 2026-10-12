@@ -27,10 +27,14 @@ export interface City {
   brokeDays: number;
   /** Money owed to the bank. */
   loan: number;
+  /** 0..100 — how content the citizens are. */
+  happiness: number;
+  /** Income tax rate 0.10..0.40 (business tax is 80% of it). */
+  taxRate: number;
 }
 
 export interface CitySave {
-  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; brokeDays: number; loan?: number;
+  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number;
 }
 
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
@@ -45,7 +49,7 @@ const blankBalance = (): Balance => ({ incomeTax: 0, foodSales: 0, propertyTax: 
 function blankCity(id: number, name: string, founded: number, g: Grant = { money: 0, stone: 0, wood: 0, food: 0 }): City {
   return {
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
-    foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0,
+    foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25,
   };
 }
 
@@ -136,7 +140,7 @@ export class Economy {
     return {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
-        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, brokeDays: c.brokeDays, loan: c.loan,
+        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate,
       })),
     };
   }
@@ -149,6 +153,8 @@ export class Economy {
       const city = blankCity(c.id, c.name, c.founded, { money: c.money, stone: c.stone, wood: c.wood, food: c.food });
       city.brokeDays = c.brokeDays;
       city.loan = c.loan ?? 0;
+      city.happiness = c.happiness ?? 65;
+      city.taxRate = c.taxRate ?? 0.25;
       this.cities.set(c.id, city);
       this.nextCity = Math.max(this.nextCity, c.id + 1);
     }
