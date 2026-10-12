@@ -81,6 +81,8 @@ export interface DailyOptions {
   safety: number;
   /** Income tax rate. */
   taxRate: number;
+  /** Calm mode: no crime and no accidents. */
+  calm?: boolean;
 }
 
 export interface DayReport {
@@ -125,6 +127,8 @@ export class Population {
   readonly citizens = new Map<number, Citizen>();
   readonly families = new Map<number, Family>();
   private nextCitizen = 1;
+  /** Job priority of a workplace: lower is filled first (the game can override it per city). */
+  priority: (b: Building) => number = (b) => JOB_PRIORITY[b.kind] ?? 5;
   private nextFamily = 1;
 
   get size() { return this.citizens.size; }
@@ -207,6 +211,7 @@ export class Population {
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
     const pupil = (c: Citizen) => c.age >= 6 && c.age < ADULT_AGE;
+    const toddler = (c: Citizen) => c.age >= 3 && c.age < 6;
     const student = (c: Citizen) => c.age >= ADULT_AGE && c.age < UNI_END && c.edu >= 0.9 && c.skill < 2;
     for (const c of this.citizens.values()) {
       const hb = homeOf(c);
@@ -214,7 +219,7 @@ export class Population {
       if (c.school >= 0 && hb && buildings.get(c.school)?.city !== hb.city) c.school = -1;
       if (c.school >= 0) {
         const kind = buildings.get(c.school)?.kind;
-        const ok = seats.has(c.school) && seats.get(c.school)! > 0 && ((kind === 'school' && pupil(c)) || (kind === 'university' && student(c)));
+        const ok = seats.has(c.school) && seats.get(c.school)! > 0 && ((kind === 'school' && pupil(c)) || (kind === 'kindergarten' && toddler(c)) || (kind === 'university' && student(c)));
         if (!ok) c.school = -1;
         else seats.set(c.school, seats.get(c.school)! - 1);
       }
@@ -228,14 +233,14 @@ export class Population {
         const b = buildings.get(id)!;
         if (kind && b.kind !== kind) continue;
         if (from && b.city !== from.city) continue;
-        const d = (from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0) + (kind ? 0 : (JOB_PRIORITY[b.kind] ?? 5) * 200);
+        const d = (from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0) + (kind ? 0 : this.priority(b) * 200);
         if (d < bd) { bd = d; best = id; }
       }
       return best;
     };
     for (const c of this.citizens.values()) {
-      if (c.school < 0 && (pupil(c) || student(c))) {
-        const id = nearest(seats, homeOf(c), pupil(c) ? 'school' : 'university');
+      if (c.school < 0 && (pupil(c) || toddler(c) || student(c))) {
+        const id = nearest(seats, homeOf(c), toddler(c) ? 'kindergarten' : pupil(c) ? 'school' : 'university');
         if (id >= 0) { c.school = id; seats.set(id, seats.get(id)! - 1); }
       }
       if (c.job < 0 && this.canWork(c)) {
@@ -244,7 +249,7 @@ export class Population {
       }
     }
     // essential jobs (water, food, energy, materials) never stay empty while people sit in ordinary jobs
-    const prio = (id: number) => { const b = buildings.get(id); return b ? (JOB_PRIORITY[b.kind] ?? 5) : 9; };
+    const prio = (id: number) => { const b = buildings.get(id); return b ? this.priority(b) : 9; };
     for (const [id, n] of free) {
       if (n <= 0 || prio(id) > 2) continue;
       const target = buildings.get(id)!;
@@ -392,7 +397,7 @@ export class Population {
       const cf = this.families.get(c.family);
       return !!cf && belongs(cf) && c.age >= 16;
     });
-    if (adults.length >= 8) {
+    if (adults.length >= 8 && !opts.calm) {
       const n = adults.length;
       const cars = [...this.families.values()].filter((f) => belongs(f) && f.car).length;
       const two = (): [Citizen, Citizen] | null => {

@@ -6,7 +6,7 @@ import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
-  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, apartmentGeometry, cemeteryExtGeometry, GRAVE_OFFSETS, ironMineGeometry, fisheryGeometry, fireStationGeometry, busDepotGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
+  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, kindergartenGeometry, hotelGeometry, windTurbineGeometry, rotorGeometry, solarFarmGeometry, trainStationGeometry, apartmentGeometry, cemeteryExtGeometry, GRAVE_OFFSETS, ironMineGeometry, fisheryGeometry, fireStationGeometry, busDepotGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
   carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
@@ -111,6 +111,11 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'park': return parkGeometry();
     case 'police': return policeGeometry();
     case 'apartment': return apartmentGeometry();
+    case 'kindergarten': return kindergartenGeometry();
+    case 'hotel': return hotelGeometry();
+    case 'windturbine': return windTurbineGeometry();
+    case 'solarfarm': return solarFarmGeometry();
+    case 'trainstation': return trainStationGeometry();
     case 'cemeteryext': return cemeteryExtGeometry();
     case 'ironmine': return ironMineGeometry();
     case 'fishery': return fisheryGeometry();
@@ -141,6 +146,7 @@ export class Buildings {
   private mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private cropGeo = cropGeometry();
   private headstoneGeo = headstoneGeometry();
+  private rotorGeo = rotorGeometry();
   private cowGeo = cowGeometry();
   private cowMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private animTime = 0;
@@ -214,6 +220,12 @@ export class Buildings {
       const gGroup = new THREE.Group();
       b.gravesGroup = gGroup;
       mesh.add(gGroup);
+    }
+    if (kind === 'windturbine') {
+      const rotor = new THREE.Mesh(this.rotorGeo, this.mat);
+      rotor.position.set(0, 1.62, 0.14);
+      rotor.name = 'rotor';
+      mesh.add(rotor);
     }
     if (kind === 'ranch') {
       b.cattleCount = 4;
@@ -323,6 +335,7 @@ export class Buildings {
           b.scaffold.scale.set(1 / xz, 1 / sy, 1 / xz);
         }
       }
+      if (b.kind === 'windturbine' && b.built >= 1) { const r = b.mesh.getObjectByName('rotor'); if (r) r.rotation.z += dt * (simDt > 0 ? 3 : 0.5); }
       if (b.kind === 'ranch' && b.cattleMeshes) {
         const count = b.cattleCount ?? 4;
         for (let i = 0; i < b.cattleMeshes.length; i++) {

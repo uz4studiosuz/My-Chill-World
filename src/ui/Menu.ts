@@ -3,9 +3,10 @@ import { el, icon, IconName } from './dom';
 import { Lang, getLang, setLang, t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
 import { VERSION } from '../version';
+import { Newspaper } from './Newspaper';
 
 export interface MenuHandlers {
-  newWorld: (name: string, seed: number) => void;
+  newWorld: (name: string, seed: number, calm: boolean) => void;
   loadWorld: (id: string) => void;
   resume: () => void;
   save: () => void;
@@ -39,6 +40,7 @@ export class Menu {
         worlds.length ? button('Continue', () => this.h.loadWorld(worlds[0].id), 'primary', worlds[0].name, 'play') : null,
         button('New World', () => this.showNew(), worlds.length ? '' : 'primary', undefined, 'plus'),
         worlds.length ? button('Load World', () => this.showLoad(), '', undefined, 'folder') : null,
+        worlds.length ? button('Records', () => this.showRecords(), '', 'Your best cities', 'trophy') : null,
         button('Gallery', () => this.h.openGallery('main'), '', 'Inspect every model in 3D', 'gallery'),
         this.languagePicker(() => this.showMain()),
         footer(),
@@ -52,12 +54,21 @@ export class Menu {
     const name = input('World name', t('My World {n}', { n }), 24);
     const seed = input('Seed (optional)', '', 10);
     seed.inputMode = 'numeric';
+    let calm = false;
+    const calmBtn = el('button', 'chipbtn calm-toggle');
+    const paintCalm = () => { calmBtn.textContent = `${t('Calm mode')}: ${calm ? t('On') : t('Off')}`; calmBtn.classList.toggle('active', calm); };
+    paintCalm();
+    calmBtn.addEventListener('click', () => { calm = !calm; paintCalm(); });
+    const calmNote = el('small', 'calm-note');
+    calmNote.textContent = t('No disasters, crime or bankruptcy — just build and watch.');
     this.render('New World', 'Every seed makes a different landscape.', [
       name.parentElement!,
       seed.parentElement!,
+      calmBtn,
+      calmNote,
       button('Create', () => {
         const s = parseInt(seed.value, 10);
-        this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9));
+        this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9), calm);
       }, 'primary', undefined, 'check'),
       button('Back', () => this.showMain(), '', undefined, 'undo'),
     ]);
@@ -69,6 +80,26 @@ export class Menu {
     const list = el('div', 'worlds');
     for (const w of worlds) list.appendChild(this.worldRow(w));
     this.render('Your Worlds', '', [list, button('Back', () => this.showMain(), '', undefined, 'undo')]);
+  }
+
+  /** Local records: every saved world ranked by its city score. */
+  showRecords() {
+    const worlds = SaveStore.list().sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const list = el('div', 'worlds');
+    worlds.forEach((w, i) => {
+      const row = el('div', 'world');
+      const rank = el('div', 'world-thumb');
+      rank.textContent = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
+      const info = el('div', 'world-info');
+      const name = el('b', '');
+      name.textContent = `${w.name}${w.calm ? ` · ${t('Calm mode')}` : ''}`;
+      const meta = el('small', '');
+      meta.textContent = `${t('Score')} ${(w.score ?? 0).toLocaleString('en-US')} · ${t('{n} people', { n: w.population })} · ${t('Day {n}', { n: w.day })}`;
+      info.append(name, meta);
+      row.append(rank, info);
+      list.appendChild(row);
+    });
+    this.render('Records', 'Your cities ranked by score: people, happiness, wealth, buildings and goals.', [list, button('Back', () => this.showMain(), '', undefined, 'undo')]);
   }
 
   showPause() {
@@ -123,6 +154,7 @@ export class Menu {
     row.append(
       mk('Sound', () => sound.sfxOn, (v) => sound.setSfx(v)),
       mk('Nature', () => sound.natureOn, (v) => sound.setNature(v)),
+      mk('Newspaper', () => Newspaper.enabled, (v) => { Newspaper.enabled = v; }),
     );
     return row;
   }

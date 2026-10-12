@@ -846,3 +846,35 @@ button.chip:hover { background: var(--raised); }
 .stats-body, .goals-body, .guide-body { min-height: 0; padding-bottom: 28px; }
 .stats, .goals { overflow: hidden; }
 .inspector { padding-bottom: 18px; }
+
+/* labour market */
+.job-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.job-row:first-of-type { border-top: 0; }
+.job-name { font-weight: 700; }
+.job-fill { font-family: var(--font-display); font-weight: 500; }
+.job-fill.neg { color: var(--bad); }
+.job-fill.pos { color: var(--good); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.segbtn { border: 0; background: var(--raised); color: var(--muted); font-family: var(--font-display); font-size: 11px; padding: 4px 7px; cursor: pointer; }
+.segbtn + .segbtn { border-left: 1px solid var(--line); }
+.segbtn.active { background: var(--accent); color: var(--on-accent); }
+
+/* newspaper */
+.news { position: absolute; top: calc(var(--safe-top) + 92px); left: 50%; transform: translateX(-50%); width: min(460px, calc(100vw - 20px)); display: none; flex-direction: column; gap: 8px;
+  background: #f3efe4; color: #23201a; border: 1px solid #d6cfbd; border-radius: 12px; padding: 12px 14px; pointer-events: auto; z-index: 6; }
+.news.show { display: flex; }
+.news-head { display: flex; align-items: center; gap: 8px; border-bottom: 2px solid #23201a; padding-bottom: 6px; }
+.news-head svg { width: 18px; height: 18px; }
+.news-head b { font-family: Georgia, 'Times New Roman', serif; font-size: 18px; }
+.news-head span { margin-left: auto; font-size: 11px; font-weight: 700; color: #6b6459; }
+.news-head .info-x { color: #6b6459; }
+.news-headline { font-family: Georgia, 'Times New Roman', serif; font-size: 16px; font-weight: 700; line-height: 1.3; }
+.news-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.45; color: #3b362d; }
+.news-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-size: 12px; border-top: 1px solid #d6cfbd; padding-top: 6px; }
+.news-facts i { display: block; font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #7a7266; }
+.news-facts .pos { color: #2f8f50; }
+.news-facts .neg { color: #c63a31; }
+
+/* calm mode toggle */
+.calm-toggle { align-self: flex-start; }
+.calm-note { color: var(--muted); font-size: 12px; margin-top: -4px; }

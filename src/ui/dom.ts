@@ -69,6 +69,8 @@ const ICONS = {
   r_jobs: '<rect x=\"3\" y=\"7\" width=\"18\" height=\"13\" rx=\"2\" fill=\"currentColor\" stroke=\"none\"/><path d=\"M9 7V4.5h6V7\" stroke-width=\"2\"/>',
   list: '<path d=\"M8 6h13M8 12h13M8 18h13\"/><circle cx=\"4\" cy=\"6\" r=\"1\"/><circle cx=\"4\" cy=\"12\" r=\"1\"/><circle cx=\"4\" cy=\"18\" r=\"1\"/>',
   book: '<path d=\"M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2z\"/><path d=\"M4 19V5M8 7h7M8 11h7\"/>',
+  rail: '<path d="M7 3L5 21M17 3l2 18M6 7h12M5.5 12h13M5 17h14"/>',
+  news: '<path d="M4 5h13v14H6a2 2 0 01-2-2zM17 9h3v8a2 2 0 01-2 2"/><path d="M7 9h7M7 12h7M7 15h4"/>',
   trophy: '<path d="M8 4h8v5a4 4 0 01-8 0zM8 6H5a3 3 0 003 4M16 6h3a3 3 0 01-3 4M12 13v4M8 21h8M9 17h6"/>',
   sound: '<path d="M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 010 6M18.5 6.5a8 8 0 010 11"/>',
   mute: '<path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/>',

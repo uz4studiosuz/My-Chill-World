@@ -19,6 +19,9 @@ export interface WorldMeta {
   money: number;
   updated: number;
   v?: number;
+  /** City score for the records table. */
+  score?: number;
+  calm?: boolean;
 }
 
 export interface WorldSave {
@@ -41,6 +44,8 @@ export interface WorldSave {
   goals?: GoalsSave;
   log?: { day: number; text: string }[];
   lit?: number[];
+  rails?: number[];
+  calm?: boolean;
 }
 
 /** Multiple worlds: a small index + one key per world. */

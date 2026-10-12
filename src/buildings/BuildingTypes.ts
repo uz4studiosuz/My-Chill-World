@@ -1,7 +1,7 @@
 export type BuildingKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower'
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
-  | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
+  | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
 
 
 /** How a building's workers behave while at work. */
@@ -77,6 +77,11 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   clothes: def({ kind: 'clothes', name: 'Clothing Store', size: 1, money: 600, stone: 8, wood: 10, jobs: 3, salary: 12, energy: 2 }),
   firestation: def({ kind: 'firestation', name: 'Fire Station', size: 1, money: 900, iron: 5, stone: 20, wood: 10, jobs: 4, salary: 16, publicJob: true, upkeep: 4, energy: 2 }),
   busdepot: def({ kind: 'busdepot', name: 'Bus Depot', size: 2, money: 1600, iron: 10, stone: 30, wood: 10, jobs: 4, salary: 14, publicJob: true, upkeep: 6, energy: 3 }),
+  kindergarten: def({ kind: 'kindergarten', name: 'Kindergarten', size: 1, money: 600, stone: 10, wood: 10, jobs: 3, salary: 13, publicJob: true, upkeep: 3, energy: 2, students: 24 }),
+  hotel: def({ kind: 'hotel', name: 'Hotel', size: 2, money: 2400, stone: 50, wood: 20, iron: 5, jobs: 6, salary: 14, upkeep: 2, energy: 6 }),
+  windturbine: def({ kind: 'windturbine', name: 'Wind Turbine', size: 1, money: 900, stone: 10, iron: 15, jobs: 1, salary: 15, publicJob: true, upkeep: 2, power: 30 }),
+  solarfarm: def({ kind: 'solarfarm', name: 'Solar Farm', size: 2, money: 1400, stone: 10, iron: 20, jobs: 1, salary: 15, publicJob: true, upkeep: 2, power: 45 }),
+  trainstation: def({ kind: 'trainstation', name: 'Train Station', size: 2, money: 1800, stone: 40, wood: 20, iron: 20, jobs: 4, salary: 15, publicJob: true, upkeep: 5, energy: 3 }),
   apartment: def({ kind: 'apartment', name: 'Apartment Block', size: 2, money: 2200, stone: 50, wood: 20, iron: 10, housing: 10, units: 6, upkeep: 2, energy: 8,
     slots: [[-0.75, 0.75, 0], [-0.45, 0.75, 0], [-0.15, 0.75, 0], [0.15, 0.75, 0], [0.45, 0.75, 0], [0.75, 0.75, 0]] }),
   cemeteryext: def({ kind: 'cemeteryext', name: 'Cemetery Extension', size: 2, needsRoad: false, buildable: false }),
@@ -101,6 +106,15 @@ export const BUILD_DAYS: Record<1 | 2 | 3, number> = { 1: 0.06, 2: 0.1, 3: 0.16 
 export const BUSINESS_TAX = 0.2;
 export const CEMETERY_UPGRADE = { money: 500, stone: 25, wood: 10, maxLevel: 3 };
 export const CAR_PRICE = 700;
+/** Plants that burn no wood (the wind blows, the sun shines — solar only by day). */
+export const CLEAN_POWER: Partial<Record<BuildingKind, boolean>> = { windturbine: true, solarfarm: true };
+/** Air pollution sources: strength and reach in tiles. */
+export const POLLUTERS: Partial<Record<BuildingKind, number>> = { factory: 3, carfactory: 4, powerplant: 3, ironmine: 2, quarry: 1.5 };
+export const POLLUTION_RANGE = 8;
+/** Tourists: money each one leaves per day, hotel rooms. */
+export const TOURISM = { spend: 12, rooms: 24 };
+/** Railways: price per tile. */
+export const RAIL_COST = { money: 14, iron: 1 };
 /** Daily rent a family pays for a flat in an apartment block (to the owner or the city). */
 export const RENT = 8;
 /** Extra price per tile for a street with lamps; energy per lamp per day. */

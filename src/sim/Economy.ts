@@ -36,10 +36,24 @@ export interface City {
   mayor: number;
   /** Day of the last election. */
   elected: number;
+  /** Player's job priorities per building kind. */
+  jobPriority: Record<string, 'high' | 'low'>;
+  /** Election campaign under way: candidates and their promises. */
+  campaign?: { day: number; candidates: { id: number; promise: PromiseKind }[] };
+  /** What the mayor promised, and by which day. */
+  promise?: { kind: PromiseKind; until: number; base: number };
+  /** Live figures (not saved). */
+  pollution: number;
+  tourists: number;
+  smart: boolean;
+  railLink: boolean;
 }
+
+export type PromiseKind = 'tax' | 'park' | 'hospital' | 'school' | 'jobs';
 
 export interface CitySave {
   id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
+  jobPriority?: Record<string, 'high' | 'low'>; campaign?: City['campaign']; promise?: City['promise'];
 }
 
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
@@ -55,6 +69,7 @@ function blankCity(id: number, name: string, founded: number, g: Grant = { money
   return {
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
     foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25, mayor: -1, elected: 0,
+    jobPriority: {}, pollution: 0, tourists: 0, smart: false, railLink: false,
   };
 }
 
@@ -151,6 +166,7 @@ export class Economy {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
         id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
+        jobPriority: c.jobPriority, campaign: c.campaign, promise: c.promise,
       })),
     };
   }
@@ -167,6 +183,9 @@ export class Economy {
       city.taxRate = c.taxRate ?? 0.25;
       city.mayor = c.mayor ?? -1;
       city.elected = c.elected ?? 0;
+      city.jobPriority = c.jobPriority ?? {};
+      city.campaign = c.campaign;
+      city.promise = c.promise;
       this.cities.set(c.id, city);
       this.nextCity = Math.max(this.nextCity, c.id + 1);
     }

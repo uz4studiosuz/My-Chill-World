@@ -9,7 +9,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, CARS, LAMP, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -22,12 +22,14 @@ import { Tutorial, TutorialContext } from '../ui/Tutorial';
 import { EventLog, LogEntry } from '../ui/EventLog';
 import { Guide } from '../ui/Guide';
 import { StreetLights } from '../roads/StreetLights';
+import { Railway, Station } from '../rail/Railway';
+import { Newspaper } from '../ui/Newspaper';
 import { Walkers } from '../people/Walkers';
 import { Traffic } from '../traffic/Traffic';
 import { Animals } from '../animals/Animals';
 import { Effects } from '../fx/Effects';
 import { Weather } from '../fx/Weather';
-import { Life } from './Life';
+import { Life, PROMISE_TEXT } from './Life';
 import { CameraRig } from '../camera/CameraRig';
 import { Preview } from '../build/Preview';
 import { BuildTool, CheckResult, LineKind, PlaceKind, ToolHost, ToolId } from '../build/BuildTool';
@@ -42,7 +44,7 @@ export interface GameOptions {
   /** Background world for the main menu: no input, no HUD, no saving. */
   demo?: boolean;
   save?: WorldSave;
-  create?: { name: string; seed: number };
+  create?: { name: string; seed: number; calm?: boolean };
   thumbs?: Map<string, string>;
 }
 
@@ -64,7 +66,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
   parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
   woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
-  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
+  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
 };
@@ -75,7 +77,7 @@ const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
   farm: ['Farmer'], orchard: ['Fruit grower'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
   powerplant: ['Power operator', 'Power engineer'], watertower: ['Water technician'], weddinghall: ['Registrar'], park: ['Gardener'],
-  police: ['Police officer', 'Police chief'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
+  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -116,6 +118,11 @@ export class Game implements ToolHost {
   private guide?: Guide;
   private savedLog: LogEntry[] = [];
   private lights: StreetLights;
+  private railway = new Railway();
+  private news?: Newspaper;
+  private calm = false;
+  private festT = 0;
+  private yesterday = { pop: 0, money: 0 };
   private ambT = 0;
   private nightness = 0;
   private tutorial?: Tutorial;
@@ -177,7 +184,7 @@ export class Game implements ToolHost {
     this.roadMesh = new RoadMesh(this.net, this.map);
     this.canals = new Canals(this.map);
     this.buildings = new Buildings(this.map, this.net, {
-      isBlocked: (k) => this.footpaths.tiles[k] === 1 || this.canals.tiles[k] === 1,
+      isBlocked: (k) => this.footpaths.tiles[k] === 1 || this.canals.tiles[k] === 1 || this.railway.tiles[k] === 1,
       treesNear: (x, z, r) => this.terrain.treesNear(x, z, r),
     });
     this.traffic = new Traffic(this.net);
@@ -219,6 +226,13 @@ export class Game implements ToolHost {
     };
     this.cam = new CameraRig(canvas);
 
+    this.pop.priority = (b) => {
+      const o = this.eco.cities.get(b.city)?.jobPriority[b.kind];
+      return o === 'high' ? 0 : o === 'low' ? 7 : JOB_PRIORITY[b.kind] ?? 5;
+    };
+    this.railway.onArrive = (from, to) => this.trainArrived(from, to);
+    this.calm = !!(opts.save?.calm ?? opts.create?.calm);
+    this.life.calm = this.calm;
     if (opts.save) this.loadSave(opts.save);
     else this.buildStarterTown();
     this.wantTutorial = !!opts.create && Tutorial.wanted();
@@ -226,7 +240,7 @@ export class Game implements ToolHost {
     this.animals = new Animals(this.map, (k) => this.map.isLand(k) && !this.net.type[k] && !this.net.isIsland(k) && this.buildings.occ[k] === -1);
     this.scene.add(
       this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
-      this.walkers.group, this.lights.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker, this.ring, this.beam,
+      this.walkers.group, this.lights.group, this.railway.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker, this.ring, this.beam,
     );
     this.pop.assign(this.buildings);
     this.networkChanged(false);
@@ -275,12 +289,20 @@ export class Game implements ToolHost {
       cancelBuild: () => this.tool?.cancel(),
     }, this.thumbs);
     this.inspector = new Inspector(this.hud.root, () => this.select(null), (id) => this.select({ type: 'person', id }));
-    this.stats = new StatsPanel(this.hud.root, () => this.snapshot());
+    this.stats = new StatsPanel(this.hud.root, () => this.snapshot(), (kind, prio) => {
+      const city = this.eco.city;
+      if (prio === 'normal') delete city.jobPriority[kind];
+      else city.jobPriority[kind] = prio;
+      this.pop.assign(this.buildings);
+      this.stats?.render();
+    });
     this.goalsPanel = new GoalsPanel(this.hud.root, this.goals, () => this.goalContext());
     const keep = this.eventLog?.entries.slice() ?? this.savedLog;
     this.eventLog = new EventLog(this.hud.root, (d) => `${t('Day {n}', { n: d })} · ${t(MONTHS[monthOf(d)]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(d) })}`);
     this.eventLog.load(keep);
     this.guide = new Guide(this.hud.root);
+    this.news?.dispose();
+    this.news = new Newspaper(this.hud.root);
     if (this.wantTutorial && !this.tutorial?.finished) {
       this.tutorial = new Tutorial(this.hud.root, this.tutorialContext(), () => sound.play('complete'));
     }
@@ -319,8 +341,10 @@ export class Game implements ToolHost {
       }
       this.traffic.update(sdt);
       this.walkers.update(sdt);
+      this.railway.update(sdt);
       this.buildings.update(i === 0 ? dt : 0, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)), (b) => this.life.buildSpeed(b));
     }
+    this.festivities(dt);
     this.effects.update(dt);
     this.weather.update(dt, total, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
     this.seasonT -= dt;
@@ -381,6 +405,18 @@ export class Game implements ToolHost {
   // ---------- ToolHost ----------
 
   checkLine(kind: LineKind, path: Tile[]): CheckResult {
+    if (kind === 'rail') {
+      let fresh = 0;
+      for (const tl of path) {
+        const k = idx(tl.x, tl.z);
+        if (this.map.height[k] > 0) return { ok: false, reason: t('Too steep — mountains') };
+        if (this.buildings.occ[k] !== -1 || this.net.isIsland(k)) return { ok: false, reason: t('Something is in the way') };
+        if (!this.railway.tiles[k]) fresh++;
+      }
+      const money = fresh * RAIL_COST.money, iron = fresh * RAIL_COST.iron;
+      if (!this.eco.canAfford(money, 0, 0, iron)) return { ok: false, reason: t('Needs {cost}', { cost: costText(money, 0, 0, iron) }) };
+      return { ok: true, money, iron };
+    }
     if (kind === 'path' || kind === 'canal') {
       const canal = kind === 'canal';
       for (const tl of path) {
@@ -428,6 +464,16 @@ export class Game implements ToolHost {
     if (!r.ok) { sound.play('error'); return this.hud?.toast(r.reason!); }
     sound.play('build');
     const free = path.filter((tl) => !this.net.type[idx(tl.x, tl.z)]);
+    if (kind === 'rail') {
+      this.eco.spend(r.money ?? 0, 0, 0, r.iron ?? 0);
+      this.railway.add(path);
+      this.footpaths.remove(free);
+      this.canals.remove(free);
+      this.terrain.clearTiles(path.map((tl) => idx(tl.x, tl.z)));
+      this.effects.pave(path);
+      this.networkChanged();
+      return;
+    }
     if (kind === 'path' || kind === 'canal') {
       this.eco.spend(r.money ?? 0, 0);
       if (kind === 'path') { this.canals.remove(free); this.footpaths.add(free); }
@@ -546,7 +592,7 @@ export class Game implements ToolHost {
       else targets.add(b);
     }
     if (keptTownHall) this.hud?.toast(t("The Town Hall can't be removed"));
-    const paths = this.footpaths.remove(path) + this.canals.remove(path);
+    const paths = this.footpaths.remove(path) + this.canals.remove(path) + this.railway.remove(path);
     if (!roads.length && !targets.size && !paths) return;
     sound.play('demolish');
     if (roads.length) {
@@ -630,6 +676,14 @@ export class Game implements ToolHost {
       if (best) perCity.set(best.city, (perCity.get(best.city) ?? 0) + LAMP.energy);
     }
     this.life.lampDemand = [...perCity];
+    this.railway.rebuild(this.stations());
+    for (const c of this.eco.cities.values()) c.railLink = false;
+    for (const [a, b] of this.railway.lines) {
+      if (a.city === b.city) continue;
+      const ca = this.eco.cities.get(a.city), cb = this.eco.cities.get(b.city);
+      if (ca) ca.railLink = true;
+      if (cb) cb.railLink = true;
+    }
     this.footpaths.rebuild((k) => this.net.type[k] !== 0);
     this.canals.rebuild();
     this.buildings.refreshAccess();
@@ -642,7 +696,8 @@ export class Game implements ToolHost {
   private onNewDay() {
     this.lastDay = this.eco.day;
     this.goals.newDay([...this.eco.cities.values()].some((c) => c.money < 0));
-    if (this.sandbox) return;
+    this.morningPaper();
+    if (this.sandbox || this.calm) return;
     for (const city of this.eco.cities.values()) {
       city.brokeDays = city.money < 0 ? city.brokeDays + 1 : 0;
       if (city.brokeDays === 3) this.hud?.toast(`${city.name}: ${t('The town treasury is empty! Raise income or cut costs.')}`);
@@ -661,7 +716,12 @@ export class Game implements ToolHost {
     this.smokeT -= dt;
     if (this.smokeT > 0) return;
     this.smokeT = 0.6;
-    for (const b of this.buildings.ofKind('powerplant')) {
+    for (const b of this.buildings.list) {
+      if ((b.kind === 'factory' || b.kind === 'carfactory') && b.workers > 0 && b.built >= 1) {
+        this.effects.smoke(b.mesh.position.x + 0.6, 1.8, b.mesh.position.z - 0.5);
+        continue;
+      }
+      if (b.kind !== 'powerplant') continue;
       if (!b.workers || (this.eco.cities.get(b.city)?.wood ?? 0) <= 0) continue;
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = 0.45, lz = -0.55;
@@ -958,6 +1018,7 @@ export class Game implements ToolHost {
         ...this.buildings.list.filter((x) => x.owner === f.id).map((x) => [t('Owns'), t(BUILDINGS[x.kind].name), 'good'] as [string, string, ('good' | 'bad')?]),
         [t('Power'), b.powered ? t('Yes') : t('No — not connected to a power plant'), b.powered ? 'good' : 'bad'],
         [t('City'), this.cityOf(b).name],
+        [t('Air'), (this.life.pollution.get(b.id) ?? 0) > 1.5 ? t('Smog — people get sick') : t('Clean'), (this.life.pollution.get(b.id) ?? 0) > 1.5 ? 'bad' : 'good'],
         [t('Water'), this.cityOf(b).water >= 0.99 ? t('Clean water') : t('Not enough water!'), this.cityOf(b).water >= 0.99 ? 'good' : 'bad'],
       ],
       listTitle: t('Family members'),
@@ -1135,6 +1196,14 @@ export class Game implements ToolHost {
       cityList: [...this.eco.cities.values()].map((c) => ({ name: c.name, pop: pops.get(c.id) ?? 0, money: c.money, happiness: c.happiness, net: c.balance.net, active: c.id === city.id })),
       services: svc.map(([label, kinds]) => [label, own.filter((b) => kinds.includes(b.kind)).length] as [string, number]),
       businesses: { total: own.filter((b) => BUSINESS_KINDS.includes(b.kind)).length, owned: own.filter((b) => b.owner >= 0).length },
+      labour: [...new Set(own.filter((b) => BUILDINGS[b.kind].jobs && b.built >= 1).map((b) => b.kind))].map((k) => {
+        const list = own.filter((b) => b.kind === k && b.built >= 1);
+        return {
+          kind: k, name: t(BUILDINGS[k].name), workers: list.reduce((a, b) => a + b.workers, 0), jobs: list.reduce((a, b) => a + BUILDINGS[k].jobs, 0),
+          prio: city.jobPriority[k] ?? 'normal',
+        };
+      }).sort((a, b) => b.jobs - b.workers - (a.jobs - a.workers)),
+      unemployed: [...this.pop.citizens.values()].filter((c) => mine(c) && this.pop.canWork(c) && c.job < 0).length,
       cityName: city.name, cities: this.eco.cities.size,
       money: city.money, stone: city.stone, wood: city.wood, food: city.food, foodRate: this.foodBalance() + population,
       energyDemand: city.energyDemand, energyCapacity: city.energyCapacity, powered: city.powered, water: city.water,
@@ -1257,6 +1326,78 @@ export class Game implements ToolHost {
     });
   }
 
+  private stations(): Station[] {
+    return this.buildings.list.filter((b) => b.kind === 'trainstation' && b.built >= 1)
+      .map((b) => ({ id: b.id, x: b.x, z: b.z, size: BUILDINGS.trainstation.size, city: b.city }));
+  }
+
+  /** A train arrives: goods flow from the city that has plenty to the one that lacks, passengers bring cheer. */
+  private trainArrived(from: Station, to: Station) {
+    if (from.city === to.city) return;
+    const a = this.eco.cities.get(from.city), b = this.eco.cities.get(to.city);
+    if (!a || !b) return;
+    const moved: string[] = [];
+    for (const res of ['stone', 'wood', 'food', 'iron'] as const) {
+      const diff = a[res] - b[res];
+      if (diff <= 40) continue;
+      const amount = Math.round(Math.min(30, diff / 4));
+      a[res] -= amount;
+      b[res] += amount;
+      moved.push(`${amount} ${t(res)}`);
+    }
+    a.happiness = Math.min(100, a.happiness + 0.4);
+    b.happiness = Math.min(100, b.happiness + 0.4);
+    if (moved.length && Math.random() < 0.3) this.life.events.push(t('A train brought {goods} from {a} to {b}', { goods: moved.join(', '), a: a.name, b: b.name }));
+  }
+
+  /** Navruz and New Year: confetti by day, fireworks at night over parks and town halls. */
+  private festivities(dt: number) {
+    if (!this.life.festival || this.demo) return;
+    this.festT -= dt;
+    if (this.festT > 0) return;
+    this.festT = this.nightness > 0.5 ? 0.35 : 0.8;
+    const spots = this.buildings.list.filter((b) => b.kind === 'park' || b.kind === 'townhall');
+    if (!spots.length) return;
+    const b = spots[Math.floor(Math.random() * spots.length)];
+    const x = b.mesh.position.x + (Math.random() - 0.5) * 2, z = b.mesh.position.z + (Math.random() - 0.5) * 2;
+    if (this.nightness > 0.5) this.effects.firework(x, z);
+    else this.effects.puff(x, z, 0.6, 10, ['#ff5a5a', '#ffd166', '#7be08f', '#6fb6ff', '#e88cff']);
+  }
+
+  /** Morning paper: yesterday's news, the richest family and the biggest problem. */
+  private morningPaper() {
+    const city = this.eco.city;
+    const pops = this.life.populationByCity();
+    const pop = pops.get(city.id) ?? 0;
+    const yesterday = this.eco.day - 1;
+    const stories = (this.eventLog?.entries ?? []).filter((e) => e.day === yesterday).map((e) => e.text);
+    const fams = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === city.id);
+    const richest = fams.reduce<typeof fams[number] | undefined>((a, f) => (!a || f.money > a.money ? f : a), undefined);
+    const snap = this.snapshot();
+    const problems: string[] = [];
+    if (city.money < 0) problems.push(t('In debt'));
+    if (city.powered < 0.8) problems.push(t('Power shortage'));
+    if (city.water < 0.9) problems.push(t('No water tower'));
+    if (pop && city.food < pop * 2) problems.push(t('Food is low'));
+    if (city.happiness < 45) problems.push(t('people are leaving'));
+    if (city.pollution > 1.5) problems.push(t('Smog'));
+    if (!snap.freeHomes) problems.push(t('No free homes'));
+    const headline = stories.find((s) => /murder|o'ldir|fire|olov|mayor|mer|Navruz|Year|yil|train|poyezd/i.test(s)) ?? stories[0] ?? t('A quiet day in {city}', { city: city.name });
+    this.news?.show({
+      date: this.dateText(), city: city.name, headline, stories: stories.filter((s) => s !== headline),
+      richest: richest ? `${t('{name} family', { name: richest.surname })} · $${Math.round(richest.money).toLocaleString('en-US')}` : '—',
+      problem: problems[0] ?? t('None — the city is doing well'),
+      population: pop, popChange: pop - (this.yesterday.pop || pop), money: city.money, moneyChange: city.money - (this.yesterday.money || city.money),
+    });
+    this.yesterday = { pop, money: city.money };
+  }
+
+  /** Score for the records table. */
+  private score() {
+    const cities = [...this.eco.cities.values()];
+    return Math.round(this.pop.size * 10 + cities.reduce((a, c) => a + c.happiness * 5 + Math.max(0, c.money) / 20, 0) + this.buildings.list.length * 5 + this.goals.done.size * 100);
+  }
+
   /** Weaker devices: no shadows. */
   setLowQuality() {
     this.sun.castShadow = false;
@@ -1298,6 +1439,10 @@ export class Game implements ToolHost {
     const tags: InspectorView['tags'] = [];
     tags.push(city.id === this.eco.active ? { text: t('Building for this city'), tone: 'good' } : { text: t('Select to build for this city'), tone: 'info' });
     if (city.money < 0) tags.push({ text: t('In debt'), tone: 'bad' });
+    if (city.smart) tags.push({ text: t('Smart City'), tone: 'good' });
+    if (city.railLink) tags.push({ text: t('Railway link'), tone: 'good' });
+    if (this.life.festival) tags.push({ text: t(this.life.festival), tone: 'good' });
+    if (this.calm) tags.push({ text: t('Calm mode'), tone: 'info' });
     if (population && !hasTower) tags.push({ text: t('No water tower'), tone: 'bad' });
     if (city.powered < 0.8) tags.push({ text: t('Power shortage'), tone: 'bad' });
     if (population && daysFood < 3) tags.push({ text: t('Food is low'), tone: 'bad' });
@@ -1324,6 +1469,10 @@ export class Game implements ToolHost {
         { label: t('Water supplied'), value: city.water, color: '#4fa3d1' },
       ],
       rows: [
+        ...(city.promise ? [[t('Promise'), `${t(PROMISE_TEXT[city.promise.kind])} · ${t('Day {n}', { n: city.promise.until })}`] as [string, string]] : []),
+        ...(city.campaign ? [[t('Election'), t('Day {n}', { n: city.campaign.day })] as [string, string]] : []),
+        [t('Air pollution'), city.pollution < 0.5 ? t('Clean') : city.pollution < 1.5 ? t('Some smog') : t('Smog'), city.pollution < 0.5 ? 'good' : city.pollution < 1.5 ? undefined : 'bad'],
+        [t('Tourists'), `${city.tourists}`],
         [t('Mayor'), mayor ? `${mayor.name} ${this.pop.families.get(mayor.family)?.surname ?? ''}` : t('No mayor yet')],
         [t('Treasury'), money(city.money), city.money < 0 ? 'bad' : undefined],
         [t('Net yesterday'), signed(bal.net), bal.net >= 0 ? 'good' : 'bad'],
@@ -1513,6 +1662,7 @@ export class Game implements ToolHost {
     }
     this.net.deserialize(s.roads, s.roundabouts);
     if (s.lit) this.lights.setLit(s.lit, true);
+    this.railway.deserialize(s.rails);
     this.footpaths.deserialize(s.footpaths);
     this.canals.deserialize(s.canals);
     this.terrain.clearTiles(s.cleared);
@@ -1547,7 +1697,7 @@ export class Game implements ToolHost {
 
   private toSave(): WorldSave {
     const e = this.eco;
-    this.meta = { ...this.meta, day: e.day, population: this.pop.size, money: Math.floor(e.money) };
+    this.meta = { ...this.meta, day: e.day, population: this.pop.size, money: Math.floor(e.money), score: this.score(), calm: this.calm };
     return {
       v: SAVE_VERSION,
       meta: this.meta,
@@ -1572,6 +1722,8 @@ export class Game implements ToolHost {
       history: this.history.samples,
       goals: this.goals.save(),
       lit: [...this.lights.lit.keys()].filter((k) => this.lights.lit[k]),
+      rails: this.railway.serialize(),
+      calm: this.calm,
       log: (this.eventLog?.entries ?? this.savedLog).slice(-80),
     };
   }

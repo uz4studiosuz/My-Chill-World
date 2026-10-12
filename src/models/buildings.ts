@@ -453,6 +453,78 @@ export function fisheryGeometry(): THREE.BufferGeometry {
   ]);
 }
 
+export function kindergartenGeometry(): THREE.BufferGeometry {
+  return merge([
+    box(0.98, 0.02, 0.98, 0, 0.01, 0, '#9ec46a'),
+    box(0.7, 0.36, 0.5, -0.05, 0.19, -0.18, '#ffe3a8'),
+    box(0.76, 0.06, 0.56, -0.05, 0.4, -0.18, '#e8738f'),
+    box(0.5, 0.06, 0.36, -0.05, 0.46, -0.18, '#e8738f'),
+    box(0.14, 0.22, 0.02, -0.05, 0.11, 0.075, '#3a6fd1'),
+    box(0.12, 0.1, 0.02, -0.28, 0.24, 0.075, '#a8d0e6'),
+    box(0.12, 0.1, 0.02, 0.18, 0.24, 0.075, '#a8d0e6'),
+    box(0.04, 0.24, 0.04, 0.3, 0.12, 0.3, '#f2c230'),
+    box(0.16, 0.03, 0.06, 0.36, 0.16, 0.3, '#d9443b'),
+    box(0.22, 0.04, 0.22, -0.3, 0.03, 0.33, '#e3cf98'),
+  ]);
+}
+
+export function hotelGeometry(): THREE.BufferGeometry {
+  const parts = [
+    box(1.9, 0.02, 1.9, 0, 0.01, 0, '#bdb7aa'),
+    box(1.4, 1.5, 0.8, 0, 0.75, -0.4, '#f1e8da'),
+    box(1.46, 0.08, 0.86, 0, 1.53, -0.4, '#7d4a3a'),
+    box(0.9, 0.1, 0.4, 0, 0.42, 0.2, '#7d4a3a'),
+    box(0.06, 0.4, 0.06, -0.4, 0.2, 0.36, '#d4af37'),
+    box(0.06, 0.4, 0.06, 0.4, 0.2, 0.36, '#d4af37'),
+    box(0.5, 0.1, 0.02, 0, 1.25, 0.005, '#d4af37'),
+    box(0.6, 0.04, 0.5, 0.55, 0.03, 0.55, '#4fa3d1'),
+    box(0.7, 0.03, 0.6, 0.55, 0.02, 0.55, '#e8e3d6'),
+  ];
+  for (let f = 0; f < 4; f++) for (const x of [-0.5, -0.25, 0.25, 0.5]) parts.push(box(0.16, 0.16, 0.02, x, 0.6 + f * 0.24, 0.005, '#a8d0e6'));
+  return merge(parts);
+}
+
+export function windTurbineGeometry(): THREE.BufferGeometry {
+  return merge([
+    box(0.5, 0.06, 0.5, 0, 0.03, 0, '#9aa0a6'),
+    box(0.08, 1.6, 0.08, 0, 0.8, 0, '#f2f4f6'),
+    box(0.16, 0.1, 0.24, 0, 1.62, 0, '#e9edf0'),
+  ]);
+}
+
+/** Rotor of the wind turbine (spins). */
+export function rotorGeometry(): THREE.BufferGeometry {
+  return merge([
+    box(0.06, 0.06, 0.06, 0, 0, 0, '#cfd6dc'),
+    box(0.04, 0.6, 0.02, 0, 0.3, 0, '#f2f4f6'),
+    box(0.04, 0.6, 0.02, 0, 0.3, 0, '#f2f4f6').rotateZ((Math.PI * 2) / 3),
+    box(0.04, 0.6, 0.02, 0, 0.3, 0, '#f2f4f6').rotateZ((Math.PI * 4) / 3),
+  ]);
+}
+
+export function solarFarmGeometry(): THREE.BufferGeometry {
+  const parts = [box(1.9, 0.02, 1.9, 0, 0.01, 0, '#a9b07a')];
+  for (const z of [-0.6, 0, 0.6]) for (const x of [-0.5, 0.5]) {
+    parts.push(box(0.04, 0.14, 0.04, x, 0.07, z, '#6f7880'));
+    parts.push(box(0.8, 0.03, 0.42, x, 0.17, z, '#25406e').rotateX(-0.35).translate(0, 0.02, 0));
+  }
+  return merge(parts);
+}
+
+export function trainStationGeometry(): THREE.BufferGeometry {
+  return merge([
+    box(1.9, 0.02, 1.9, 0, 0.01, 0, '#bdb7aa'),
+    box(1.6, 0.5, 0.7, 0, 0.25, -0.15, '#c98a5a'),
+    box(1.7, 0.08, 0.8, 0, 0.54, -0.15, '#6d4c3d'),
+    box(0.5, 0.35, 0.5, 0, 0.75, -0.15, '#c98a5a'),
+    box(0.56, 0.08, 0.56, 0, 0.96, -0.15, '#6d4c3d'),
+    box(0.2, 0.2, 0.02, 0, 0.78, 0.105, '#f2f4f6'),
+    box(1.8, 0.06, 0.4, 0, 0.06, -0.72, '#9a968f'),
+    box(1.7, 0.04, 0.3, 0, 0.42, -0.72, '#6d4c3d'),
+    box(0.3, 0.3, 0.02, 0, 0.15, 0.205, '#5c3a21'),
+  ]);
+}
+
 export function apartmentGeometry(): THREE.BufferGeometry {
   const wall = '#e9e2d3', trim = '#c9c0ad', roof = '#5d6670';
   const floors = 5, fh = 0.32;

@@ -7,11 +7,11 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, CARS, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, DayReport, Family, Population } from '../people/Population';
-import type { City } from '../sim/Economy';
+import type { City, PromiseKind } from '../sim/Economy';
 import { Carry, Walkers } from '../people/Walkers';
 import { PedGraph, pedPath } from '../people/PedGraph';
 import { Traffic } from '../traffic/Traffic';
@@ -47,6 +47,10 @@ const WORK_FROM = 0.33, WORK_TO = 0.73;
 
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 
+export const PROMISE_TEXT: Record<PromiseKind, string> = {
+  tax: 'promises lower taxes', park: 'promises a new park', hospital: 'promises a hospital', school: 'promises a new school', jobs: 'promises jobs for everyone',
+};
+
 /**
  * Everyday life: schedules, commuting by car or on foot (sidewalks, zebra crossings), work behaviour,
  * production, the power grid, water, needs, fires and the end-of-day settlement.
@@ -58,6 +62,12 @@ export class Life {
   private immigrationT = 0;
   private stormT = 40;
   private porters = new Set<number>();
+  /** Calm mode: no disasters, crime or bankruptcy. */
+  calm = false;
+  /** Festival running today (Navruz, New Year). */
+  festival: string | null = null;
+  /** Air pollution at each home (building id). */
+  pollution = new Map<number, number>();
   private serviceT = 5;
   /** Buses / patrol cars on the road per depot or station. */
   private fleet = new Map<number, number>();
@@ -193,7 +203,7 @@ export class Life {
       id++;
     }
     const live = new Set<number>();
-    for (const p of buildings.ofKind('powerplant')) if (p.access >= 0 && p.workers > 0) live.add(comp[p.access]);
+    for (const p of buildings.list) if (BUILDINGS[p.kind].power && p.built >= 1 && p.access >= 0 && (p.workers > 0 || CLEAN_POWER[p.kind])) live.add(comp[p.access]);
     this.gridIds.clear();
     for (const b of buildings.list) if (b.access >= 0 && live.has(comp[b.access])) this.gridIds.add(b.id);
   }
@@ -203,7 +213,7 @@ export class Life {
   private updateEnergy(dt: number) {
     const { buildings, eco } = this.c;
     const plants: { city: (typeof eco.city); power: number }[] = [];
-    let total = 0;
+    let total = 0, clean = 0;
     for (const city of eco.cities.values()) {
       let demand = 0, capacity = 0;
       for (const b of buildings.list) {
@@ -211,9 +221,16 @@ export class Life {
         const d = BUILDINGS[b.kind];
         if (d.energy && this.gridIds.has(b.id)) demand += d.energy * (b.kind === 'house' ? b.level : 1);
         if (d.power && b.access >= 0) {
-          const p = d.power * Math.min(1, b.workers / d.jobs);
-          capacity += p;
-          if (p > 0) plants.push({ city, power: p });
+          if (CLEAN_POWER[b.kind]) {
+            const sun = b.kind === 'solarfarm' ? (eco.timeOfDay > 0.25 && eco.timeOfDay < 0.78 ? 1 : 0.1) : 0.7 + 0.3 * Math.sin(eco.day * 1.7 + eco.timeOfDay * 9);
+            const p = d.power * Math.max(0.6, Math.min(1, b.workers / d.jobs)) * sun;
+            capacity += p;
+            clean += p;
+          } else {
+            const p = d.power * Math.min(1, b.workers / d.jobs);
+            capacity += p;
+            if (p > 0) plants.push({ city, power: p });
+          }
         }
       }
       city.energyDemand = demand + (this.lampDemand.find(([id]) => id === city.id)?.[1] ?? 0);
@@ -221,7 +238,7 @@ export class Life {
       total += demand;
     }
     total += this.lampDemand.reduce((a, [, n]) => a + n, 0);
-    const available = eco.updateEnergy(dt, total, plants);
+    const available = clean + eco.updateEnergy(dt, Math.max(0, total - clean), plants);
     // essential buildings first; when the plants can't cover everything, the rest goes dark
     const consumers = buildings.list.filter((b) => BUILDINGS[b.kind].energy > 0 && b.built >= 1);
     consumers.sort((a, b) => (POWER_PRIORITY[a.kind] ?? 4) - (POWER_PRIORITY[b.kind] ?? 4));
@@ -274,7 +291,7 @@ export class Life {
       const r = pop.daily(buildings, belongs, portions, city.water, () => this.freeHomes(city.id), hasHall, {
         heal: Math.min(40, heal), carStock: this.carStock(city.id),
         shops: { market: false, grocery: false, clothes: false },
-        taxRate: city.taxRate,
+        taxRate: city.taxRate, calm: this.calm,
         safety: this.policeCover(city.id) * 0.75,
       });
       city.foodYesterday = { made: Math.round(city.foodMade), eaten: r.foodEaten };
@@ -294,7 +311,7 @@ export class Life {
       for (const b of own) {
         const d = BUILDINGS[b.kind];
         let turnover = 0;
-        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'gasstation') {
+        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'gasstation' || b.kind === 'hotel') {
           turnover = b.sales ?? 0;
           b.sales = 0;
         } else if (b.kind === 'carmarket') {
@@ -303,6 +320,7 @@ export class Life {
           turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5);
         }
         if (!turnover) continue;
+        turnover *= (1 + 0.25 * this.skilledShare(b)) * (city.smart ? 1.1 : 1);
         business += turnover * city.taxRate * 0.8;
         const owner = b.owner >= 0 ? pop.families.get(b.owner) : undefined;
         if (owner) {
@@ -354,7 +372,10 @@ export class Life {
         }
       }
       this.entrepreneurs(city.id, say);
+      this.airQuality(city, say);
+      this.tourism(city, own, say);
       this.updateHappiness(city, own, r, belongs, say);
+      this.smartCity(city, belongs, say);
       this.elect(city, belongs, say);
       this.upgradeHouses(city.id, say);
       for (const inc of r.incidents) if (inc.kind === 'accident') this.crash(city.id);
@@ -378,13 +399,16 @@ export class Life {
     this.cleanupSpots();
     terrain.regrow();
     this.rained.clear();
-    const season = seasonOf(monthOf(eco.day));
-    if (season === 'summer' && weather.drought <= 0 && Math.random() < 0.1) {
+    const month = monthOf(eco.day);
+    this.festival = month === 2 ? 'Navruz' : month === 0 ? 'New Year' : null;
+    if (this.festival) this.events.push(t(this.festival === 'Navruz' ? 'Happy Navruz! Festivities in the parks and squares' : 'Happy New Year! Fireworks over the city tonight'));
+    const season = seasonOf(month);
+    if (!this.calm && season === 'summer' && weather.drought <= 0 && Math.random() < 0.1) {
       weather.drought = 3;
       this.events.push(t('Drought! No rain for days and farms give less food'));
     }
     weather.newDay(season);
-    if (season === 'winter' && Math.random() < 0.18) {
+    if (!this.calm && season === 'winter' && Math.random() < 0.18) {
       for (const c of pop.citizens.values()) c.health = Math.max(1, c.health - 8);
       this.events.push(t('A cold snap! People get sick more easily'));
     }
@@ -702,7 +726,7 @@ export class Life {
   /** A thunderstorm now and then strikes on its own during natural rain. */
   private storm() {
     const { weather, buildings, effects } = this.c;
-    if (Math.random() < 0.45) return;
+    if (this.calm || Math.random() < 0.45) return;
     // lightning strikes under a rain cloud — often a tall building attracts it
     const p = weather.wetPoint();
     if (!p) return;
@@ -724,7 +748,7 @@ export class Life {
       b.fire -= dt * (this.c.weather.isWet(b.mesh.position.x, b.mesh.position.z) ? 0.5 : 1);
       if (emit) effects.fire(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.6);
       // flames jump to neighbours
-      if (Math.random() < dt * 0.04) {
+      if (!this.calm && Math.random() < dt * 0.04) {
         const near = buildings.list.filter((o) => o !== b && o.fire <= 0 && o.kind !== 'townhall' && Math.hypot(o.x - b.x, o.z - b.z) < 2.6);
         if (near.length) {
           const o = near[Math.floor(Math.random() * near.length)];
@@ -773,6 +797,9 @@ export class Life {
     const employed = people.filter((c) => c.job >= 0).length;
     const unwell = people.filter((c) => c.hunger < 25 || c.health < 50).length / n;
     let target = 50;
+    if (this.festival) target += 12;
+    if (city.railLink) target += 4;
+    target -= Math.min(15, city.pollution * 4);
     target += Math.min(1, (parks * 80) / n) * 10;
     if (has('grocery') || has('market')) target += 7;
     if (has('clothes')) target += 4;
@@ -809,23 +836,129 @@ export class Life {
   }
 
   /** Every 4 years (or when the mayor is gone) the city elects a mayor — respected, educated adults stand a better chance. */
+  /**
+   * Elections every 4 years: a short campaign where candidates make promises, then the vote.
+   * The winner's promise is checked a year later — kept promises please people, broken ones anger them.
+   */
   private elect(city: City, belongs: (f: Family) => boolean, say: (msg: string) => void) {
-    const { pop, eco } = this.c;
+    const { pop, eco, buildings } = this.c;
     const current = pop.citizens.get(city.mayor);
     const stillHere = current && belongs(pop.families.get(current.family)!);
-    if (stillHere && eco.day - city.elected < DAYS_PER_YEAR * 4) return;
-    const candidates = [...pop.citizens.values()].filter((c) => {
-      const f = pop.families.get(c.family);
-      return !!f && belongs(f) && c.age >= 28 && c.age < 72 && c.health > 40;
-    });
-    if (!candidates.length) { city.mayor = -1; return; }
-    const score = (c: typeof candidates[number]) => c.skill * 3 + c.edu * 2 + Math.min(1, (pop.families.get(c.family)?.money ?? 0) / 3000) + Math.random() * 3;
-    const winner = candidates.reduce((a, b) => (score(b) > score(a) ? b : a));
+    this.checkPromise(city, say);
+    if (stillHere && eco.day - city.elected < DAYS_PER_YEAR * 4 && !city.campaign) return;
+    const nameOf = (id: number) => { const c = pop.citizens.get(id); return c ? `${c.name} ${pop.families.get(c.family)?.surname ?? ''}`.trim() : '?'; };
+    const own = buildings.list.filter((b) => b.city === city.id && b.built >= 1);
+    const count = (k: string) => own.filter((b) => b.kind === k).length;
+    const people = [...pop.citizens.values()].filter((c) => { const f = pop.families.get(c.family); return !!f && belongs(f); });
+    const workforce = people.filter((c) => pop.canWork(c)).length;
+    const jobless = workforce ? people.filter((c) => pop.canWork(c) && c.job < 0).length / workforce : 0;
+    if (!city.campaign) {
+      const candidates = people.filter((c) => c.age >= 28 && c.age < 72 && c.health > 40)
+        .sort((a, b) => b.skill * 3 + b.edu * 2 - (a.skill * 3 + a.edu * 2) + (Math.random() - 0.5) * 4).slice(0, 3);
+      if (!candidates.length) { city.mayor = -1; return; }
+      const pool: PromiseKind[] = ['tax', 'park', 'hospital', 'school', 'jobs'].sort(() => Math.random() - 0.5) as PromiseKind[];
+      city.campaign = { day: eco.day + 2, candidates: candidates.map((c, i) => ({ id: c.id, promise: pool[i] })) };
+      say(t('Election campaign! {list}', { list: city.campaign.candidates.map((c) => `${nameOf(c.id)} — ${t(PROMISE_TEXT[c.promise])}`).join('; ') }));
+      return;
+    }
+    if (eco.day < city.campaign.day) return;
+    const appeal: Record<PromiseKind, number> = {
+      tax: city.taxRate > 0.25 ? 2 : 0.6, park: count('park') ? 0.5 : 2, hospital: count('hospital') ? 0.4 : 2,
+      school: count('school') ? 0.4 : 2, jobs: jobless > 0.1 ? 2 : 0.5,
+    };
+    const alive = city.campaign.candidates.filter((c) => pop.citizens.has(c.id));
+    city.campaign = undefined;
+    if (!alive.length) return;
+    const score = (c: { id: number; promise: PromiseKind }) => {
+      const p = pop.citizens.get(c.id)!;
+      return p.skill + p.edu + appeal[c.promise] * 1.5 + Math.random() * 2;
+    };
+    const winner = alive.reduce((a, b) => (score(b) > score(a) ? b : a));
     const reelected = winner.id === city.mayor;
     city.mayor = winner.id;
     city.elected = eco.day;
-    const name = `${winner.name} ${pop.families.get(winner.family)?.surname ?? ''}`.trim();
-    say(reelected ? t('{name} was re-elected mayor', { name }) : t('{name} is the new mayor', { name }));
+    const base = winner.promise === 'tax' ? city.taxRate : winner.promise === 'jobs' ? jobless : count(winner.promise);
+    city.promise = { kind: winner.promise, until: eco.day + DAYS_PER_YEAR, base };
+    const name = nameOf(winner.id);
+    say(`${reelected ? t('{name} was re-elected mayor', { name }) : t('{name} is the new mayor', { name })} · ${t(PROMISE_TEXT[winner.promise])}`);
+  }
+
+  private checkPromise(city: City, say: (msg: string) => void) {
+    const p = city.promise;
+    const { eco, buildings, pop } = this.c;
+    if (!p || eco.day < p.until) return;
+    city.promise = undefined;
+    const count = (k: string) => buildings.list.filter((b) => b.kind === k && b.city === city.id && b.built >= 1).length;
+    let kept: boolean;
+    if (p.kind === 'tax') kept = city.taxRate <= p.base - 0.04;
+    else if (p.kind === 'jobs') {
+      const people = [...pop.citizens.values()].filter((c) => buildings.get(pop.families.get(c.family)?.home ?? -1)?.city === city.id && pop.canWork(c));
+      kept = !people.length || people.filter((c) => c.job < 0).length / people.length < 0.08;
+    } else kept = count(p.kind) > p.base;
+    city.happiness = Math.max(0, Math.min(100, city.happiness + (kept ? 10 : -15)));
+    say(kept ? t('The mayor kept the promise: {p}. People are pleased', { p: t(PROMISE_TEXT[p.kind]) }) : t('The mayor broke the promise: {p}. People are angry', { p: t(PROMISE_TEXT[p.kind]) }));
+  }
+
+  /** Smoke from factories, mines and power plants makes nearby homes sick. */
+  private airQuality(city: City, say: (msg: string) => void) {
+    const { buildings, pop } = this.c;
+    const sources = buildings.list.filter((b) => POLLUTERS[b.kind] && b.city === city.id && b.built >= 1 && b.workers > 0);
+    const homes = buildings.list.filter((b) => BUILDINGS[b.kind].units && b.city === city.id);
+    let sum = 0, sick = 0;
+    for (const h of homes) {
+      let p = 0;
+      for (const s of sources) {
+        const d = Math.hypot(s.x - h.x, s.z - h.z);
+        if (d < POLLUTION_RANGE) p += POLLUTERS[s.kind]! * (1 - d / POLLUTION_RANGE);
+      }
+      this.pollution.set(h.id, p);
+      sum += p;
+      if (p > 1.5) {
+        for (const f of pop.families.values()) if (f.home === h.id) for (const c of pop.members(f)) { c.health = Math.max(1, c.health - Math.min(12, p * 2.5)); sick++; }
+      }
+    }
+    city.pollution = homes.length ? sum / homes.length : 0;
+    if (sick > 8 && Math.random() < 0.4) say(t('Smog makes people near the factories sick — plant trees, build clean energy or move homes away'));
+  }
+
+  /** Tourists come for nature, water, parks and happy towns; they pay for rooms and shop. */
+  private tourism(city: City, own: Building[], say: (msg: string) => void) {
+    const { terrain, map } = this.c;
+    let total = 0;
+    for (const h of own.filter((b) => b.kind === 'hotel')) {
+      let water = 0;
+      for (let z = h.z - 8; z <= h.z + 8; z += 2) for (let x = h.x - 8; x <= h.x + 8; x += 2) if (inBounds(x, z) && map.water[idx(x, z)]) water++;
+      const nature = Math.min(1, terrain.treesNear(h.x, h.z, 10) / 40) + Math.min(1, water / 12);
+      const parks = Math.min(1, own.filter((b) => b.kind === 'park').length * 0.25);
+      const attract = nature + parks + city.happiness / 100 + (this.festival ? 0.5 : 0) + (city.railLink ? 0.3 : 0);
+      const staff = Math.min(1, h.workers / BUILDINGS.hotel.jobs);
+      const guests = Math.round(TOURISM.rooms * Math.min(1, attract / 3) * staff);
+      h.stored = guests;
+      h.sales = (h.sales ?? 0) + guests * TOURISM.spend;
+      // tourists also shop in town
+      const shops = own.filter((b) => b.workers > 0 && (b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'market'));
+      for (const s of shops) s.sales = (s.sales ?? 0) + (guests * 3) / shops.length;
+      total += guests;
+    }
+    if (total > 0 && city.tourists === 0) say(t('The first tourists arrived in the city!'));
+    city.tourists = total;
+  }
+
+  /** Share of a building's workers with a degree. */
+  private skilledShare(b: Building) {
+    let n = 0, s = 0;
+    for (const c of this.c.pop.citizens.values()) if (c.job === b.id) { n++; if (c.skill === 2) s++; }
+    return n ? s / n : 0;
+  }
+
+  /** A city where a third of the adults hold a degree becomes a "smart city". */
+  private smartCity(city: City, belongs: (f: Family) => boolean, say: (msg: string) => void) {
+    const { pop } = this.c;
+    const adults = [...pop.citizens.values()].filter((c) => { const f = pop.families.get(c.family); return !!f && belongs(f) && c.age >= 22; });
+    const share = adults.length ? adults.filter((c) => c.skill === 2).length / adults.length : 0;
+    const smart = adults.length >= 20 && share >= 0.3;
+    if (smart && !city.smart) say(t('{city} became a Smart City! Businesses earn 10% more', { city: city.name }));
+    city.smart = smart;
   }
 
   /** Rich families add a floor to their house (pays more property tax). */
@@ -939,6 +1072,10 @@ export class Life {
     if (c.errand) {
       const home = buildings.get(this.family(c)?.home ?? -1);
       const shops = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && b.workers > 0 && SHOP_PRICE[b.kind]);
+      if (this.festival) {
+        const parks = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && (b.kind === 'park' || b.kind === 'townhall'));
+        if (parks.length && Math.random() < 0.6) return pick(parks);
+      }
       if (shops.length && Math.random() < 0.6) return pick(shops);
       const spots = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && (b.kind === 'townhall' || b.kind === 'park' || b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'bank' || b.kind === 'orchard' || b.kind === 'parking' || b.kind === 'weddinghall' || b.kind === 'school'));
       return spots.length ? pick(spots) : undefined;
@@ -1109,7 +1246,7 @@ export class Life {
     const range = SHOP_PRICE[b.kind];
     const f = this.family(c);
     if (!range || !f || b.workers <= 0 || f.money < 20) return;
-    const spend = Math.round(range[0] + Math.random() * (range[1] - range[0]));
+    const spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1));
     f.money -= spend;
     b.sales = (b.sales ?? 0) + spend;
     c.activity = 'Shopping';
@@ -1136,6 +1273,7 @@ export class Life {
   /** Buses run their routes; police cars patrol their district. */
   private dispatchServices() {
     const { buildings, net } = this.c;
+    for (const h of buildings.list) if (h.kind === 'hotel' && h.stored > 0 && Math.random() < Math.min(0.8, h.stored / 20)) this.touristStroll(h);
     for (const b of buildings.list) {
       if (b.built < 1 || b.workers <= 0 || b.access < 0) continue;
       if (b.kind !== 'busdepot' && b.kind !== 'police') continue;
@@ -1154,6 +1292,18 @@ export class Life {
       this.fleet.set(b.id, (this.fleet.get(b.id) ?? 0) + 1);
       this.serviceRun(b, b.access, stops, 4 + Math.floor(Math.random() * 3));
     }
+  }
+
+  /** A tourist walks from the hotel to a park, a shop or the town hall and back. */
+  private touristStroll(hotel: Building) {
+    const { buildings, walkers } = this.c;
+    const sights = buildings.list.filter((b) => b.city === hotel.city && b.built >= 1 && dist(b, hotel) < 16 && (b.kind === 'park' || b.kind === 'townhall' || SHOP_PRICE[b.kind]));
+    if (!sights.length) return;
+    const to = pick(sights);
+    const from = buildings.door(hotel), target = buildings.door(to);
+    const path = pedPath(this.graph, this.graph.node(buildings.frontTile(hotel), from), this.graph.node(buildings.frontTile(to), target));
+    if (!path) return;
+    walkers.walk(Math.floor(Math.random() * 8), 1, { points: this.graph.points(path, from, target) }, 'none');
   }
 
   private serviceRun(home: Building, at: number, stops: number[], hops: number): void {

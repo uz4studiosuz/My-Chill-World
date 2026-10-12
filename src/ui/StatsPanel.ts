@@ -4,6 +4,8 @@ import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
 
 export interface StatsSnapshot {
+  labour: { kind: string; name: string; workers: number; jobs: number; prio: 'high' | 'normal' | 'low' }[];
+  unemployed: number;
   cityName: string;
   cities: number;
   happiness: number;
@@ -41,10 +43,11 @@ export interface StatsSnapshot {
   history: Sample[];
 }
 
-type Tab = 'overview' | 'people' | 'economy' | 'cities' | 'traffic' | 'nature';
+type Tab = 'overview' | 'people' | 'jobs' | 'economy' | 'cities' | 'traffic' | 'nature';
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'overview', label: 'Overview', icon: 'stats' },
   { id: 'people', label: 'People', icon: 'people' },
+  { id: 'jobs', label: 'Jobs', icon: 'jobs' },
   { id: 'economy', label: 'Economy', icon: 'coin' },
   { id: 'cities', label: 'Cities', icon: 'buildings' },
   { id: 'traffic', label: 'Traffic', icon: 'roads' },
@@ -62,7 +65,7 @@ export class StatsPanel {
   visible = false;
   private title!: HTMLElement;
 
-  constructor(parent: HTMLElement, private get: () => StatsSnapshot) {
+  constructor(parent: HTMLElement, private get: () => StatsSnapshot, private setPriority: (kind: string, prio: 'high' | 'normal' | 'low') => void = () => {}) {
     this.root = el('div', 'stats');
     const head = el('div', 'stats-head');
     const title = el('b', '');
@@ -184,6 +187,36 @@ export class StatsPanel {
         chart(t('Food & wood'), [{ label: t('Food'), color: C.green, values: series('food') }, { label: t('Wood'), color: C.brown, values: series('wood') }]);
         chart(t('Energy supplied'), [{ label: '%', color: '#ffe066', values: series('energy') }], (n) => `${Math.round(n)}%`);
         chart(t('Iron'), [{ label: t('Iron'), color: C.gray, values: series('iron') }]);
+        break;
+      }
+      case 'jobs': {
+        const open = s.labour.reduce((a, j) => a + Math.max(0, j.jobs - j.workers), 0);
+        this.kpis([
+          [t('Open jobs'), num(open), open ? t('workplaces need people') : t('every job is filled'), open === 0],
+          [t('Unemployed'), num(s.unemployed), s.unemployed ? t('build workplaces') : t('everyone works'), s.unemployed === 0],
+          [t('Workers'), num(p.workers), t('of {a} able · {b} jobs', { a: p.workforce, b: s.labour.reduce((a, j) => a + j.jobs, 0) })],
+        ]);
+        const box = el('div', 'srows');
+        const tt = el('div', 'srows-title');
+        tt.textContent = t('Who gets workers first');
+        box.appendChild(tt);
+        for (const j of s.labour) {
+          const row = el('div', 'job-row');
+          const name = el('span', 'job-name');
+          name.textContent = j.name;
+          const fill = el('span', `job-fill ${j.workers < j.jobs ? 'neg' : 'pos'}`);
+          fill.textContent = `${j.workers}/${j.jobs}`;
+          const seg = el('div', 'seg');
+          for (const [id, label] of [['high', 'High'], ['normal', 'Normal'], ['low', 'Low']] as const) {
+            const b = el('button', `segbtn${j.prio === id ? ' active' : ''}`);
+            b.textContent = t(label);
+            b.addEventListener('click', () => this.setPriority(j.kind, id));
+            seg.appendChild(b);
+          }
+          row.append(name, fill, seg);
+          box.appendChild(row);
+        }
+        this.body.appendChild(box);
         break;
       }
       case 'cities': {

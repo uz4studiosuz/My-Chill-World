@@ -12,6 +12,8 @@ interface Particle {
   flat: boolean;
   /** Smoke: floats up and grows instead of falling. */
   rise?: boolean;
+  /** Firework sparks: unlit, bright colours. */
+  glow?: boolean;
 }
 
 const MAX = 600;
@@ -23,6 +25,7 @@ export class Effects {
   private parts: Particle[] = [];
   private cubes: THREE.InstancedMesh;
   private shines: THREE.InstancedMesh;
+  private sparks: THREE.InstancedMesh;
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private p = new THREE.Vector3();
@@ -35,7 +38,8 @@ export class Effects {
     this.cubes = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial(), MAX);
     const flatGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     this.shines = new THREE.InstancedMesh(flatGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), MAX);
-    for (const m of [this.cubes, this.shines]) {
+    this.sparks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial(), MAX);
+    for (const m of [this.cubes, this.shines, this.sparks]) {
       m.setColorAt(0, new THREE.Color('#ffffff'));
       m.count = 0;
       m.frustumCulled = false;
@@ -105,6 +109,20 @@ export class Effects {
     if (this.parts.length < MAX * 2) this.parts.push(p);
   }
 
+  /** A firework burst high over (x, z). */
+  firework(x: number, z: number) {
+    const palette = ['#ff5a5a', '#ffd166', '#7be08f', '#6fb6ff', '#e88cff', '#ffffff'];
+    const color = new THREE.Color(palette[Math.floor(Math.random() * palette.length)]);
+    const y = 3 + Math.random() * 1.5;
+    for (let i = 0; i < 30; i++) {
+      const a = Math.random() * Math.PI * 2, b = Math.random() * Math.PI - Math.PI / 2, sp = 1.4 + Math.random();
+      this.add({
+        x, y, z, vx: Math.cos(a) * Math.cos(b) * sp, vy: Math.sin(b) * sp + 0.4, vz: Math.sin(a) * Math.cos(b) * sp,
+        life: 0, max: 1 + Math.random() * 0.5, size: 0.07, delay: 0, color: color.clone(), flat: false, glow: true,
+      });
+    }
+  }
+
   /** Two crashed cars with smoke, cleared after a while. */
   wreck(x: number, z: number): number {
     const g = new THREE.Group();
@@ -141,7 +159,7 @@ export class Effects {
         this.wrecks.splice(i, 1);
       }
     }
-    let nc = 0, ns = 0;
+    let nc = 0, ns = 0, ng = 0;
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const p = this.parts[i];
       if (p.delay > 0) { p.delay -= dt; continue; }
@@ -158,9 +176,9 @@ export class Effects {
         this.shines.setMatrixAt(ns, this.m);
         this.shines.setColorAt(ns++, p.color);
       } else {
-        if (nc >= MAX) continue;
+        if (nc >= MAX || ng >= MAX) continue;
         if (!p.rise) {
-          p.vy -= dt * 2.2;
+          p.vy -= dt * (p.glow ? 0.9 : 2.2);
           p.vx *= 0.96; p.vz *= 0.96;
         }
         p.x += p.vx * dt; p.y = Math.max(0.02, p.y + p.vy * dt); p.z += p.vz * dt;
@@ -169,13 +187,19 @@ export class Effects {
         this.p.set(p.x, p.y, p.z);
         this.q.setFromAxisAngle(this.p.clone().set(0, 1, 0), p.life * 4);
         this.m.compose(this.p, this.q, this.s);
-        this.cubes.setMatrixAt(nc, this.m);
-        this.cubes.setColorAt(nc++, p.color);
+        if (p.glow) {
+          this.sparks.setMatrixAt(ng, this.m);
+          this.sparks.setColorAt(ng++, p.color);
+        } else {
+          this.cubes.setMatrixAt(nc, this.m);
+          this.cubes.setColorAt(nc++, p.color);
+        }
       }
     }
     this.cubes.count = nc;
     this.shines.count = ns;
-    for (const m of [this.cubes, this.shines]) {
+    this.sparks.count = ng;
+    for (const m of [this.cubes, this.shines, this.sparks]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
