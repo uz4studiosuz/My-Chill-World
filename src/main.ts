@@ -9,7 +9,7 @@ import { SaveStore } from './save/SaveStore';
 import { renderThumbnails } from './models/catalog';
 import { getLang, setLang, t } from './i18n/i18n';
 
-const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry', 'townhall', 'police', 'park', 'hospital', 'university', 'market', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'cemetery'];
+const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry', 'townhall', 'grocery', 'clothes', 'police', 'park', 'hospital', 'university', 'market', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'cemetery'];
 
 async function boot() {
   setLang(getLang());

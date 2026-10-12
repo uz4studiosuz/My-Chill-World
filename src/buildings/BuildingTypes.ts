@@ -1,7 +1,7 @@
 export type BuildingKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower'
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
-  | 'police' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
+  | 'police' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
 
 
 /** How a building's workers behave while at work. */
@@ -58,7 +58,7 @@ export const PARKING_LOT_SLOTS: Slot[] = [
 export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   townhall: def({ kind: 'townhall', name: 'Town Hall', size: 2, money: 2500, stone: 60, wood: 40, jobs: 8, salary: 16, publicJob: true, energy: 4, slots: [[-0.8, 0.68, 0], [-0.52, 0.68, 0], [0.45, 0.68, 0]] }),
   house: def({ kind: 'house', name: 'House', size: 1, money: 300, stone: 10, wood: 15, housing: 10, energy: 1, slots: [[0.2, 0.35, 0]] }),
-  office: def({ kind: 'office', name: 'Office', size: 2, money: 1500, stone: 40, wood: 10, jobs: 24, salary: 20, upkeep: 4, energy: 6, slots: [[-0.42, 0.72, 0], [-0.06, 0.72, 0], [0.3, 0.72, 0]] }),
+  office: def({ kind: 'office', name: 'Office', size: 2, money: 1500, stone: 40, wood: 10, jobs: 24, salary: 20, upkeep: 4, energy: 6, revenue: 120, slots: [[-0.42, 0.72, 0], [-0.06, 0.72, 0], [0.3, 0.72, 0]] }),
   school: def({ kind: 'school', name: 'School', size: 2, money: 1200, stone: 30, wood: 20, jobs: 4, salary: 16, publicJob: true, upkeep: 6, energy: 3, students: 40, slots: [[0.45, 0.72, 0], [0.78, 0.72, 0]] }),
   weddinghall: def({ kind: 'weddinghall', name: 'Wedding Hall', size: 1, money: 600, stone: 15, wood: 10, jobs: 1, salary: 14, publicJob: true, upkeep: 2, energy: 1 }),
   watertower: def({ kind: 'watertower', name: 'Water Tower', size: 1, money: 500, stone: 20, jobs: 1, salary: 12, publicJob: true, upkeep: 3, energy: 2, water: 160 }),
@@ -70,6 +70,8 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   orchard: def({ kind: 'orchard', name: 'Fruit Orchard', size: 2, money: 300, stone: 5, wood: 5, jobs: 2, salary: 10, food: 30, needsRoad: false, work: 'farmer' }),
   ranch: def({ kind: 'ranch', name: 'Cattle Ranch', size: 3, money: 600, stone: 10, wood: 15, jobs: 2, salary: 11, food: 35, needsRoad: false, work: 'farmer' }),
   cemetery: def({ kind: 'cemetery', name: 'Cemetery', size: 2, money: 400, stone: 20, wood: 10, jobs: 1, salary: 10, publicJob: true, upkeep: 2 }),
+  grocery: def({ kind: 'grocery', name: 'Grocery Store', size: 1, money: 500, stone: 8, wood: 8, jobs: 3, salary: 11, energy: 2 }),
+  clothes: def({ kind: 'clothes', name: 'Clothing Store', size: 1, money: 600, stone: 8, wood: 10, jobs: 3, salary: 12, energy: 2 }),
   police: def({ kind: 'police', name: 'Police Station', size: 1, money: 1200, stone: 20, wood: 10, jobs: 4, salary: 18, publicJob: true, upkeep: 5, energy: 3 }),
   park: def({ kind: 'park', name: 'Park', size: 2, money: 400, wood: 10, jobs: 1, salary: 10, publicJob: true, upkeep: 2, heal: 4 }),
   hospital: def({ kind: 'hospital', name: 'Hospital', size: 2, money: 1800, stone: 30, wood: 20, jobs: 6, salary: 22, publicJob: true, upkeep: 8, energy: 5, heal: 20 }),
@@ -89,6 +91,13 @@ export const BUILD_DAYS: Record<1 | 2 | 3, number> = { 1: 0.06, 2: 0.1, 3: 0.16 
 export const BUSINESS_TAX = 0.2;
 export const CEMETERY_UPGRADE = { money: 500, stone: 25, wood: 10, maxLevel: 3 };
 export const CAR_PRICE = 700;
+/** Shops: what each person spends there per day. */
+export const SHOP_SPEND = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
+export type ShopKind = keyof typeof SHOP_SPEND;
+/** Businesses a family can own: they collect a share of the turnover as profit. */
+export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office'];
+/** Owner's share of the turnover (after the 20% business tax). */
+export const OWNER_SHARE = 0.25;
 /** Bank loans: size of one loan, the most a city may owe, and the daily interest. */
 export const LOAN = { step: 2000, max: 10000, interest: 0.01 };
 

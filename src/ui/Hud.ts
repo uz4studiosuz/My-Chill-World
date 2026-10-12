@@ -41,6 +41,8 @@ const ITEMS: ToolItem[] = [
   b('police', 'services', 'Safety', 'Officers cut down fights, accidents and murders in the city.', 'jobs'),
   b('hospital', 'services', 'Heals people', 'Doctors and nurses treat the sick. Reduces deaths from illness, fights and accidents.', 'heart'),
   b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one.', 'heart'),
+  b('grocery', 'business', 'Food shop', 'Families buy their everyday food here. A family may buy the shop or build one with its savings.', 'food'),
+  b('clothes', 'business', 'Clothes', 'Clothes and shoes: families spend a little every day. Can be owned by a family.', 'people'),
   b('market', 'business', 'Shopping', 'Bazaar: families spend money on food, clothes and goods. The town takes 20% business tax.', 'food'),
   b('carmarket', 'business', 'Sells cars', 'Families buy their cars here once they have saved enough.', 'car'),
   b('bank', 'business', 'Finance', 'Pays business tax to the town and employs skilled people.', 'coin'),

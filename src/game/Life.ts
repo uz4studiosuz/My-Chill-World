@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_TAX, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, BUSINESS_TAX, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, Family, Population } from '../people/Population';
@@ -221,7 +221,8 @@ export class Life {
       const staffed = (kind: string) => own.some((b) => b.kind === kind && b.workers > 0);
       const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0);
       const r = pop.daily(buildings, belongs, city.food, city.water, () => this.freeHomes(city.id), hasHall, {
-        heal: Math.min(40, heal), market: staffed('market'), carMarket: staffed('carmarket'),
+        heal: Math.min(40, heal), carMarket: staffed('carmarket'),
+        shops: { market: staffed('market'), grocery: staffed('grocery'), clothes: staffed('clothes') },
         safety: Math.min(0.75, own.filter((b) => b.kind === 'police').reduce((a, b) => a + 0.45 * Math.min(1, b.workers / BUILDINGS.police.jobs), 0)),
       });
       city.food -= r.foodEaten;
@@ -231,13 +232,28 @@ export class Life {
       const upkeep = Math.round(roadShare + interest + buildings.list.reduce((a, b) => (b.city === city.id ? a + BUILDINGS[b.kind].upkeep : a), 0));
       // business tax: turnover of staffed shops, factories, banks… plus market and car dealer sales
       const cars = [...pop.families.values()].filter((f) => f.car && homeCity(f) === city.id).length;
-      let business = (r.shopping + r.carSales) * BUSINESS_TAX;
+      // each business pays 20% tax on its turnover; a family owner keeps a share as profit
+      const working = (kind: string) => own.filter((b) => b.kind === kind && b.workers > 0);
+      let business = 0;
       for (const b of own) {
         const d = BUILDINGS[b.kind];
-        if (!d.revenue) continue;
-        let turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5);
-        if (b.kind === 'gasstation') turnover += Math.min(150, cars * 3) * (b.workers > 0 ? 1 : 0);
+        let turnover = 0;
+        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes') {
+          turnover = b.workers > 0 ? r.spent[b.kind] / Math.max(1, working(b.kind).length) : 0;
+        } else if (b.kind === 'carmarket') {
+          turnover = b.workers > 0 ? r.carSales / Math.max(1, working('carmarket').length) : 0;
+        } else if (d.revenue) {
+          turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5);
+          if (b.kind === 'gasstation') turnover += Math.min(150, cars * 3) * (b.workers > 0 ? 1 : 0);
+        }
+        if (!turnover) continue;
         business += turnover * BUSINESS_TAX;
+        const owner = b.owner >= 0 ? pop.families.get(b.owner) : undefined;
+        if (owner) {
+          const profit = turnover * (1 - BUSINESS_TAX) * OWNER_SHARE;
+          owner.money += profit;
+          owner.income += Math.round(profit);
+        } else if (b.owner >= 0) b.owner = -1;
       }
       const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax + r.utilities + business - r.publicWages - upkeep);
       city.money += net;
@@ -272,6 +288,7 @@ export class Life {
           say(t('A new calf was born in the ranch!'));
         }
       }
+      this.entrepreneurs(city.id, say);
       for (const inc of r.incidents) {
         if (inc.kind === 'fight') say(t('{a} and {b} got into a fight', { a: inc.a, b: inc.b ?? '' }));
         else if (inc.kind === 'accident') say(t('{a} was hurt in a car accident', { a: inc.a }));
@@ -293,6 +310,61 @@ export class Life {
     pop.assign(buildings);
     this.rebuildGrid();
     pop.planDay();
+  }
+
+  /**
+   * Rich families do business: they buy a city-owned business, or build a new shop when the town lacks one.
+   * The city gets the sale price; the family later earns a share of the turnover.
+   */
+  private entrepreneurs(cityId: number, say: (msg: string) => void) {
+    const { pop, buildings, eco } = this.c;
+    const city = eco.cities.get(cityId);
+    if (!city) return;
+    const families = [...pop.families.values()].filter((f) => buildings.get(f.home)?.city === cityId && f.money > 900)
+      .sort((a, b) => b.money - a.money);
+    if (!families.length) return;
+    const owners = new Set(buildings.list.map((b) => b.owner));
+    const rich = families.filter((f) => !owners.has(f.id));
+    if (!rich.length) return;
+
+    // 1) buy a finished business the city still owns
+    if (Math.random() < 0.35) {
+      const forSale = buildings.list.filter((b) => b.city === cityId && b.built >= 1 && b.owner < 0 && BUSINESS_KINDS.includes(b.kind));
+      for (const b of forSale) {
+        const price = Math.round(BUILDINGS[b.kind].money * 1.2);
+        const buyer = rich.find((f) => f.money > price + 400);
+        if (!buyer) continue;
+        buyer.money -= price;
+        city.money += price;
+        b.owner = buyer.id;
+        say(t('The {family} family bought the {name} for ${price}', { family: buyer.surname, name: t(BUILDINGS[b.kind].name), price }));
+        return;
+      }
+    }
+
+    // 2) build a new grocery / clothing store when there are too few for the people
+    if (Math.random() > 0.3) return;
+    const people = this.populationByCity().get(cityId) ?? 0;
+    const count = (kind: string) => buildings.list.filter((b) => b.city === cityId && b.kind === kind).length;
+    const kind = count('grocery') < Math.floor(people / 50) + 1 ? 'grocery' : count('clothes') < Math.floor(people / 80) + 1 ? 'clothes' : null;
+    if (!kind) return;
+    const cost = BUILDINGS[kind].money * 1.5;
+    const builder = rich.find((f) => f.money > cost + 400);
+    const home = builder && buildings.get(builder.home);
+    if (!builder || !home) return;
+    for (let r = 1; r <= 6; r++) {
+      for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const x = home.x + dx, z = home.z + dz;
+        if (!buildings.check(kind, x, z).ok) continue;
+        builder.money -= cost;
+        const b = buildings.place(kind, x, z, { city: cityId, owner: builder.id });
+        this.c.terrain.clearTiles(buildings.footprint(kind, x, z).map((tl) => tl.z * N + tl.x));
+        this.rebuildGrid();
+        say(t('The {family} family is building a {name}', { family: builder.surname, name: t(BUILDINGS[b.kind].name) }));
+        return;
+      }
+    }
   }
 
   private cleanupSpots() {
@@ -536,7 +608,7 @@ export class Life {
     if (c.school >= 0) return buildings.get(c.school);
     if (c.errand) {
       const home = buildings.get(this.family(c)?.home ?? -1);
-      const spots = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && (b.kind === 'townhall' || b.kind === 'park' || b.kind === 'market' || b.kind === 'bank' || b.kind === 'orchard' || b.kind === 'parking' || b.kind === 'weddinghall' || b.kind === 'school'));
+      const spots = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && (b.kind === 'townhall' || b.kind === 'park' || b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'bank' || b.kind === 'orchard' || b.kind === 'parking' || b.kind === 'weddinghall' || b.kind === 'school'));
       return spots.length ? pick(spots) : undefined;
     }
     return undefined;

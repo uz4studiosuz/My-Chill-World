@@ -71,8 +71,8 @@ export interface Incident { kind: 'fight' | 'accident' | 'murder'; a: string; b?
 export interface DailyOptions {
   /** Extra daily health recovery from hospitals and parks. */
   heal: number;
-  /** The city has a working market / car dealer. */
-  market: boolean;
+  /** Working shops in the city (staffed). */
+  shops: Record<'market' | 'grocery' | 'clothes', boolean>;
   carMarket: boolean;
   /** 0..1 — how much policing reduces fights and murders. */
   safety: number;
@@ -81,6 +81,8 @@ export interface DailyOptions {
 export interface DayReport {
   utilities: number;
   shopping: number;
+  /** Money spent in each kind of shop. */
+  spent: Record<'market' | 'grocery' | 'clothes', number>;
   carSales: number;
   incidents: Incident[];
   incomeTax: number;
@@ -107,7 +109,7 @@ const RETIRE_AGE = 65;
 const ADULT_AGE = 18;
 const UNI_END = 22;
 const UTILITY_PER_PERSON = 1.5;
-const SHOP_PER_PERSON = 0.6;
+const SHOP_PER_PERSON = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 const PER_YEAR = 1 / DAYS_PER_YEAR;
 
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
@@ -277,8 +279,8 @@ export class Population {
   }
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
-  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, market: false, carMarket: false, safety: 0 }): DayReport {
-    const r: DayReport = { utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
+  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, shops: { market: false, grocery: false, clothes: false }, carMarket: false, safety: 0 }): DayReport {
+    const r: DayReport = { spent: { market: 0, grocery: 0, clothes: 0 }, utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
       const f = this.families.get(c.family);
@@ -314,10 +316,12 @@ export class Population {
       const bills = people.length * UTILITY_PER_PERSON;
       earned -= bills;
       r.utilities += bills;
-      if (opts.market) {
-        const spend = Math.min(Math.max(0, f.money + earned), people.length * SHOP_PER_PERSON);
+      for (const kind of ['grocery', 'clothes', 'market'] as const) {
+        if (!opts.shops[kind]) continue;
+        const spend = Math.min(Math.max(0, f.money + earned), people.length * SHOP_PER_PERSON[kind]);
         earned -= spend;
         r.shopping += spend;
+        r.spent[kind] += spend;
       }
       if (f.car) earned -= CAR_UPKEEP;
       f.money += earned;

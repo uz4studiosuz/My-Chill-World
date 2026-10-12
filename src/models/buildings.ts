@@ -361,6 +361,29 @@ const tree = (x: number, z: number, s = 1): THREE.BufferGeometry[] => [
   box(0.2 * s, 0.2 * s, 0.2 * s, x, 0.55 * s, z, '#6faa45'),
 ];
 
+function shopGeometry(wall: string, awning: string, goods: string[]): THREE.BufferGeometry {
+  const parts = [
+    box(0.98, 0.02, 0.98, 0, 0.01, 0, '#bdb7aa'),
+    box(0.8, 0.5, 0.6, 0, 0.26, -0.12, wall),
+    box(0.86, 0.06, 0.66, 0, 0.54, -0.12, '#6d6a62'),
+    box(0.84, 0.03, 0.26, 0, 0.42, 0.3, awning),
+    box(0.84, 0.06, 0.02, 0, 0.39, 0.43, awning),
+    box(0.62, 0.24, 0.02, 0, 0.2, 0.19, '#a8d0e6'),
+    box(0.16, 0.3, 0.02, 0.3, 0.15, 0.19, '#5c3a21'),
+    box(0.6, 0.1, 0.02, 0, 0.47, 0.19, '#f4f1ea'),
+  ];
+  goods.forEach((c, i) => parts.push(box(0.12, 0.08, 0.12, -0.3 + i * 0.15, 0.05, 0.36, c)));
+  return merge(parts);
+}
+
+export function groceryGeometry(): THREE.BufferGeometry {
+  return shopGeometry('#f1e4c4', '#4c9a52', ['#e85a3a', '#f1c232', '#7cc24a']);
+}
+
+export function clothesGeometry(): THREE.BufferGeometry {
+  return shopGeometry('#efe2ef', '#b0478f', ['#3a6fd1', '#d9568f']);
+}
+
 export function policeGeometry(): THREE.BufferGeometry {
   return merge([
     box(0.98, 0.02, 0.98, 0, 0.01, 0, '#9aa0a6'),

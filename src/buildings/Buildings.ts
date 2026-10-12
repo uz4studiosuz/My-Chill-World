@@ -6,7 +6,7 @@ import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
-  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
+  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
   carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
@@ -54,6 +54,8 @@ export interface Building {
   built: number;
   /** Cemetery level: each level holds one more row of graves. */
   level: number;
+  /** Family that owns this business (-1 = owned by the city). */
+  owner: number;
   scaffold?: THREE.LineSegments;
   /** Cemetery: buried records. */
   graves?: GraveRecord[];
@@ -101,6 +103,8 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'cemetery': return cemeteryGeometry();
     case 'park': return parkGeometry();
     case 'police': return policeGeometry();
+    case 'grocery': return groceryGeometry();
+    case 'clothes': return clothesGeometry();
     case 'hospital': return hospitalGeometry();
     case 'university': return universityGeometry();
     case 'market': return marketGeometry();
@@ -157,7 +161,7 @@ export class Buildings {
     return { ok: true };
   }
 
-  place(kind: BuildingKind, x: number, z: number, opts: { stored?: number; animate?: boolean; id?: number; city?: number; built?: number; level?: number } = {}): Building {
+  place(kind: BuildingKind, x: number, z: number, opts: { stored?: number; animate?: boolean; id?: number; city?: number; built?: number; level?: number; owner?: number } = {}): Building {
     const { access, rot } = this.findAccess(kind, x, z);
     const s = BUILDINGS[kind].size;
     const mesh = new THREE.Group();
@@ -173,7 +177,7 @@ export class Buildings {
       id, kind, city: opts.city ?? 0, x, z, rot, access, workers: 0, present: 0, stored: opts.stored ?? 0, trucks: 0, removed: false,
       mesh, grow: opts.animate === false ? 1 : 0, cropT: Math.random() * 0.5,
       irrigated: false, powered: true, fire: 0,
-      built: opts.built ?? (opts.animate === false ? 1 : 0), level: opts.level ?? 1,
+      built: opts.built ?? (opts.animate === false ? 1 : 0), level: opts.level ?? 1, owner: opts.owner ?? -1,
     };
     if (b.built < 1) {
       const h = 0.7 + s * 0.55;
