@@ -140,7 +140,7 @@ export class Traffic {
     const v: Vehicle = {
       id: this.nextId++, trip, color: trip.color ?? new THREE.Color('#ffffff'),
       ...r, seg: 0, tiles, ti: 0, held: [], s: 0, speed: 0,
-      maxSpeed: (truck ? 1.15 : 1.6) * (0.9 + Math.random() * 0.2),
+      maxSpeed: (truck ? 2.3 : 3.2) * (0.9 + Math.random() * 0.2),
       halfLen: truck ? 0.23 : 0.16,
       x: r.pts[0], z: r.pts[1], hx: 0, hz: 1, stuck: 0, scale: 0, leaving: false,
     };
@@ -264,8 +264,8 @@ export class Traffic {
     const gap = this.gapAhead(v);
     if (gap < Infinity) target = Math.min(target, Math.max(0, (gap - 0.06) * 5));
 
-    if (v.speed < target) v.speed = Math.min(target, v.speed + 2 * dt);
-    else v.speed = Math.max(target, v.speed - 7 * dt);
+    if (v.speed < target) v.speed = Math.min(target, v.speed + 4 * dt);
+    else v.speed = Math.max(target, v.speed - 12 * dt);
 
     v.stuck = target < 0.02 ? v.stuck + dt : 0;
     if (v.stuck > GIVE_UP) return 'gaveup';

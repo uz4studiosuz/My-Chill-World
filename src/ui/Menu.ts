@@ -1,5 +1,6 @@
 import { SaveStore, WorldMeta } from '../save/SaveStore';
-import { el } from './dom';
+import { el, icon } from './dom';
+import { Lang, getLang, setLang, t } from '../i18n/i18n';
 
 export interface MenuHandlers {
   newWorld: (name: string, seed: number) => void;
@@ -8,6 +9,7 @@ export interface MenuHandlers {
   save: () => void;
   exitToMenu: () => void;
   openGallery: (from: 'main' | 'pause') => void;
+  languageChanged: () => void;
 }
 
 /** Main menu, new-world form, world list and the in-game pause menu. */
@@ -36,6 +38,7 @@ export class Menu {
         button('New World', () => this.showNew(), worlds.length ? '' : 'primary'),
         worlds.length ? button('Load World', () => this.showLoad()) : null,
         button('Gallery', () => this.h.openGallery('main'), '', 'Inspect every model in 3D'),
+        this.languagePicker(() => this.showMain()),
       ],
       true,
     );
@@ -43,7 +46,7 @@ export class Menu {
 
   showNew() {
     const n = SaveStore.list().length + 1;
-    const name = input('World name', `My World ${n}`, 24);
+    const name = input('World name', t('My World {n}', { n }), 24);
     const seed = input('Seed (optional)', '', 10);
     seed.inputMode = 'numeric';
     this.render('New World', 'Every seed makes a different landscape.', [
@@ -51,7 +54,7 @@ export class Menu {
       seed.parentElement!,
       button('Create', () => {
         const s = parseInt(seed.value, 10);
-        this.h.newWorld(name.value.trim() || `My World ${n}`, Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9));
+        this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9));
       }, 'primary'),
       button('Back', () => this.showMain()),
     ]);
@@ -68,9 +71,10 @@ export class Menu {
   showPause() {
     this.render('Paused', '', [
       button('Resume', () => this.h.resume(), 'primary'),
-      button('Save', (b) => { this.h.save(); b.textContent = 'Saved ✓'; }),
+      button('Save', (b) => { this.h.save(); b.textContent = t('Saved ✓'); }),
       button('Gallery', () => this.h.openGallery('pause')),
       button('Main Menu', () => this.h.exitToMenu()),
+      this.languagePicker(() => this.showPause()),
     ]);
   }
 
@@ -84,7 +88,7 @@ export class Menu {
     const name = el('b', '');
     name.textContent = w.name;
     const meta = el('small', '');
-    meta.textContent = `Day ${w.day} · ${w.population} people · $${Math.floor(w.money).toLocaleString('en-US')} · ${new Date(w.updated).toLocaleDateString()}`;
+    meta.textContent = `${t('Day {n}', { n: w.day })} · ${t('{n} people', { n: w.population })} · $${Math.floor(w.money).toLocaleString('en-US')} · ${new Date(w.updated).toLocaleDateString()}`;
     info.append(name, meta);
     const play = button('Play', () => this.h.loadWorld(w.id), 'primary small');
     const del = button('Delete', () => {
@@ -93,7 +97,7 @@ export class Menu {
         this.showLoad();
       } else {
         del.dataset.confirm = '1';
-        del.textContent = 'Sure?';
+        del.textContent = t('Sure?');
         del.classList.add('danger');
       }
     }, 'small');
@@ -101,14 +105,32 @@ export class Menu {
     return row;
   }
 
+  private languagePicker(rerender: () => void) {
+    const row = el('div', 'langs');
+    const label = el('span', '');
+    label.innerHTML = icon('globe');
+    row.appendChild(label);
+    for (const [code, name] of [['en', 'English'], ['uz', "O'zbekcha"]] as [Lang, string][]) {
+      const b = el('button', `chipbtn${getLang() === code ? ' active' : ''}`);
+      b.textContent = name;
+      b.addEventListener('click', () => {
+        setLang(code);
+        this.h.languageChanged();
+        rerender();
+      });
+      row.appendChild(b);
+    }
+    return row;
+  }
+
   private render(title: string, sub: string, items: (HTMLElement | null)[], big = false) {
     this.panel.replaceChildren();
     const h = el('h1', big ? 'big' : '');
-    h.textContent = title;
+    h.textContent = t(title);
     this.panel.appendChild(h);
     if (sub) {
       const p = el('p', '');
-      p.textContent = sub;
+      p.textContent = t(sub);
       this.panel.appendChild(p);
     }
     for (const i of items) if (i) this.panel.appendChild(i);
@@ -118,10 +140,10 @@ export class Menu {
 
 function button(label: string, onClick: (b: HTMLButtonElement) => void, cls = '', sub?: string) {
   const b = el('button', `mbtn ${cls}`);
-  b.textContent = label;
+  b.textContent = t(label);
   if (sub) {
     const s = el('small', '');
-    s.textContent = sub;
+    s.textContent = t(sub);
     b.appendChild(s);
   }
   b.addEventListener('click', () => onClick(b));
@@ -131,7 +153,7 @@ function button(label: string, onClick: (b: HTMLButtonElement) => void, cls = ''
 function input(label: string, value: string, max: number) {
   const wrap = el('label', 'field');
   const span = el('span', '');
-  span.textContent = label;
+  span.textContent = t(label);
   const i = el('input', '');
   i.value = value;
   i.maxLength = max;

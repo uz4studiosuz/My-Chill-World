@@ -69,6 +69,17 @@ export class Animals {
     }
   }
 
+  /** Remove animals within r of (x, z); returns how many died. */
+  killNear(x: number, z: number, r: number) {
+    let n = 0;
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const a = this.list[i];
+      if (Math.hypot(a.x - x, a.z - z) < r) { this.list.splice(i, 1); n++; }
+    }
+    if (n) this.render();
+    return n;
+  }
+
   update(dt: number) {
     this.time += dt;
     for (const a of this.list) {

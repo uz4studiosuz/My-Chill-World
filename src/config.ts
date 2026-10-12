@@ -6,5 +6,7 @@ export const LEVEL_H = 0.5;
 export const WATER_BED = -0.4;
 export const WATER_LEVEL = -0.1;
 
-/** Real seconds per in-game day at 1x speed. One day = one year of age. */
-export const DAY_SECONDS = 90;
+/** Real seconds per in-game day at 1x speed: one second is one hour. */
+export const DAY_SECONDS = 24;
+/** Each day is one month of the calendar; twelve days make a year. */
+export const DAYS_PER_YEAR = 12;

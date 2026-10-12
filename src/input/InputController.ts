@@ -8,13 +8,13 @@ type Mode = 'none' | 'tool' | 'pan' | 'rotate' | 'gesture';
 export interface InputActions {
   setTool: (t: ToolId) => void;
   undo: () => void;
-  tap: (t: Tile | null) => void;
+  tap: (t: Tile | null, p?: { x: number; z: number }) => void;
   togglePause: () => void;
 }
 
 const TOOL_KEYS: Record<string, ToolId> = {
-  Digit1: 'pan', Digit2: 'road', Digit3: 'path', Digit4: 'roundabout', Digit5: 'house',
-  Digit6: 'school', Digit7: 'office', Digit8: 'farm', Digit9: 'woodcutter', KeyX: 'bulldoze',
+  Digit1: 'pan', Digit2: 'road', Digit3: 'path', Digit4: 'canal', Digit5: 'house',
+  Digit6: 'rain', Digit7: 'lightning', Digit8: 'raise', Digit9: 'lower', KeyX: 'bulldoze',
 };
 // CrazyGames requirement: these keys must not scroll the parent page
 const BLOCKED_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ']);
@@ -129,7 +129,8 @@ export class InputController {
       else if (this.pointers.size === 1) this.mode = 'pan';
       this.down.moved = true;
     } else if (this.mode === 'pan' && !this.down.moved && e.type === 'pointerup' && (e.pointerType !== 'mouse' || e.button === 0)) {
-      this.actions.tap(this.tileAt(e.clientX, e.clientY));
+      const tile = this.tileAt(e.clientX, e.clientY);
+      this.actions.tap(tile, tile ? { x: this.tmp.x, z: this.tmp.z } : undefined);
     }
     if (this.pointers.size === 0) this.mode = 'none';
   };

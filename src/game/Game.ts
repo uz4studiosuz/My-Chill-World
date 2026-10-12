@@ -1,29 +1,34 @@
 import * as THREE from 'three';
 import { DAY_SECONDS, IS_TOUCH, MAP_SIZE } from '../config';
-import { N, Tile, idx, inBounds, tileToWorld } from '../world/grid';
+import { DIRS, N, Tile, idx, inBounds, tileToWorld } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { generateWorld } from '../world/WorldGen';
 import { Terrain } from '../world/Terrain';
 import { BRIDGE_COST, ROAD_COST, ROAD_TWO_LANE, ROUNDABOUT_COST, RoadNetwork, isRingMid } from '../roads/RoadNetwork';
 import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
+import { Canals } from '../paths/Canals';
 import { Buildings, Building } from '../buildings/Buildings';
 import { BUILDINGS, BuildingKind, QUARRY } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { History } from '../sim/History';
-import { Population, Citizen, displaySurname } from '../people/Population';
+import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
+import { Population, Citizen } from '../people/Population';
 import { Walkers } from '../people/Walkers';
 import { Traffic } from '../traffic/Traffic';
 import { Animals } from '../animals/Animals';
 import { Effects } from '../fx/Effects';
+import { Weather } from '../fx/Weather';
 import { Life } from './Life';
 import { CameraRig } from '../camera/CameraRig';
 import { Preview } from '../build/Preview';
-import { BuildTool, CheckResult, LineKind, PlaceKind, ToolHost, ToolId } from '../build/BuildTool';
+import { BuildTool, CheckResult, GodKind, LineKind, PlaceKind, ToolHost, ToolId } from '../build/BuildTool';
 import { InputController } from '../input/InputController';
-import { Hud, InfoPerson } from '../ui/Hud';
+import { Hud } from '../ui/Hud';
+import { Inspector, InspectorView } from '../ui/Inspector';
 import { StatsPanel, StatsSnapshot } from '../ui/StatsPanel';
 import { SAVE_VERSION, SaveStore, WorldMeta, WorldSave } from '../save/SaveStore';
+import { t } from '../i18n/i18n';
 
 export interface GameOptions {
   /** Background world for the main menu: no input, no HUD, no saving. */
@@ -33,17 +38,29 @@ export interface GameOptions {
   thumbs?: Map<string, string>;
 }
 
+type Selection = { type: 'building'; id: number } | { type: 'person'; id: number } | null;
+
 const DEMO_SEED = 424242;
 const AUTOSAVE_SECONDS = 20;
+const CANAL_COST = 8;
+const BANKRUPT_DAYS = 8;
 const SUN_OFFSET = new THREE.Vector3(-18, 40, 14);
 const SKY_DAY = new THREE.Color('#9fc3d1');
-const SKY_NIGHT = new THREE.Color('#243247');
+const SKY_NIGHT = new THREE.Color('#1f2b3f');
+const SKY_RAIN = new THREE.Color('#7d8a96');
 const SUN_DAY = new THREE.Color('#fff3df');
 const SUN_LOW = new THREE.Color('#ffb070');
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const SEASON_ICON = { spring: '🌸', summer: '☀️', autumn: '🍂', winter: '❄️' };
+const KIND_BADGE: Record<BuildingKind, [string, string]> = {
+  townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
+  parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
+  woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
+};
 
 const smooth = (a: number, b: number, x: number) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
+  const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return k * k * (3 - 2 * k);
 };
 
 export class Game implements ToolHost {
@@ -57,25 +74,30 @@ export class Game implements ToolHost {
   private net = new RoadNetwork();
   private roadMesh: RoadMesh;
   private footpaths = new Footpaths();
+  private canals: Canals;
   private buildings: Buildings;
   private eco = new Economy();
   private pop = new Population();
-  private walkers: Walkers;
+  private walkers = new Walkers();
   private history = new History();
   private traffic: Traffic;
   private animals: Animals;
   private effects = new Effects();
+  private weather = new Weather();
   private life: Life;
   private preview = new Preview(MAP_SIZE * 2);
   private grid: THREE.GridHelper;
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
+  private marker: THREE.Mesh;
 
   private tool?: BuildTool;
   private input?: InputController;
   private hud?: Hud;
+  private inspector?: Inspector;
   private stats?: StatsPanel;
   private abort = new AbortController();
+  private thumbs: Map<string, string>;
 
   private speed = 1;
   private lastSpeed = 1;
@@ -85,14 +107,20 @@ export class Game implements ToolHost {
   private statsTick = 0;
   private saveT = 0;
   private smokeT = 0;
-  private selected: Building | null = null;
+  private seasonT = 0;
+  private lastDay = 0;
+  private brokeDays = 0;
+  private sandbox = false;
+  private selection: Selection = null;
+  private following = false;
 
   constructor(canvas: HTMLCanvasElement, opts: GameOptions, private onMenu: () => void = () => {}) {
     this.demo = !!opts.demo;
+    this.thumbs = opts.thumbs ?? new Map();
     const seed = opts.save?.meta.seed ?? opts.create?.seed ?? DEMO_SEED;
     this.meta = opts.save?.meta ?? {
       id: SaveStore.newId(), name: opts.create?.name ?? 'Demo', seed,
-      day: 1, population: 100, money: 4000, updated: Date.now(),
+      day: 1, population: 100, money: 5000, updated: Date.now(),
     };
 
     this.scene.background = SKY_DAY.clone();
@@ -111,15 +139,16 @@ export class Game implements ToolHost {
     this.map = generateWorld(seed);
     this.terrain = new Terrain(this.map);
     this.roadMesh = new RoadMesh(this.net, this.map);
+    this.canals = new Canals(this.map);
     this.buildings = new Buildings(this.map, this.net, {
-      isBlocked: (k) => this.footpaths.tiles[k] === 1,
+      isBlocked: (k) => this.footpaths.tiles[k] === 1 || this.canals.tiles[k] === 1,
       treesNear: (x, z, r) => this.terrain.treesNear(x, z, r),
     });
     this.traffic = new Traffic(this.net);
-    this.walkers = new Walkers((k) => this.net.type[k] !== 0);
     this.life = new Life({
-      map: this.map, terrain: this.terrain, net: this.net, footpaths: this.footpaths, buildings: this.buildings,
-      eco: this.eco, pop: this.pop, walkers: this.walkers, traffic: this.traffic, effects: this.effects,
+      map: this.map, terrain: this.terrain, net: this.net, footpaths: this.footpaths, canals: this.canals,
+      buildings: this.buildings, eco: this.eco, pop: this.pop, walkers: this.walkers, traffic: this.traffic,
+      effects: this.effects, weather: this.weather, burnDown: (b) => this.destroyBuilding(b, false),
     });
     this.grid = new THREE.GridHelper(MAP_SIZE, MAP_SIZE, '#2d3a22', '#2d3a22');
     const gm = this.grid.material as THREE.LineBasicMaterial;
@@ -127,6 +156,8 @@ export class Game implements ToolHost {
     gm.opacity = 0.12;
     this.grid.position.y = 0.005;
     this.grid.visible = false;
+    this.marker = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 4).rotateX(Math.PI), new THREE.MeshBasicMaterial({ color: '#ffd166' }));
+    this.marker.visible = false;
     this.cam = new CameraRig(canvas);
 
     if (opts.save) this.loadSave(opts.save);
@@ -134,12 +165,15 @@ export class Game implements ToolHost {
 
     this.animals = new Animals(this.map, (k) => this.map.isLand(k) && !this.net.type[k] && !this.net.isIsland(k) && this.buildings.occ[k] === -1);
     this.scene.add(
-      this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.buildings.group, this.traffic.group,
-      this.walkers.group, this.animals.group, this.effects.group, this.preview.mesh, this.grid,
+      this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
+      this.walkers.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker,
     );
-    this.networkChanged(false);
     this.pop.assign(this.buildings);
+    this.networkChanged(false);
     if (!opts.save) this.pop.planDay();
+    this.lastDay = this.eco.day;
+    this.terrain.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
+    this.weather.newDay(seasonOf(monthOf(this.eco.day)));
 
     if (this.demo) {
       this.cam.viewHalf = 12;
@@ -148,29 +182,37 @@ export class Game implements ToolHost {
     }
 
     this.tool = new BuildTool(this, this.preview);
+    this.createUi();
+    this.input = new InputController(canvas, this.cam, this.tool, {
+      setTool: (tl) => this.setTool(tl),
+      undo: () => this.undo(),
+      tap: (tile, p) => this.tap(tile, p),
+      togglePause: () => this.setSpeed(this.speed === 0 ? this.lastSpeed : 0),
+    }, this.abort.signal);
+
+    const signal = this.abort.signal;
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(); }, { signal });
+    window.addEventListener('pagehide', () => this.save(), { signal });
+  }
+
+  /** (Re)build the HUD — also used after switching language. */
+  createUi() {
+    if (this.demo) return;
+    this.hud?.dispose();
     this.hud = new Hud(document.getElementById('ui')!, {
-      setTool: (t) => this.setTool(t),
+      setTool: (tl) => this.setTool(tl),
       undo: () => this.undo(),
       rotate: (dir) => this.cam.rotate((dir * Math.PI) / 2),
       setSpeed: (s) => this.setSpeed(s),
       openMenu: () => this.onMenu(),
       openStats: () => this.stats?.toggle(),
-    }, opts.thumbs ?? new Map());
+    }, this.thumbs);
+    this.inspector = new Inspector(this.hud.root, () => this.select(null), (id) => this.select({ type: 'person', id }));
     this.stats = new StatsPanel(this.hud.root, () => this.snapshot());
-    this.input = new InputController(canvas, this.cam, this.tool, {
-      setTool: (t) => this.setTool(t),
-      undo: () => this.undo(),
-      tap: (t) => this.select(t ? this.buildings.at(idx(t.x, t.z)) ?? null : null),
-      togglePause: () => this.setSpeed(this.speed === 0 ? this.lastSpeed : 0),
-    }, this.abort.signal);
-    this.setTool('pan');
-    this.setSpeed(1);
-    this.hud.setUndoEnabled(false);
+    this.setTool(this.tool?.tool ?? 'pan');
+    this.setSpeed(this.speed);
+    this.hud.setUndoEnabled(this.net.canUndo);
     this.refreshHud();
-
-    const signal = this.abort.signal;
-    document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(); }, { signal });
-    window.addEventListener('pagehide', () => this.save(), { signal });
   }
 
   // ---------- lifecycle ----------
@@ -193,13 +235,21 @@ export class Game implements ToolHost {
         animals: this.animals.list.length,
       }));
       this.chimneySmoke(sdt);
+      if (this.eco.day !== this.lastDay) this.onNewDay();
     }
     this.traffic.setParked(this.life.parkedCars());
     this.traffic.update(sdt);
     this.walkers.update(sdt);
-    this.buildings.update(dt, sdt, DAY_SECONDS);
+    this.buildings.update(dt, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)));
     this.effects.update(dt);
+    this.weather.update(dt, sdt, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
+    this.seasonT -= dt;
+    if (this.seasonT <= 0) {
+      this.seasonT = 0.4;
+      this.terrain.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
+    }
     this.updateLighting();
+    this.updateMarker(dt);
 
     if (this.demo) this.cam.rotate(dt * 0.04, false);
     this.input?.update(dt);
@@ -228,7 +278,7 @@ export class Game implements ToolHost {
     this.saveT = 0;
     try {
       SaveStore.save(this.toSave());
-      if (manual) this.hud?.toast('Game saved');
+      if (manual) this.hud?.toast(t('Game saved'));
     } catch (e) {
       console.warn('[save]', e);
     }
@@ -249,28 +299,32 @@ export class Game implements ToolHost {
   // ---------- ToolHost ----------
 
   checkLine(kind: LineKind, path: Tile[]): CheckResult {
-    if (kind === 'path') {
-      for (const t of path) {
-        const k = idx(t.x, t.z);
-        if (this.net.type[k]) continue; // crossing a road is fine
-        if (!this.map.isLand(k)) return { ok: false, reason: 'Paths need dry, flat land' };
-        if (this.buildings.occ[k] !== -1 || this.net.isIsland(k)) return { ok: false, reason: 'Something is in the way' };
+    if (kind === 'path' || kind === 'canal') {
+      const canal = kind === 'canal';
+      for (const tl of path) {
+        const k = idx(tl.x, tl.z);
+        if (this.net.type[k]) continue; // passes under/over roads
+        if (!this.map.isLand(k)) return canal && this.map.water[k] ? { ok: false, reason: t('Start the canal next to the water, not on it') } : { ok: false, reason: t('Needs dry, flat land') };
+        if (this.buildings.occ[k] !== -1 || this.net.isIsland(k)) return { ok: false, reason: t('Something is in the way') };
       }
-      return { ok: true, money: 0, stone: 0 };
+      if (!canal) return { ok: true, money: 0, stone: 0 };
+      const money = path.filter((tl) => !this.canals.tiles[idx(tl.x, tl.z)]).length * CANAL_COST;
+      if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }) };
+      return { ok: true, money };
     }
     let money = 0, stone = 0, bridges = 0;
     for (let i = 0; i < path.length; i++) {
-      const t = path[i];
-      const k = idx(t.x, t.z);
-      if (this.map.height[k] > 0) return { ok: false, reason: 'Too steep — mountains' };
-      if (this.buildings.occ[k] !== -1) return { ok: false, reason: 'A building is in the way' };
-      if (this.net.isIsland(k)) return { ok: false, reason: "Can't drive through a roundabout island" };
+      const tl = path[i];
+      const k = idx(tl.x, tl.z);
+      if (this.map.height[k] > 0) return { ok: false, reason: t('Too steep — mountains') };
+      if (this.buildings.occ[k] !== -1) return { ok: false, reason: t('A building is in the way') };
+      if (this.net.isIsland(k)) return { ok: false, reason: t("Can't drive through a roundabout island") };
       if (this.net.isRing(k)) {
         const c = this.net.ringCenter[k];
-        const dx = t.x - (c % N), dz = t.z - ((c / N) | 0);
+        const dx = tl.x - (c % N), dz = tl.z - ((c / N) | 0);
         const nb = i === 0 ? path[1] : i === path.length - 1 ? path[i - 1] : null;
-        const outward = nb && nb.x === t.x + dx && nb.z === t.z + dz;
-        if (!isRingMid(dx, dz) || !outward) return { ok: false, reason: 'Connect roads to the middle of a roundabout side' };
+        const outward = nb && nb.x === tl.x + dx && nb.z === tl.z + dz;
+        if (!isRingMid(dx, dz) || !outward) return { ok: false, reason: t('Connect roads to the middle of a roundabout side') };
         continue;
       }
       if (!this.net.type[k]) {
@@ -280,17 +334,20 @@ export class Game implements ToolHost {
       }
       if (this.map.water[k]) bridges++;
     }
-    if (this.eco.money < money) return { ok: false, reason: `Not enough money — needs $${money}`, money, stone };
-    if (this.eco.stone < stone) return { ok: false, reason: `Not enough stone — needs ${stone}. Build a quarry!`, money, stone };
+    if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }), money, stone };
+    if (this.eco.stone < stone) return { ok: false, reason: t('Not enough stone — needs {n}. Build a quarry!', { n: stone }), money, stone };
     return { ok: true, money, stone, bridges };
   }
 
   buildLine(kind: LineKind, path: Tile[]) {
     const r = this.checkLine(kind, path);
     if (!r.ok) return this.hud?.toast(r.reason!);
-    if (kind === 'path') {
-      this.footpaths.add(path.filter((t) => !this.net.type[idx(t.x, t.z)]));
-      this.terrain.clearTiles(path.map((t) => idx(t.x, t.z)));
+    const free = path.filter((tl) => !this.net.type[idx(tl.x, tl.z)]);
+    if (kind === 'path' || kind === 'canal') {
+      this.eco.spend(r.money ?? 0, 0);
+      if (kind === 'path') { this.canals.remove(free); this.footpaths.add(free); }
+      else { this.footpaths.remove(free); this.canals.add(path.filter((tl) => this.map.isLand(idx(tl.x, tl.z)))); }
+      this.terrain.clearTiles(free.map((tl) => idx(tl.x, tl.z)));
       this.effects.pave(path);
       this.networkChanged();
       return;
@@ -299,86 +356,127 @@ export class Game implements ToolHost {
     this.eco.spend(r.money!, r.stone!);
     this.footpaths.remove(path);
     this.net.buildPath(path, ROAD_TWO_LANE);
-    this.terrain.clearTiles(path.map((t) => idx(t.x, t.z)));
+    this.terrain.clearTiles(path.map((tl) => idx(tl.x, tl.z)));
     this.effects.pave(path);
     this.networkChanged();
   }
 
-  checkPlace(kind: PlaceKind, t: Tile): CheckResult {
-    if (kind === 'roundabout') return this.checkRoundabout(t);
+  checkPlace(kind: PlaceKind, tl: Tile): CheckResult {
+    if (kind === 'roundabout') return this.checkRoundabout(tl);
     const def = BUILDINGS[kind];
-    const r = this.buildings.check(kind, t.x, t.z);
-    if (!r.ok) return r;
-    if (!this.eco.canAfford(def.money, def.stone)) {
-      return { ok: false, reason: `Needs $${def.money}${def.stone ? ` + ${def.stone} stone` : ''}` };
+    const r = this.buildings.check(kind, tl.x, tl.z);
+    if (!r.ok) return { ok: false, reason: t(r.reason!) };
+    if (!this.eco.canAfford(def.money, def.stone, def.wood)) {
+      return { ok: false, reason: t('Needs {cost}', { cost: costText(def.money, def.stone, def.wood) }) };
     }
-    return { ok: true, money: def.money, stone: def.stone };
+    return { ok: true, money: def.money, stone: def.stone, wood: def.wood };
   }
 
-  place(kind: PlaceKind, t: Tile) {
-    const r = this.checkPlace(kind, t);
+  place(kind: PlaceKind, tl: Tile) {
+    const r = this.checkPlace(kind, tl);
     if (!r.ok) return this.hud?.toast(r.reason!);
     if (kind === 'roundabout') {
       this.net.pushUndo(ROUNDABOUT_COST.money, ROUNDABOUT_COST.stone);
       this.eco.spend(ROUNDABOUT_COST.money, ROUNDABOUT_COST.stone);
-      const area = this.footprint(kind, t);
+      const area = this.footprint(kind, tl);
       this.footpaths.remove(area);
-      this.net.addRoundabout(t.x, t.z);
+      this.net.addRoundabout(tl.x, tl.z);
       this.terrain.clearTiles(area.map((f) => idx(f.x, f.z)));
-      this.effects.puff(tileToWorld(t.x), tileToWorld(t.z), 1.4, 24);
+      this.effects.puff(tileToWorld(tl.x), tileToWorld(tl.z), 1.4, 24);
       this.effects.pave(area);
       this.networkChanged();
-      this.hud?.toast('Roundabout built');
+      this.hud?.toast(t('Roundabout built'));
       return;
     }
     const def = BUILDINGS[kind];
-    this.eco.spend(def.money, def.stone);
-    const b = this.buildings.place(kind, t.x, t.z);
-    this.terrain.clearTiles(this.footprint(kind, t).map((f) => idx(f.x, f.z)));
+    this.eco.spend(def.money, def.stone, def.wood);
+    const b = this.buildings.place(kind, tl.x, tl.z);
+    this.terrain.clearTiles(this.footprint(kind, tl).map((f) => idx(f.x, f.z)));
     this.effects.puff(b.mesh.position.x, b.mesh.position.z, def.size * 0.5, 10 + def.size * 8);
     this.net.clearUndo();
     this.pop.assign(this.buildings);
     this.networkChanged();
-    this.hud?.toast(`${def.name} built`);
+    this.hud?.toast(t('{name} built', { name: t(def.name) }));
   }
 
-  footprint(kind: PlaceKind, t: Tile) {
+  footprint(kind: PlaceKind, tl: Tile) {
     if (kind === 'roundabout') {
       const out: Tile[] = [];
-      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) out.push({ x: t.x + dx, z: t.z + dz });
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) out.push({ x: tl.x + dx, z: tl.z + dz });
       return out;
     }
-    return this.buildings.footprint(kind, t.x, t.z);
+    return this.buildings.footprint(kind, tl.x, tl.z);
   }
 
   bulldoze(path: Tile[]) {
-    const roads = path.filter((t) => this.net.hasRoad(t));
+    const roads = path.filter((tl) => this.net.hasRoad(tl));
     const targets = new Set<Building>();
     let keptTownHall = false;
-    for (const t of path) {
-      const b = this.buildings.at(idx(t.x, t.z));
+    for (const tl of path) {
+      const b = this.buildings.at(idx(tl.x, tl.z));
       if (!b) continue;
       if (b.kind === 'townhall') keptTownHall = true;
       else targets.add(b);
     }
-    if (keptTownHall) this.hud?.toast("The Town Hall can't be removed");
-    const paths = this.footpaths.remove(path);
+    if (keptTownHall) this.hud?.toast(t("The Town Hall can't be removed"));
+    const paths = this.footpaths.remove(path) + this.canals.remove(path);
     if (!roads.length && !targets.size && !paths) return;
-
     if (roads.length) {
       this.net.pushUndo();
       this.net.removePath(roads);
-      for (const t of roads) this.effects.puff(tileToWorld(t.x), tileToWorld(t.z), 0.3, 3);
+      for (const tl of roads) this.effects.puff(tileToWorld(tl.x), tileToWorld(tl.z), 0.3, 3);
     }
-    for (const b of targets) {
-      this.eco.money += Math.floor(BUILDINGS[b.kind].money / 2);
-      this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.5, 18);
-      this.buildings.remove(b);
-      this.life.buildingRemoved(b);
-      if (b === this.selected) this.select(null);
-    }
+    for (const b of targets) this.destroyBuilding(b, true);
     if (targets.size) this.net.clearUndo();
     this.networkChanged();
+  }
+
+  brushArea(kind: GodKind, tl: Tile): Tile[] {
+    if (kind === 'lightning') return [tl];
+    const r = kind === 'rain' ? 2 : 1;
+    const out: Tile[] = [];
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.abs(dx) + Math.abs(dz) <= r && inBounds(tl.x + dx, tl.z + dz)) out.push({ x: tl.x + dx, z: tl.z + dz });
+    }
+    return out;
+  }
+
+  brush(kind: GodKind, tl: Tile, first: boolean) {
+    const x = tileToWorld(tl.x), z = tileToWorld(tl.z);
+    if (kind === 'rain') { this.weather.addRain(x, z); return; }
+    if (kind === 'lightning') {
+      if (!first) return;
+      this.weather.strike(x, z);
+      this.effects.puff(x, z, 0.4, 16, ['#fff3b0', '#ffd166', '#3a2a20']);
+      this.life.lightning(x, z);
+      const animals = this.animals.killNear(x, z, 0.8);
+      if (animals) this.hud?.toast(t('Lightning killed {n} animals', { n: animals }));
+      return;
+    }
+    // raise / lower the land
+    const changed: number[] = [];
+    for (const a of this.brushArea(kind, tl)) {
+      const k = idx(a.x, a.z);
+      if (this.net.type[k] || this.buildings.occ[k] !== -1 || this.net.isIsland(k)) continue;
+      if (kind === 'raise') {
+        if (this.map.water[k]) this.map.water[k] = 0;
+        else if (this.map.height[k] < 10) this.map.height[k]++;
+        else continue;
+      } else {
+        if (this.map.height[k] > 0) this.map.height[k]--;
+        else if (!this.map.water[k]) this.map.water[k] = 1;
+        else continue;
+      }
+      changed.push(k);
+    }
+    if (!changed.length) return;
+    for (const k of changed) {
+      if (!this.map.isLand(k)) { this.footpaths.tiles[k] = 0; this.canals.tiles[k] = 0; }
+    }
+    this.terrain.reshape(changed);
+    this.effects.puff(x, z, 0.8, 8, kind === 'raise' ? ['#8a6a46', '#9b978e', '#a4c064'] : ['#4fa3d1', '#8a6a46', '#d9c99a']);
+    this.footpaths.rebuild((k) => this.net.type[k] !== 0);
+    this.canals.rebuild();
   }
 
   showHint(text: string | null) {
@@ -387,23 +485,33 @@ export class Game implements ToolHost {
 
   // ---------- internals ----------
 
-  private checkRoundabout(t: Tile): CheckResult {
-    for (const f of this.footprint('roundabout', t)) {
-      if (!inBounds(f.x, f.z)) return { ok: false, reason: 'Out of the map' };
+  private destroyBuilding(b: Building, refund: boolean) {
+    if (b.removed) return;
+    if (refund) this.eco.money += Math.floor(BUILDINGS[b.kind].money / 2);
+    this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.5, 18, refund ? undefined : ['#3a2a20', '#6b6b6b', '#ff7a1a']);
+    this.buildings.remove(b);
+    this.life.buildingRemoved(b);
+    if (this.selection?.type === 'building' && this.selection.id === b.id) this.select(null);
+    if (!refund) this.networkChanged();
+  }
+
+  private checkRoundabout(tl: Tile): CheckResult {
+    for (const f of this.footprint('roundabout', tl)) {
+      if (!inBounds(f.x, f.z)) return { ok: false, reason: t('Out of the map') };
       const k = idx(f.x, f.z);
-      if (!this.map.isLand(k)) return { ok: false, reason: 'Needs flat dry land (3×3)' };
-      if (this.buildings.occ[k] !== -1) return { ok: false, reason: 'A building is in the way' };
-      if (this.net.ringCenter[k] >= 0) return { ok: false, reason: 'Already a roundabout here' };
+      if (!this.map.isLand(k)) return { ok: false, reason: t('Needs flat dry land (3×3)') };
+      if (this.buildings.occ[k] !== -1) return { ok: false, reason: t('A building is in the way') };
+      if (this.net.ringCenter[k] >= 0) return { ok: false, reason: t('Already a roundabout here') };
     }
     const c = ROUNDABOUT_COST;
-    if (!this.eco.canAfford(c.money, c.stone)) return { ok: false, reason: `Needs $${c.money} + ${c.stone} stone` };
+    if (!this.eco.canAfford(c.money, c.stone)) return { ok: false, reason: t('Needs {cost}', { cost: costText(c.money, c.stone, 0) }) };
     return { ok: true, money: c.money, stone: c.stone };
   }
 
-  private setTool(t: ToolId) {
-    this.tool?.setTool(t);
-    this.grid.visible = t !== 'pan';
-    this.hud?.setActive(t);
+  private setTool(tl: ToolId) {
+    this.tool?.setTool(tl);
+    this.grid.visible = tl !== 'pan' && tl !== 'rain' && tl !== 'lightning';
+    this.hud?.setActive(tl);
   }
 
   private setSpeed(s: number) {
@@ -423,10 +531,26 @@ export class Game implements ToolHost {
   private networkChanged(dirty = true) {
     this.roadMesh.rebuild();
     this.footpaths.rebuild((k) => this.net.type[k] !== 0);
+    this.canals.rebuild();
     this.buildings.refreshAccess();
     this.traffic.networkChanged();
+    this.life.rebuildGrid();
     this.hud?.setUndoEnabled(this.net.canUndo);
-    if (dirty) this.saveT = AUTOSAVE_SECONDS - 2; // save shortly after an edit
+    if (dirty) this.saveT = AUTOSAVE_SECONDS - 2;
+  }
+
+  private onNewDay() {
+    this.lastDay = this.eco.day;
+    if (this.sandbox) return;
+    this.brokeDays = this.eco.money < 0 ? this.brokeDays + 1 : 0;
+    if (this.brokeDays === 3) this.hud?.toast(t('The town treasury is empty! Raise income or cut costs.'));
+    if (this.brokeDays >= BANKRUPT_DAYS && this.hud) {
+      this.setSpeed(0);
+      this.hud.showModal(t('Bankrupt!'), t('The town has been in debt for {n} months. The bank refuses to lend any more money.', { n: this.brokeDays }), [
+        { label: t('Keep playing (sandbox)'), primary: true, onClick: () => { this.sandbox = true; this.eco.money = 0; this.setSpeed(1); } },
+        { label: t('Main Menu'), onClick: () => this.onMenu() },
+      ]);
+    }
   }
 
   private chimneySmoke(dt: number) {
@@ -435,6 +559,7 @@ export class Game implements ToolHost {
     this.smokeT = 0.6;
     if (this.eco.wood <= 0) return;
     for (const b of this.buildings.ofKind('powerplant')) {
+      if (!b.workers) continue;
       const c = Math.cos(b.rot), s = Math.sin(b.rot);
       const lx = 0.45, lz = -0.55;
       this.effects.smoke(b.mesh.position.x + lx * c + lz * s, 1.4, b.mesh.position.z - lx * s + lz * c);
@@ -443,18 +568,24 @@ export class Game implements ToolHost {
 
   private updateLighting() {
     const tod = this.eco.timeOfDay;
-    const day = smooth(0.2, 0.3, tod) * (1 - smooth(0.74, 0.84, tod));
-    const low = Math.max(0, 1 - Math.abs(tod - 0.25) * 12) + Math.max(0, 1 - Math.abs(tod - 0.79) * 12);
-    this.sun.intensity = 0.35 + 1.9 * day;
+    const season = seasonBlend(this.eco.day, tod);
+    const day = smooth(0.22, 0.3, tod) * (1 - smooth(0.74, 0.84, tod));
+    const low = Math.max(0, 1 - Math.abs(tod - 0.26) * 12) + Math.max(0, 1 - Math.abs(tod - 0.79) * 12);
+    const rain = this.weather.naturalActive ? 0.35 : 0;
+    const winter = season.snow * 0.15;
+    this.sun.intensity = (0.35 + 1.9 * day) * (1 - rain - winter) + this.weather.flash * 4;
     this.sun.color.copy(SUN_DAY).lerp(SUN_LOW, Math.min(1, low));
-    this.hemi.intensity = 0.6 + 0.95 * day;
-    (this.scene.background as THREE.Color).copy(SKY_NIGHT).lerp(SKY_DAY, day);
+    this.hemi.intensity = (0.6 + 0.95 * day) * (1 - rain * 0.5) + this.weather.flash * 2;
+    const bg = this.scene.background as THREE.Color;
+    bg.copy(SKY_NIGHT).lerp(SKY_DAY, day);
+    if (rain) bg.lerp(SKY_RAIN, 0.5 * day);
+    if (this.weather.flash > 0) bg.lerp(new THREE.Color('#ffffff'), this.weather.flash * 0.6);
   }
 
   private followSun() {
-    const t = this.cam.target;
-    this.sun.target.position.copy(t);
-    this.sun.position.copy(t).add(SUN_OFFSET);
+    const tg = this.cam.target;
+    this.sun.target.position.copy(tg);
+    this.sun.position.copy(tg).add(SUN_OFFSET);
     const s = this.cam.viewHalf * Math.max(this.cam.aspect, 1) * 1.6 + 2;
     const sc = this.sun.shadow.camera;
     if (sc.right !== s) {
@@ -463,25 +594,52 @@ export class Game implements ToolHost {
     }
   }
 
-  private select(b: Building | null) {
-    this.selected = b;
-    if (!b) this.hud?.hideInfo();
-    else this.refreshInfo();
+  // ---------- selection & inspector ----------
+
+  private tap(tile: Tile | null, p?: { x: number; z: number }) {
+    if (p) {
+      let best: Citizen | null = null, bd = 0.35;
+      for (const c of this.pop.citizens.values()) {
+        const w = c.walker;
+        if (!w || w.leaving) continue;
+        const d = Math.hypot(w.x - p.x, w.z - p.z);
+        if (d < bd) { bd = d; best = c; }
+      }
+      if (best) return this.select({ type: 'person', id: best.id });
+    }
+    const b = tile ? this.buildings.at(idx(tile.x, tile.z)) : undefined;
+    this.select(b ? { type: 'building', id: b.id } : null);
   }
 
-  private status(c: Citizen) {
-    const b = c.job >= 0 ? this.buildings.get(c.job) : c.school >= 0 ? this.buildings.get(c.school) : undefined;
-    let what: string;
-    if (c.age < 3) what = 'Baby';
-    else if (c.job >= 0) what = b ? `Works at ${BUILDINGS[b.kind].name}` : 'Worker';
-    else if (c.school >= 0) what = 'Pupil at School';
-    else if (c.age < 6) what = 'Small child';
-    else if (c.age < 18) what = 'Child (no school place)';
-    else if (c.age >= 65) what = 'Retired';
-    else if (this.pop.onLeave(c)) what = 'Parental leave';
-    else what = 'Looking for work';
-    const where = c.state === 'home' ? 'at home' : c.state === 'travel' ? 'on the way' : 'out';
-    return `${c.age} y · ${what} · ${where}`;
+  private select(s: Selection) {
+    if (s?.type !== this.selection?.type || s?.id !== this.selection?.id) this.following = false;
+    this.selection = s;
+    if (!s) this.inspector?.hide();
+    else this.refreshInspector();
+  }
+
+  private personPos(c: Citizen) {
+    if (c.walker && !c.walker.leaving) return { x: c.walker.x, z: c.walker.z, y: 0.3 * c.walker.scale };
+    const b = this.buildings.get(c.at);
+    if (!b) return null;
+    return { x: b.mesh.position.x, z: b.mesh.position.z, y: 0.5 + BUILDINGS[b.kind].size * 0.3 };
+  }
+
+  private updateMarker(dt: number) {
+    const s = this.selection;
+    if (s?.type !== 'person') { this.marker.visible = false; return; }
+    const c = this.pop.citizens.get(s.id);
+    const p = c && this.personPos(c);
+    if (!p) { this.marker.visible = false; return; }
+    this.marker.visible = true;
+    this.marker.position.set(p.x, p.y + 0.12 + Math.sin(this.time * 6) * 0.03, p.z);
+    this.marker.rotation.y += dt * 3;
+    if (this.following) {
+      const tg = this.cam.target;
+      tg.x += (p.x - tg.x) * Math.min(1, dt * 4);
+      tg.z += (p.z - tg.z) * Math.min(1, dt * 4);
+      this.cam.apply();
+    }
   }
 
   private personIcon(c: Citizen) {
@@ -491,57 +649,159 @@ export class Game implements ToolHost {
     return c.sex === 'm' ? '👨' : '👩';
   }
 
-  private refreshInfo() {
-    const b = this.selected;
-    if (!this.hud || !b) return;
-    if (b.removed) return this.select(null);
-    const def = BUILDINGS[b.kind];
-    const rows: [string, string][] = [];
-    let people: InfoPerson[] = [];
-    let title = def.name;
-    const close = () => this.select(null);
+  private roleText(c: Citizen) {
+    const b = c.job >= 0 ? this.buildings.get(c.job) : undefined;
+    if (c.age < 3) return t('Baby');
+    if (b) return t('Works at {place}', { place: t(BUILDINGS[b.kind].name) });
+    if (c.school >= 0) return t('Pupil');
+    if (c.age < 6) return t('Small child');
+    if (c.age < 18) return t('Child (no school place)');
+    if (c.age >= 65) return t('Retired');
+    if (this.pop.onLeave(c)) return t('Parental leave');
+    return t('Looking for work');
+  }
 
-    if (b.kind === 'house') {
-      const f = this.pop.familyAt(b.id);
-      if (!f) {
-        rows.push(['Status', 'Empty — waiting for a family'], ['Road', b.access >= 0 ? 'Connected' : 'No road']);
-      } else {
-        title = `${f.surname} family`;
-        const car = f.car ? `Yes · ${f.car.at === 'home' ? 'parked at home' : f.car.at === 'away' ? 'parked at work' : 'driving'}` : 'No — they walk';
-        rows.push(
-          ['Savings', `$${Math.floor(f.money).toLocaleString('en-US')}`],
-          ['Earned yesterday', `${f.income >= 0 ? '+' : '−'}$${Math.abs(f.income)}`],
-          ['Car', car],
-          ['Food', f.hunger ? `Hungry for ${f.hunger} day(s)!` : 'Well fed'],
-        );
-        people = this.pop.members(f).sort((a, c) => c.age - a.age).map((c) => ({
-          icon: this.personIcon(c), name: `${c.name} ${displaySurname(f.surname, c.sex)}`, detail: this.status(c),
-        }));
-      }
-    } else {
-      const staff = [...this.pop.citizens.values()].filter((c) => c.job === b.id);
-      if (def.jobs) rows.push(['Workers', `${b.present} here · ${staff.length}/${def.jobs} hired`], ['Wage', `$${def.salary}/day${def.publicJob ? ' (paid by town)' : ''}`]);
-      if (def.energy) rows.push(['Energy', this.eco.powered > 0.95 ? 'Powered' : `Only ${Math.round(this.eco.powered * 100)}% supplied`]);
-      if (def.food) rows.push(['Food output', `up to ${def.food}/day`]);
-      if (b.kind === 'farm') rows.push(['Crops', `${Math.round(b.cropT * 100)}% grown`]);
-      if (b.kind === 'powerplant') rows.push(['Wood in stock', `${Math.floor(this.eco.wood)}`], ['Town demand', `${Math.round(this.eco.energyDemand)}/day`]);
-      if (b.kind === 'woodcutter') rows.push(['Trees nearby', `${this.terrain.treesNear(b.x, b.z, 10)}`]);
-      if (b.kind === 'school') {
-        const pupils = [...this.pop.citizens.values()].filter((c) => c.school === b.id);
-        rows.push(['Pupils', `${pupils.length}/${def.students}`]);
-        people = pupils.slice(0, 40).map((c) => ({ icon: this.personIcon(c), name: c.name, detail: `${c.age} y · ${Math.round(c.edu * 100)}% educated` }));
-      }
-      if (b.kind === 'quarry') rows.push(['Stone ready', `${Math.floor(b.stored)}/${QUARRY.maxStored}`], ['Trucks', `${b.trucks}/2`]);
-      if (def.slots.length) rows.push(['Parking', `${this.life.spotsUsed(b)}/${def.slots.length} used`]);
-      if (def.needsRoad) rows.push(['Road', b.access >= 0 ? 'Connected' : 'No road access']);
-      if (b.kind !== 'school') {
-        people = staff.map((c) => {
-          const f = this.pop.families.get(c.family);
-          return { icon: this.personIcon(c), name: `${c.name} ${f ? displaySurname(f.surname, c.sex) : ''}`, detail: `${c.age} y · ${c.at === b.id && c.state === 'away' ? 'at work' : 'off duty'}` };
-        });
-      }
+  private refreshInspector() {
+    const s = this.selection;
+    if (!this.inspector || !s) return;
+    if (s.type === 'person') {
+      const c = this.pop.citizens.get(s.id);
+      if (!c) { this.hud?.toast(t('This person is no longer with us')); return this.select(null); }
+      return this.inspector.show(this.personView(c));
     }
-    this.hud.showInfo(title, rows, close, people);
+    const b = this.buildings.get(s.id);
+    if (!b) return this.select(null);
+    this.inspector.show(b.kind === 'house' ? this.houseView(b) : this.buildingView(b));
+  }
+
+  private personView(c: Citizen): InspectorView {
+    const f = this.pop.families.get(c.family);
+    const home = f && this.buildings.get(f.home);
+    const age = Math.floor(c.age);
+    const tags: InspectorView['tags'] = [];
+    if (c.hunger < 25) tags.push({ text: t('Hungry'), tone: 'bad' });
+    if (c.health < 50) tags.push({ text: t('Sick'), tone: 'bad' });
+    if (c.edu >= 0.99 && age >= 18) tags.push({ text: t('Educated'), tone: 'good' });
+    if (f?.car && age >= 18) tags.push({ text: t('Family car'), tone: 'info' });
+    const job = c.job >= 0 ? this.buildings.get(c.job) : c.school >= 0 ? this.buildings.get(c.school) : undefined;
+    return {
+      key: `p${c.id}`,
+      badge: this.personIcon(c),
+      badgeColor: c.sex === 'm' ? '#3a6fd1' : '#d9568f',
+      title: `${c.name} ${f?.surname ?? ''}`,
+      subtitle: `${t('{n} years', { n: age })} · ${this.roleText(c)}`,
+      tags,
+      bars: [
+        { label: t('Food'), value: c.hunger / 100, color: barColor(c.hunger / 100) },
+        { label: t('Health'), value: c.health / 100, color: barColor(c.health / 100) },
+        ...(age >= 6 ? [{ label: t('Education'), value: c.edu, color: '#6fb6ff' }] : []),
+      ],
+      rows: [
+        [t('Doing'), t(c.activity)],
+        [t('Home'), f ? t('{name} family', { name: f.surname }) : '—'],
+        [c.school >= 0 ? t('School') : t('Workplace'), job ? t(BUILDINGS[job.kind].name) : '—'],
+        [t('Family savings'), f ? `$${Math.floor(f.money).toLocaleString('en-US')}` : '—', f && f.money < 0 ? 'bad' : undefined],
+      ],
+      actions: [
+        { label: this.following ? t('Stop following') : t('Follow'), icon: 'follow', active: this.following, onClick: () => { this.following = !this.following; this.refreshInspector(); } },
+        ...(home ? [{ label: t('Show home'), icon: 'house' as const, onClick: () => { this.cam.setState(home.mesh.position.x, home.mesh.position.z, this.cam.yaw, this.cam.viewHalf); this.select({ type: 'building', id: home.id }); } }] : []),
+      ],
+    };
+  }
+
+  private houseView(b: Building): InspectorView {
+    const f = this.pop.familyAt(b.id);
+    if (!f) {
+      return {
+        key: `b${b.id}`, badge: '🏠', badgeColor: KIND_BADGE.house[1], title: t('Empty house'), subtitle: t('Waiting for a family to move in'),
+        rows: [[t('Road'), b.access >= 0 ? t('Connected') : t('No road access'), b.access >= 0 ? 'good' : 'bad'], [t('Power'), b.powered ? t('Yes') : t('No'), b.powered ? 'good' : 'bad']],
+      };
+    }
+    const people = this.pop.members(f).sort((a, c) => c.age - a.age);
+    const avg = (fn: (c: Citizen) => number) => people.reduce((a, c) => a + fn(c), 0) / Math.max(1, people.length);
+    const car = f.car ? (f.car.at === 'home' ? t('Parked at home') : f.car.at === 'away' ? t('Parked at work') : t('On the road')) : t('No car — they walk');
+    return {
+      key: `b${b.id}`,
+      badge: '🏠',
+      badgeColor: KIND_BADGE.house[1],
+      title: t('{name} family', { name: f.surname }),
+      subtitle: t('{n} people', { n: people.length }),
+      bars: [
+        { label: t('Food'), value: avg((c) => c.hunger) / 100, color: barColor(avg((c) => c.hunger) / 100) },
+        { label: t('Health'), value: avg((c) => c.health) / 100, color: barColor(avg((c) => c.health) / 100) },
+      ],
+      rows: [
+        [t('Savings'), `$${Math.floor(f.money).toLocaleString('en-US')}`, f.money < 0 ? 'bad' : undefined],
+        [t('Earned yesterday'), `${f.income >= 0 ? '+' : '−'}$${Math.abs(f.income)}`, f.income >= 0 ? 'good' : 'bad'],
+        [t('Car'), car],
+        [t('Power'), b.powered ? t('Yes') : t('No — not connected to a power plant'), b.powered ? 'good' : 'bad'],
+        [t('Water'), this.life.waterSupply >= 0.99 ? t('Clean water') : t('Not enough water!'), this.life.waterSupply >= 0.99 ? 'good' : 'bad'],
+      ],
+      listTitle: t('Family members'),
+      people: people.map((c) => ({
+        id: c.id, icon: this.personIcon(c), name: c.name, warn: c.hunger < 25 || c.health < 50,
+        detail: `${t('{n} years', { n: Math.floor(c.age) })} · ${this.roleText(c)} · ${t(c.activity)}`,
+      })),
+    };
+  }
+
+  private buildingView(b: Building): InspectorView {
+    const def = BUILDINGS[b.kind];
+    const staff = [...this.pop.citizens.values()].filter((c) => c.job === b.id);
+    const tags: InspectorView['tags'] = [];
+    const rows: InspectorView['rows'] = [];
+    const bars: InspectorView['bars'] = [];
+    if (b.fire > 0) tags.push({ text: t('On fire!'), tone: 'bad' });
+    if (def.energy) tags.push(b.powered ? { text: t('Powered'), tone: 'good' } : { text: t('No power'), tone: 'bad' });
+    if (def.needsRoad && b.access < 0) tags.push({ text: t('No road access'), tone: 'bad' });
+    if (def.jobs) {
+      bars.push({ label: t('Workers'), value: staff.length / def.jobs, color: '#6fb6ff', text: `${staff.length}/${def.jobs}` });
+      rows.push([t('At work now'), `${b.present}`], [t('Wage'), `$${def.salary}/${t('day')}${def.publicJob ? ` (${t('paid by town')})` : ''}`]);
+    }
+    let subtitle = t(def.name);
+    if (b.kind === 'farm') {
+      const growing = growingSeason(monthOf(this.eco.day));
+      tags.push(b.irrigated ? { text: t('Irrigated'), tone: 'good' } : { text: t('No water — dig a canal'), tone: 'bad' });
+      if (!growing) tags.push({ text: t('Winter rest'), tone: 'info' });
+      bars.push({ label: t('Crops'), value: b.cropT, color: '#e3bf4f' });
+      subtitle = growing ? (b.irrigated ? t('Growing crops') : t('Dry field')) : t('Resting until spring');
+    }
+    if (def.food) rows.push([t('Food output'), t('up to {n}/day', { n: def.food })]);
+    if (b.kind === 'powerplant') {
+      rows.push([t('Wood in stock'), `${Math.floor(this.eco.wood)}`, this.eco.wood < 15 ? 'bad' : undefined], [t('Town demand'), `${Math.round(this.eco.energyDemand)}/${t('day')}`]);
+      bars.push({ label: t('Energy supplied'), value: this.eco.powered, color: '#ffe066' });
+    }
+    if (b.kind === 'watertower') bars.push({ label: t('Water supplied'), value: this.life.waterSupply, color: '#4fa3d1' });
+    if (b.kind === 'woodcutter') rows.push([t('Trees nearby'), `${this.terrain.treesNear(b.x, b.z, 10)}`]);
+    if (b.kind === 'quarry') {
+      bars.push({ label: t('Stone ready'), value: b.stored / QUARRY.maxStored, color: '#aab4be', text: `${Math.floor(b.stored)}/${QUARRY.maxStored}` });
+      rows.push([t('Trucks'), `${b.trucks}/2`]);
+    }
+    if (def.slots.length && b.kind !== 'house') rows.push([t('Parking'), `${this.life.spotsUsed(b)}/${def.slots.length}`]);
+    let people = staff;
+    let listTitle = t('Workers');
+    if (b.kind === 'school') {
+      people = [...this.pop.citizens.values()].filter((c) => c.school === b.id);
+      bars.push({ label: t('Pupils'), value: people.length / def.students, color: '#7be08f', text: `${people.length}/${def.students}` });
+      listTitle = t('Pupils');
+    }
+    return {
+      key: `b${b.id}`,
+      badge: KIND_BADGE[b.kind][0],
+      badgeColor: KIND_BADGE[b.kind][1],
+      title: t(def.name),
+      subtitle,
+      tags, bars, rows, listTitle,
+      people: people.map((c) => {
+        const f = this.pop.families.get(c.family);
+        return { id: c.id, icon: this.personIcon(c), name: `${c.name} ${f?.surname ?? ''}`, detail: `${t('{n} years', { n: Math.floor(c.age) })} · ${t(c.activity)}`, warn: c.hunger < 25 || c.health < 50 };
+      }),
+    };
+  }
+
+  private dateText() {
+    const m = monthOf(this.eco.day);
+    return `${t(MONTHS[m]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(this.eco.day) })}`;
   }
 
   private refreshHud() {
@@ -549,13 +809,13 @@ export class Game implements ToolHost {
     const counts = this.pop.counts();
     this.hud!.setStats({
       money: e.money, daily: this.life.lastBalance.net, stone: e.stone, wood: e.wood, food: e.food,
-      foodDaily: this.foodBalance(), powered: e.powered,
+      foodDaily: this.foodBalance(), powered: e.powered, water: this.life.waterSupply,
       population: this.pop.size, workers: counts.workers, workforce: counts.workforce,
-      day: e.day, timeOfDay: e.timeOfDay,
+      dateText: this.dateText(), seasonIcon: SEASON_ICON[seasonOf(monthOf(e.day))], timeOfDay: e.timeOfDay, broke: e.money < 0,
     });
     const ev = this.life.events.shift();
     if (ev) this.hud!.toast(ev);
-    if (this.selected) this.refreshInfo();
+    if (this.selection) this.refreshInspector();
     if (this.stats?.visible && ++this.statsTick % 4 === 0) this.stats.render();
   }
 
@@ -568,17 +828,17 @@ export class Game implements ToolHost {
 
   private snapshot(): StatsSnapshot {
     const e = this.eco;
-    const t = this.buildings.totals();
+    const tt = this.buildings.totals();
     const rc = this.net.counts(this.map.water);
     const families = [...this.pop.families.values()];
     return {
       money: e.money, stone: e.stone, wood: e.wood, food: e.food, foodRate: this.foodBalance() + this.pop.size,
-      energyDemand: e.energyDemand, energyCapacity: e.energyCapacity, powered: e.powered,
+      energyDemand: e.energyDemand, energyCapacity: e.energyCapacity, powered: e.powered, water: this.life.waterSupply,
       population: this.pop.size, families: families.length, carsOwned: families.filter((f) => f.car).length,
-      people: this.pop.counts(), jobs: t.jobs, schoolSeats: t.students, freeHomes: this.life.freeHomes().length,
+      people: this.pop.counts(), jobs: tt.jobs, schoolSeats: tt.students, freeHomes: this.life.freeHomes().length,
       balance: this.life.lastBalance,
       buildings: this.buildings.countBy(),
-      roads: { total: rc.total, bridges: rc.bridges, roundabouts: this.net.roundabouts.length, signals: this.traffic.signalCount, footpaths: this.footpaths.count() },
+      roads: { total: rc.total, bridges: rc.bridges, roundabouts: this.net.roundabouts.length, signals: this.traffic.signalCount, footpaths: this.footpaths.count(), canals: this.canals.count() },
       traffic: { cars: this.traffic.count('car'), trucks: this.traffic.count('truck'), walkers: this.walkers.list.length, parked: this.life.parkedCars().length },
       animals: {
         cows: this.animals.list.filter((a) => a.kind === 0).length,
@@ -586,9 +846,13 @@ export class Game implements ToolHost {
         herds: new Set(this.animals.list.map((a) => `${a.kind}:${Math.round(a.herdX)}:${Math.round(a.herdZ)}`)).size,
       },
       trees: this.terrain.trees.size,
+      hasHall: this.buildings.ofKind('weddinghall').length > 0,
+      deathsYesterday: this.life.lastReport?.deaths.length ?? 0,
       history: this.history.samples,
     };
   }
+
+  // ---------- world setup / saving ----------
 
   private buildStarterTown() {
     const c = N / 2;
@@ -598,7 +862,7 @@ export class Game implements ToolHost {
     for (let z = c; z <= c + 7; z++) side.push({ x: c + 1, z });
     this.net.buildPath(main, ROAD_TWO_LANE);
     this.net.buildPath(side, ROAD_TWO_LANE);
-    this.terrain.clearTiles([...main, ...side].map((t) => idx(t.x, t.z)));
+    this.terrain.clearTiles([...main, ...side].map((tl) => idx(tl.x, tl.z)));
 
     const put = (kind: BuildingKind, x: number, z: number) => {
       if (!this.buildings.footprint(kind, x, z).every((f) => inBounds(f.x, f.z) && this.map.isLand(idx(f.x, f.z)) && this.buildings.occ[idx(f.x, f.z)] === -1 && !this.net.type[idx(f.x, f.z)])) return null;
@@ -613,28 +877,28 @@ export class Game implements ToolHost {
       houses.push(put('house', c, z)!);
       houses.push(put('house', c + 2, z)!);
     }
-    put('powerplant', c - 9, c - 3);
-    put('farm', c - 7, c + 2);
+    put('watertower', c - 2, c - 1);
+    put('powerplant', c - 9, c - 2);
+    const farm = put('farm', c - 7, c + 2);
     put('orchard', c - 4, c + 2);
     put('ranch', c + 4, c + 3);
     put('office', c + 6, c + 1);
     const path: Tile[] = [];
     for (let x = c - 9; x <= c - 1; x++) path.push({ x, z: c + 1 });
-    this.footpaths.add(path.filter((t) => this.buildings.occ[idx(t.x, t.z)] === -1));
+    this.footpaths.add(path.filter((tl) => this.buildings.occ[idx(tl.x, tl.z)] === -1));
+    if (farm) this.digStarterCanal(farm);
 
-    // woodcutter at the closest forest edge
     let best: Tile | null = null, bestD = Infinity;
     for (let z = c - 26; z <= c + 26; z++) for (let x = c - 26; x <= c + 26; x++) {
       if (!inBounds(x, z) || !this.map.isLand(idx(x, z)) || this.terrain.trees.has(idx(x, z))) continue;
       const d = Math.abs(x - c) + Math.abs(z - c);
-      if (d < 10 || d >= bestD || this.buildings.occ[idx(x, z)] !== -1 || this.net.type[idx(x, z)]) continue;
+      if (d < 10 || d >= bestD || this.buildings.occ[idx(x, z)] !== -1 || this.net.type[idx(x, z)] || this.canals.tiles[idx(x, z)]) continue;
       if (this.terrain.treesNear(x, z, 6) >= 10) { best = { x, z }; bestD = d; }
     }
     if (best) put('woodcutter', best.x, best.z);
 
-    // ~100 residents in 12 families
     const sizes = houses.map(() => 6 + Math.floor(Math.random() * 5));
-    let sum = sizes.reduce((a, b) => a + b, 0);
+    let sum = sizes.reduce((a, v) => a + v, 0);
     while (sum > 100) { const i = Math.floor(Math.random() * sizes.length); if (sizes[i] > 4) { sizes[i]--; sum--; } }
     while (sum < 100) { const i = Math.floor(Math.random() * sizes.length); if (sizes[i] < 10) { sizes[i]++; sum++; } }
     houses.forEach((h, i) => this.pop.createFamily(h.id, { size: sizes[i], carChance: 0.45 }));
@@ -642,9 +906,48 @@ export class Game implements ToolHost {
     this.cam.setState(-1, 0, Math.PI / 4, 10);
   }
 
+  /** Dig an irrigation canal from the starter farm to the nearest river or lake (BFS over open land). */
+  private digStarterCanal(farm: Building) {
+    const prev = new Int32Array(N * N).fill(-2);
+    const queue: number[] = [];
+    const s = BUILDINGS.farm.size;
+    for (let i = 0; i < s; i++) {
+      for (const [x, z] of [[farm.x + i, farm.z + s], [farm.x - 1, farm.z + i], [farm.x + s, farm.z + i]]) {
+        if (!inBounds(x, z)) continue;
+        const k = idx(x, z);
+        if (this.map.isLand(k) && this.buildings.occ[k] === -1 && prev[k] === -2) { prev[k] = -1; queue.push(k); }
+      }
+    }
+    let found = -1;
+    for (let h = 0; h < queue.length && found < 0; h++) {
+      const k = queue[h];
+      const x = k % N, z = (k / N) | 0;
+      for (const d of DIRS) {
+        const nx = x + d.dx, nz = z + d.dz;
+        if (!inBounds(nx, nz)) continue;
+        const nk = idx(nx, nz);
+        if (this.map.water[nk]) { found = k; break; }
+        if (prev[nk] !== -2 || !this.map.isLand(nk) || this.buildings.occ[nk] !== -1) continue;
+        prev[nk] = k;
+        queue.push(nk);
+      }
+    }
+    if (found < 0) return;
+    const tiles: Tile[] = [];
+    for (let k = found; k >= 0; k = prev[k]) tiles.push({ x: k % N, z: (k / N) | 0 });
+    this.canals.add(tiles);
+    this.terrain.clearTiles(tiles.filter((tl) => !this.net.type[idx(tl.x, tl.z)]).map((tl) => idx(tl.x, tl.z)));
+  }
+
   private loadSave(s: WorldSave) {
+    if (s.terrain) {
+      this.map.height.set(s.terrain.height);
+      this.map.water.set(s.terrain.water);
+      this.terrain.reshape([]);
+    }
     this.net.deserialize(s.roads, s.roundabouts);
     this.footpaths.deserialize(s.footpaths);
+    this.canals.deserialize(s.canals);
     this.terrain.clearTiles(s.cleared);
     this.terrain.loadStumps(s.stumps);
     for (const b of s.buildings) {
@@ -654,10 +957,10 @@ export class Game implements ToolHost {
     this.pop.deserialize(s.population);
     this.eco.load(s.eco);
     this.time = s.time ?? 0;
+    this.sandbox = !!s.sandbox;
     this.history.samples = s.history ?? [];
     this.cam.setState(s.cam.x, s.cam.z, s.cam.yaw, s.cam.view);
     this.pop.planDay();
-    // don't send everyone out at once when loading mid-day
     const tod = this.eco.timeOfDay;
     for (const c of this.pop.citizens.values()) if (c.leaveAt < tod) c.leaveAt = tod + Math.random() * 0.05;
   }
@@ -672,6 +975,8 @@ export class Game implements ToolHost {
       roads: this.net.serialize(),
       roundabouts: this.net.roundabouts,
       footpaths: this.footpaths.serialize(),
+      canals: this.canals.serialize(),
+      terrain: { height: Array.from(this.map.height), water: Array.from(this.map.water) },
       cleared: this.terrain.clearedList(),
       stumps: this.terrain.stumpList(),
       buildings: this.buildings.list.map((b) => ({
@@ -681,7 +986,19 @@ export class Game implements ToolHost {
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },
       time: this.time,
+      sandbox: this.sandbox,
       history: this.history.samples,
     };
   }
+}
+
+function barColor(v: number) {
+  return v > 0.6 ? '#7be08f' : v > 0.3 ? '#f2b33d' : '#ff6b5e';
+}
+
+function costText(money: number, stone: number, wood: number) {
+  const parts = [`$${money}`];
+  if (stone) parts.push(t('{n} stone', { n: stone }));
+  if (wood) parts.push(t('{n} wood', { n: wood }));
+  return parts.join(' + ');
 }

@@ -7,10 +7,12 @@ import { Menu } from './ui/Menu';
 import { Gallery } from './gallery/Gallery';
 import { SaveStore } from './save/SaveStore';
 import { renderThumbnails } from './models/catalog';
+import { getLang, setLang, t } from './i18n/i18n';
 
-const THUMB_IDS = ['road', 'roundabout', 'path', 'house', 'school', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry'];
+const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry'];
 
 async function boot() {
+  setLang(getLang());
   await Platform.init();
   Platform.loadingStart();
 
@@ -51,7 +53,7 @@ async function boot() {
   };
 
   const start = (opts: GameOptions) => {
-    menu.showLoading('Generating world…');
+    menu.showLoading(t('Generating world…'));
     // let the loading text paint before the (synchronous) world generation
     setTimeout(() => {
       const g = new Game(canvas, { ...opts, thumbs }, pause);
@@ -90,6 +92,10 @@ async function boot() {
     exitToMenu: () => {
       game?.save();
       openMainMenu();
+    },
+    languageChanged: () => {
+      game?.createUi();
+      gallery.relabel();
     },
     openGallery: (from) => {
       galleryFrom = from;

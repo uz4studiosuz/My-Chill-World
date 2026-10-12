@@ -5,7 +5,7 @@ import { RoadNetwork, ROAD_RING } from '../roads/RoadNetwork';
 import { BUILDINGS, BuildingKind } from './BuildingTypes';
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
-  quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, woodcutterGeometry,
+  quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
 } from '../models/buildings';
 import { hash2 } from '../utils/voxel';
 
@@ -32,6 +32,12 @@ export interface Building {
   /** Farm crop growth 0 → 1. */
   cropT: number;
   crop?: THREE.Mesh;
+  /** Farms: connected to water by a canal (or next to a river/lake). */
+  irrigated: boolean;
+  /** Gets electricity (road-connected to a working power plant). */
+  powered: boolean;
+  /** Seconds of fire left (lightning); the building burns down when it runs out. */
+  fire: number;
 }
 
 export interface PlaceCheck { ok: boolean; reason?: string }
@@ -65,6 +71,8 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'farm': return farmGeometry();
     case 'orchard': return orchardGeometry();
     case 'ranch': return ranchGeometry();
+    case 'weddinghall': return weddingHallGeometry();
+    case 'watertower': return waterTowerGeometry();
     default: return townHallGeometry();
   }
 }
@@ -121,6 +129,7 @@ export class Buildings {
     const b: Building = {
       id, kind, x, z, rot, access, workers: 0, present: 0, stored: opts.stored ?? 0, trucks: 0, removed: false,
       mesh, grow: opts.animate === false ? 1 : 0, cropT: Math.random() * 0.5,
+      irrigated: false, powered: true, fire: 0,
     };
     if (kind === 'farm') {
       b.crop = new THREE.Mesh(this.cropGeo, new THREE.MeshLambertMaterial({ color: CROP_GREEN.clone() }));
@@ -144,8 +153,8 @@ export class Buildings {
     b.removed = true;
   }
 
-  /** Grow / shrink animations and crop growth. */
-  update(dt: number, simDt: number, dayLength: number) {
+  /** Grow / shrink animations and crop growth (only in the growing season, with farmers and water). */
+  update(dt: number, simDt: number, dayLength: number, growing: boolean) {
     for (const b of this.list) {
       if (b.grow < 1) {
         b.grow = Math.min(1, b.grow + dt * 2.2);
@@ -153,10 +162,13 @@ export class Buildings {
         const xz = 0.6 + 0.4 * Math.min(1, b.grow * 1.6);
         b.mesh.scale.set(xz, Math.max(0.01, y), xz);
       }
-      if (b.crop && simDt > 0 && b.present > 0) {
-        // a full season takes ~2 days with all farmers working
-        b.cropT += (simDt / (dayLength * 2)) * (b.present / BUILDINGS.farm.jobs);
-        if (b.cropT >= 1) b.cropT = 0;
+      if (b.crop && simDt > 0) {
+        if (!growing) b.cropT = Math.max(0, b.cropT - simDt / dayLength);
+        else if (b.workers > 0 && b.irrigated) {
+          // a crop ripens in ~1.5 months with all farmers working
+          b.cropT += (simDt / (dayLength * 1.5)) * Math.min(1, b.workers / BUILDINGS.farm.jobs);
+          if (b.cropT >= 1) b.cropT = 0.05;
+        }
         this.updateCrop(b);
       }
     }
@@ -174,6 +186,7 @@ export class Buildings {
 
   private updateCrop(b: Building) {
     const t = b.cropT;
+    b.crop!.visible = t > 0.02;
     b.crop!.scale.set(1, 0.15 + t * 1.6, 1);
     (b.crop!.material as THREE.MeshLambertMaterial).color.copy(CROP_GREEN).lerp(CROP_GOLD, Math.max(0, (t - 0.5) * 2));
   }

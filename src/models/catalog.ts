@@ -3,6 +3,7 @@ import { N } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { RoadNetwork, ROAD_TWO_LANE } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
+import { Canals } from '../paths/Canals';
 import { RoadMesh } from '../roads/RoadMesh';
 import { buildingGeometry } from '../buildings/Buildings';
 import { PARKING_SLOTS, cropGeometry, trafficLampGeometry, trafficPoleGeometry } from './buildings';
@@ -89,6 +90,8 @@ export const CATALOG: CatalogEntry[] = [
     },
   },
   { id: 'school', name: 'School', group: 'Buildings', desc: '40 pupils. Educated adults earn 50% more.', make: () => mesh(buildingGeometry('school')) },
+  { id: 'watertower', name: 'Water Tower', group: 'Buildings', desc: 'Clean drinking water for 160 people.', make: () => mesh(buildingGeometry('watertower')) },
+  { id: 'weddinghall', name: 'Wedding Hall', group: 'Buildings', desc: 'Young couples marry here and start a family.', make: () => mesh(buildingGeometry('weddinghall')) },
   { id: 'woodcutter', name: 'Woodcutter', group: 'Buildings', desc: 'Workers fell trees and carry the logs to the power plant.', make: () => mesh(buildingGeometry('woodcutter')) },
   { id: 'powerplant', name: 'Wood Power Plant', group: 'Buildings', desc: 'Burns wood to power homes and workplaces.', make: () => mesh(buildingGeometry('powerplant')) },
   {
@@ -123,6 +126,18 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: 'bridge', name: 'Bridge', group: 'Roads', desc: 'Draw any road over water — it becomes a bridge.',
     make: () => roadPiece(5, 1, (n, c) => line(n, ROAD_TWO_LANE, c - 2, c, c + 2, c), (c) => [c * N + c - 1, c * N + c, c * N + c + 1]),
+  },
+  {
+    id: 'canal', name: 'Irrigation Canal', group: 'Roads', desc: 'Carries river water to the crop farms.',
+    make: () => {
+      const map = new WorldMap(0);
+      const c = N / 2;
+      map.water[c * N + c - 2] = 1;
+      const cn = new Canals(map);
+      cn.add([{ x: c - 1, z: c }, { x: c, z: c }, { x: c + 1, z: c }, { x: c + 1, z: c + 1 }]);
+      cn.rebuild();
+      return group(cn.mesh, mesh(box(3, 0.12, 2, 0.5, -0.06, 1, '#8cb156')), mesh(box(1, 0.3, 1, -1.5, -0.2, 0.5, '#3f93c4')));
+    },
   },
   {
     id: 'trafficlight', name: 'Traffic Light', group: 'Roads', desc: 'Every road junction gets signals: east–west and north–south take turns.',

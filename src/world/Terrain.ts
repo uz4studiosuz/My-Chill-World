@@ -3,6 +3,7 @@ import { DIRS, N, idx, inBounds, tileToWorld } from './grid';
 import { WorldMap } from './WorldMap';
 import { LEVEL_H, WATER_BED, WATER_LEVEL } from '../config';
 import { fbm, mulberry32 } from '../utils/rng';
+import { TREE_PARTS } from '../buildings/BuildingTypes';
 import { canopyGeometry, pineGeometry, rockGeometry, trunkGeometry, tuftGeometry } from '../models/nature';
 
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -14,7 +15,11 @@ interface DecorRef { mesh: THREE.InstancedMesh; index: number; tree: boolean; m:
 const REGROW_DAYS = 6;
 
 const LEAF_GREEN = ['#5f9a3e', '#6faa45', '#4f8a3a', '#7bb24c'];
-const LEAF_AUTUMN = ['#e0822f', '#e9b23a', '#c95a2b', '#d99a2e', '#9fae3a'];
+const LEAF_AUTUMN = ['#e0822f', '#e9b23a', '#c95a2b', '#d99a2e', '#b8862f'];
+const AUTUMN_TINT = new THREE.Color('#b7a258');
+const SPRING_TINT = new THREE.Color('#79c04a');
+const BARE = new THREE.Color('#7d6b55');
+const SNOWY = new THREE.Color('#eef3f6');
 const TUFT_GRASS = ['#7da84a', '#6c9a40', '#93b858', '#86ad4e'];
 const TUFT_FLOWER = ['#f2efe2', '#f0d54a', '#b9a3e0'];
 
@@ -42,6 +47,21 @@ export class Terrain {
   readonly trees = new Set<number>();
   /** Felled trees: tile -> days until it grows back. */
   readonly stumps = new Map<number, number>();
+  /** Trees partly chopped: tile -> parts left. */
+  private treeHp = new Map<number, number>();
+
+  // seasonal look
+  private ground?: THREE.Mesh;
+  private waterMesh?: THREE.Mesh;
+  private baseColors = new Float32Array(0);
+  private topMask = new Float32Array(0);
+  private pineMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private waterMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.82 });
+  private canopy?: THREE.InstancedMesh;
+  private tuftMesh?: THREE.InstancedMesh;
+  private leafGreen: THREE.Color[] = [];
+  private leafAutumn: THREE.Color[] = [];
+  private lastSeason = '';
 
   constructor(private map: WorldMap) {
     this.buildGround();
@@ -101,6 +121,7 @@ export class Terrain {
       if (d > 1) { this.stumps.set(k, d - 1); continue; }
       this.stumps.delete(k);
       if (this.cleared[k]) continue;
+      this.treeHp.delete(k);
       this.trees.add(k);
       this.setTreeVisible(k, true);
     }
@@ -186,9 +207,21 @@ export class Terrain {
         }
       }
     }
-    const ground = new THREE.Mesh(b.geometry(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    if (this.ground) {
+      this.group.remove(this.ground);
+      this.ground.geometry.dispose();
+    }
+    const geo = b.geometry();
+    const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
     ground.receiveShadow = true;
     this.group.add(ground);
+    this.ground = ground;
+    const pos = geo.attributes.position.array as Float32Array;
+    const nor = geo.attributes.normal.array as Float32Array;
+    this.baseColors = (geo.attributes.color.array as Float32Array).slice();
+    this.topMask = new Float32Array(pos.length / 3);
+    for (let i = 0; i < this.topMask.length; i++) this.topMask[i] = nor[i * 3 + 1] > 0.9 && pos[i * 3 + 1] > -0.05 ? 1 : 0;
+    this.lastSeason = '';
   }
 
   private buildWater() {
@@ -203,12 +236,82 @@ export class Terrain {
         }
       }
     }
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.82 });
-    const water = new THREE.Mesh(b.geometry(), mat);
+    if (this.waterMesh) {
+      this.group.remove(this.waterMesh);
+      this.waterMesh.geometry.dispose();
+    }
+    const water = new THREE.Mesh(b.geometry(), this.waterMat);
     water.receiveShadow = true;
     water.renderOrder = 1;
     this.group.add(water);
+    this.waterMesh = water;
   }
+
+  /** Rebuild ground and water after the map was reshaped (god tools). */
+  reshape(changed: number[]) {
+    this.clearTiles(changed);
+    this.buildGround();
+    this.buildWater();
+  }
+
+  /** Blend ground, trees and water towards the current season. */
+  applySeason(b: { snow: number; autumn: number; bare: number; spring: number }) {
+    const key = [b.snow, b.autumn, b.bare, b.spring].map((v) => v.toFixed(2)).join();
+    if (key === this.lastSeason || !this.ground) return;
+    this.lastSeason = key;
+
+    const col = this.ground.geometry.attributes.color as THREE.BufferAttribute;
+    const arr = col.array as Float32Array;
+    const base = this.baseColors, mask = this.topMask;
+    const tint = AUTUMN_TINT, spring = SPRING_TINT;
+    for (let i = 0; i < mask.length; i++) {
+      let r = base[i * 3], g = base[i * 3 + 1], bl = base[i * 3 + 2];
+      const m = mask[i];
+      if (m) {
+        const a = b.autumn * 0.35, sp = b.spring * 0.18, sn = b.snow * 0.88;
+        r += (tint.r - r) * a; g += (tint.g - g) * a; bl += (tint.b - bl) * a;
+        r += (spring.r - r) * sp; g += (spring.g - g) * sp; bl += (spring.b - bl) * sp;
+        r += (0.93 - r) * sn; g += (0.95 - g) * sn; bl += (0.97 - bl) * sn;
+      }
+      arr[i * 3] = r; arr[i * 3 + 1] = g; arr[i * 3 + 2] = bl;
+    }
+    col.needsUpdate = true;
+
+    if (this.canopy) {
+      const c = new THREE.Color();
+      for (let i = 0; i < this.leafGreen.length; i++) {
+        c.copy(this.leafGreen[i]).lerp(this.leafAutumn[i], b.autumn).lerp(BARE, b.bare * 0.85).lerp(SNOWY, b.snow * 0.6);
+        this.canopy.setColorAt(i, c);
+      }
+      if (this.canopy.instanceColor) this.canopy.instanceColor.needsUpdate = true;
+    }
+    this.pineMat.emissive.setRGB(0.3 * b.snow, 0.32 * b.snow, 0.34 * b.snow);
+    this.waterMat.emissive.setRGB(0.35 * b.snow, 0.42 * b.snow, 0.48 * b.snow);
+    if (this.tuftMesh) this.tuftMesh.visible = b.snow < 0.4;
+  }
+
+  /** Chop part of a tree. Returns true when the whole tree is down. */
+  chopPart(k: number) {
+    if (!this.trees.has(k)) return true;
+    const left = (this.treeHp.get(k) ?? TREE_PARTS) - 1;
+    if (left <= 0) {
+      this.treeHp.delete(k);
+      this.chop(k);
+      return true;
+    }
+    this.treeHp.set(k, left);
+    const f = left / TREE_PARTS;
+    const touched = new Set<THREE.InstancedMesh>();
+    for (const r of this.decorByTile.get(k) ?? []) {
+      if (!r.tree) continue;
+      r.mesh.setMatrixAt(r.index, r.m.clone().multiply(new THREE.Matrix4().makeScale(1, 0.25 + 0.75 * f, 1)));
+      touched.add(r.mesh);
+    }
+    touched.forEach((m) => (m.instanceMatrix.needsUpdate = true));
+    return false;
+  }
+
+  hasTree(k: number) { return this.trees.has(k); }
 
   private buildDecor() {
     const map = this.map, seed = map.seed;
@@ -218,6 +321,8 @@ export class Terrain {
     const mat = (x: number, y: number, z: number, s: number) =>
       new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q.setFromAxisAngle(up, rnd() * Math.PI * 2), new THREE.Vector3(s, s, s));
     const pick = (pal: string[]) => new THREE.Color(pal[Math.floor(rnd() * pal.length)]);
+    this.leafGreen = [];
+    this.leafAutumn = [];
     const rockColor = () => { const g = 0.55 + rnd() * 0.15; return new THREE.Color(g, g, g * 1.03); };
 
     for (let z = 0; z < N; z++) {
@@ -248,8 +353,10 @@ export class Terrain {
           if (rnd() < (forest > 0.6 ? 0.55 : 0.35)) {
             pines.push({ m: mat(jx(), 0, jz(), 0.8 + rnd() * 0.5), tile: k });
           } else {
-            const autumn = fbm(x * 0.05 + 300, z * 0.05, seed + 11) > 0.52 && rnd() < 0.85;
-            leafy.push({ m: mat(jx(), 0, jz(), 0.8 + rnd() * 0.4), tile: k, color: pick(autumn ? LEAF_AUTUMN : LEAF_GREEN) });
+            const green = pick(LEAF_GREEN);
+            leafy.push({ m: mat(jx(), 0, jz(), 0.8 + rnd() * 0.4), tile: k, color: green });
+            this.leafGreen.push(green.clone());
+            this.leafAutumn.push(pick(LEAF_AUTUMN));
           }
           continue;
         }
@@ -277,16 +384,16 @@ export class Terrain {
     const rockGeo = rockGeometry();
     const tuftGeo = tuftGeometry();
 
-    this.instances(pineGeo, vertexColored, pines, true, false, true);
+    this.instances(pineGeo, this.pineMat, pines, true, false, true);
     this.instances(trunkGeo, vertexColored, leafy, true, false, true);
-    this.instances(canopyGeo, tinted, leafy, true, true, true);
+    this.canopy = this.instances(canopyGeo, tinted, leafy, true, true, true);
     this.instances(rockGeo, tinted, rocks, true, true);
-    this.instances(tuftGeo, tinted, tufts, false, true);
+    this.tuftMesh = this.instances(tuftGeo, new THREE.MeshLambertMaterial(), tufts, false, true);
     for (const it of [...pines, ...leafy]) if (this.map.height[it.tile] <= 3) this.trees.add(it.tile);
   }
 
   private instances(geo: THREE.BufferGeometry, mat: THREE.Material, items: DecorItem[], cast: boolean, useColor: boolean, tree = false) {
-    if (!items.length) return;
+    if (!items.length) return undefined;
     const mesh = new THREE.InstancedMesh(geo, mat, items.length);
     items.forEach((it, i) => {
       mesh.setMatrixAt(i, it.m);
@@ -299,6 +406,7 @@ export class Terrain {
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
     this.group.add(mesh);
+    return mesh;
   }
 }
 

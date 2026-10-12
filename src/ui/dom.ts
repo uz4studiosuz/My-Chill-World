@@ -47,6 +47,14 @@ const ICONS = {
   ranch: '<path d="M3 21V9h18v12M3 13h18M3 17h18M7 9v12M17 9v12"/>',
   heart: '<path d="M12 21s-8-5-8-11a4 4 0 018-1 4 4 0 018 1c0 6-8 11-8 11z"/>',
   car: '<path d="M5 16V11l2-5h10l2 5v5M3 16h18M7 19v-3M17 19v-3"/>',
+  canal: '<path d="M3 6c3 2 6 2 9 0s6-2 9 0M3 12c3 2 6 2 9 0s6-2 9 0M3 18c3 2 6 2 9 0s6-2 9 0"/>',
+  watertower: '<path d="M7 3h10v7H7zM9 10l-2 11M15 10l2 11M8 16h8"/>',
+  water: '<path d="M12 3s6 7 6 11a6 6 0 01-12 0c0-4 6-11 6-11z"/>',
+  rain: '<path d="M7 15a4 4 0 010-8 5 5 0 019.6-1A4 4 0 0117 15z"/><path d="M8 18l-1 3M12 18l-1 3M16 18l-1 3"/>',
+  up: '<path d="M3 20l6-8 4 5 3-4 5 7z"/><path d="M12 3v6M9 6l3-3 3 3"/>',
+  down: '<path d="M3 14c3 2 6 2 9 0s6-2 9 0M3 19c3 2 6 2 9 0s6-2 9 0"/><path d="M12 3v7M9 7l3 3 3-3"/>',
+  follow: '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
 };
 

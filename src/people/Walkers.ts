@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { N, tileToWorld } from '../world/grid';
 import { PERSON_VARIANTS, babyGeometry, logGeometry, personGeometry } from '../models/people';
 import type { Point } from '../buildings/Buildings';
 
@@ -7,6 +6,8 @@ export type Carry = 'none' | 'log' | 'baby';
 
 export interface Walker {
   id: number;
+  /** Citizen this walker belongs to (for selection). */
+  citizen?: number;
   variant: number;
   scale: number;
   carry: Carry;
@@ -28,15 +29,10 @@ export interface Walker {
   onHoldEnd?: (w: Walker) => void;
 }
 
-export interface WalkRoute {
-  from: Point;
-  to: Point;
-  /** Tile path between the two points (from A*). */
-  tiles: number[];
-}
+/** Waypoints in world space (start and end included). */
+export interface WalkRoute { points: Point[] }
 
 const MAX_PER_VARIANT = 400;
-const SIDEWALK = 0.43;
 
 /** Pedestrians: walking along footpaths / sidewalks / fields, carrying logs or babies, working. */
 export class Walkers {
@@ -53,7 +49,7 @@ export class Walkers {
   private sc = new THREE.Vector3();
   private time = 0;
 
-  constructor(private isRoad: (k: number) => boolean) {
+  constructor() {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     const make = (geo: THREE.BufferGeometry) => {
       const m = new THREE.InstancedMesh(geo, mat, MAX_PER_VARIANT);
@@ -71,7 +67,7 @@ export class Walkers {
   walk(variant: number, scale: number, route: WalkRoute, carry: Carry = 'none', onArrive?: (w: Walker) => void): Walker {
     const w: Walker = {
       id: this.nextId++, variant, scale, carry, pts: [], cum: [], len: 0, s: 0, seg: 0,
-      speed: 0.9 * (scale < 0.9 ? 0.8 : 1), x: route.from.x, z: route.from.z, hx: 0, hz: 1,
+      speed: 2.6 * (scale < 0.9 ? 0.85 : 1), x: route.points[0].x, z: route.points[0].z, hx: 0, hz: 1,
       fade: 0, leaving: false, hold: 0, anim: 'none', phase: Math.random() * 10, onArrive,
     };
     this.setRoute(w, route);
@@ -155,24 +151,8 @@ export class Walkers {
       pts.push(x, z);
       cum.push(len);
     };
-    push(r.from.x, r.from.z);
-    const t = r.tiles;
-    for (let i = 0; i < t.length; i++) {
-      const k = t[i];
-      let cx = tileToWorld(k % N), cz = tileToWorld((k / N) | 0);
-      if (this.isRoad(k) && t.length > 1) {
-        // keep to the right-hand sidewalk
-        const a = t[Math.max(0, i - 1)], b = t[Math.min(t.length - 1, i + 1)];
-        let dx = (b % N) - (a % N), dz = ((b / N) | 0) - ((a / N) | 0);
-        const l = Math.hypot(dx, dz) || 1;
-        dx /= l; dz /= l;
-        cx += -dz * SIDEWALK;
-        cz += dx * SIDEWALK;
-      }
-      push(cx, cz);
-    }
-    push(r.to.x, r.to.z);
-    if (pts.length < 4) push(r.to.x + 0.001, r.to.z);
+    for (const p of r.points) push(p.x, p.z);
+    if (pts.length < 4) push(pts[0] + 0.001, pts[1]);
     w.pts = pts;
     w.cum = cum;
     w.len = len;

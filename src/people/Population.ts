@@ -1,14 +1,18 @@
+import { DAYS_PER_YEAR } from '../config';
 import { BUILDINGS } from '../buildings/BuildingTypes';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { Walker } from './Walkers';
+import { clanName, firstName } from './names';
 
 export type Sex = 'm' | 'f';
 export type Role = 'parent' | 'child' | 'elder';
+export type DeathCause = 'old age' | 'starvation' | 'thirst' | 'lightning';
 
 export interface Citizen {
   id: number;
   name: string;
   sex: Sex;
+  /** Age in years (fractional — one day is one month). */
   age: number;
   family: number;
   role: Role;
@@ -17,24 +21,26 @@ export interface Citizen {
   school: number;
   /** School progress 0..1 — educated adults earn more. */
   edu: number;
-  /** Where the person is: at home, at work/school/errand, or travelling. */
+  /** 100 = full, 0 = starving. */
+  hunger: number;
+  /** 100 = healthy, 0 = dead. */
+  health: number;
   state: 'home' | 'away' | 'travel';
-  /** Building the person is currently in (when not travelling). */
+  /** Building the person is in (when not travelling). */
   at: number;
-  /** Today's schedule as fractions of the day. */
   leaveAt: number;
   returnAt: number;
   errand: boolean;
-  /** Took the family car this morning. */
   drove: boolean;
   variant: number;
+  /** What they're doing right now (English key, translated in the UI). */
+  activity: string;
   walker?: Walker;
 }
 
 export interface FamilyCar {
   color: string;
   at: 'home' | 'away' | 'moving';
-  /** Parking spot while away: building id + slot index. */
   lot?: number;
   slot?: number;
 }
@@ -44,11 +50,9 @@ export interface Family {
   surname: string;
   home: number;
   money: number;
-  /** Net earnings of the last day. */
   income: number;
   car: FamilyCar | null;
   members: number[];
-  hunger: number;
   debtDays: number;
 }
 
@@ -59,14 +63,12 @@ export interface DayReport {
   foodSales: number;
   propertyTax: number;
   births: number;
-  deaths: number;
+  deaths: { name: string; cause: DeathCause }[];
+  weddings: [string, string][];
   leftTown: number;
   carsBought: number;
 }
 
-const MALE = ['Aziz', 'Bekzod', 'Javohir', 'Sardor', 'Timur', 'Rustam', 'Jasur', 'Otabek', 'Dilshod', 'Sherzod', 'Akmal', 'Bobur', 'Daniel', 'Leo', 'Adam', 'Omar', 'Ali', 'Sam', 'Ivan', 'Kenji'];
-const FEMALE = ['Malika', 'Dilnoza', 'Madina', 'Zarina', 'Nilufar', 'Shahnoza', 'Gulnora', 'Feruza', 'Sevara', 'Kamola', 'Laylo', 'Nodira', 'Emma', 'Mia', 'Sara', 'Lina', 'Aisha', 'Yuki', 'Anna', 'Nora'];
-const SURNAMES = ['Karimov', 'Rahimov', 'Aliyev', 'Tursunov', 'Yusupov', 'Nazarov', 'Saidov', 'Ergashev', 'Qodirov', 'Mirzayev', 'Smith', 'Novak', 'Haddad', 'Tanaka', 'Silva', 'Becker'];
 export const CAR_COLORS = ['#d9443b', '#3a6fd1', '#f2f2ee', '#f1c232', '#4c9a52', '#8a8f98', '#2d3138', '#e07b2e', '#6fc3d8'];
 
 const CAR_PRICE = 700;
@@ -76,14 +78,10 @@ const PROPERTY_TAX = 4;
 const FOOD_PRICE = 1;
 const RETIRE_AGE = 65;
 const ADULT_AGE = 18;
+const PER_YEAR = 1 / DAYS_PER_YEAR;
 
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
-
-/** Surnames get the feminine form for women (Karimov → Karimova). */
-export function displaySurname(surname: string, sex: Sex) {
-  return sex === 'f' && /(ov|ev|yev)$/.test(surname) ? surname + 'a' : surname;
-}
 
 export class Population {
   readonly citizens = new Map<number, Citizen>();
@@ -113,24 +111,20 @@ export class Population {
     return c.age >= ADULT_AGE && c.age < RETIRE_AGE && !this.onLeave(c);
   }
 
-  /** A newly arriving family of 2–6 people. */
   createFamily(home: number, opts: { size?: number; carChance?: number; money?: number } = {}): Family {
     const size = opts.size ?? 2 + Math.floor(Math.random() * 4);
     const f: Family = {
-      id: this.nextFamily++, surname: pick(SURNAMES), home, money: opts.money ?? Math.round(rand(200, 1200)),
+      id: this.nextFamily++, surname: clanName(), home, money: opts.money ?? Math.round(rand(200, 1200)),
       income: 0, car: Math.random() < (opts.carChance ?? 0.4) ? { color: pick(CAR_COLORS), at: 'home' } : null,
-      members: [], hunger: 0, debtDays: 0,
+      members: [], debtDays: 0,
     };
     this.families.set(f.id, f);
-    // bigger families have older parents (and grown-up children who can work)
     const dadAge = Math.round(size >= 6 ? rand(38, 56) : rand(24, 45));
     this.addCitizen(f, 'm', dadAge, 'parent');
     if (size >= 2) this.addCitizen(f, 'f', Math.max(20, dadAge - Math.round(rand(0, 5))), 'parent');
     let left = size - 2;
     const elders = left > 1 && Math.random() < 0.45 ? (Math.random() < 0.4 ? 2 : 1) : 0;
-    for (let i = 0; i < elders && left > 0; i++, left--) {
-      this.addCitizen(f, i === 0 ? 'f' : 'm', Math.round(rand(63, 80)), 'elder');
-    }
+    for (let i = 0; i < elders && left > 0; i++, left--) this.addCitizen(f, i === 0 ? 'f' : 'm', Math.round(rand(63, 78)), 'elder');
     for (let i = 0; i < left; i++) {
       const maxAge = Math.min(30, dadAge - 19);
       this.addCitizen(f, Math.random() < 0.5 ? 'm' : 'f', Math.max(0, Math.round(rand(0, maxAge))), 'child');
@@ -140,10 +134,11 @@ export class Population {
 
   addCitizen(f: Family, sex: Sex, age: number, role: Role): Citizen {
     const c: Citizen = {
-      id: this.nextCitizen++, name: pick(sex === 'm' ? MALE : FEMALE), sex, age, family: f.id, role,
+      id: this.nextCitizen++, name: firstName(sex), sex, age: age + Math.random() * 0.9, family: f.id, role,
       job: -1, school: -1, edu: age >= ADULT_AGE ? (Math.random() < 0.5 ? 1 : 0) : 0,
-      state: 'home', at: f.home, leaveAt: 0, returnAt: 0, errand: false, drove: false,
-      variant: (sex === 'm' ? 0 : 4) + Math.floor(Math.random() * 4),
+      hunger: 85 + Math.random() * 15, health: 90 + Math.random() * 10,
+      state: 'home', at: f.home, leaveAt: 2, returnAt: 2, errand: false, drove: false,
+      variant: (sex === 'm' ? 0 : 4) + Math.floor(Math.random() * 4), activity: 'At home',
     };
     this.citizens.set(c.id, c);
     f.members.push(c.id);
@@ -171,7 +166,6 @@ export class Population {
       if (d.students) seats.set(b.id, d.students);
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
-    // keep valid assignments
     for (const c of this.citizens.values()) {
       if (c.job >= 0 && (!free.has(c.job) || !this.canWork(c) || free.get(c.job)! <= 0)) c.job = -1;
       if (c.job >= 0) free.set(c.job, free.get(c.job)! - 1);
@@ -206,21 +200,20 @@ export class Population {
     }
   }
 
-  /** Plan everyone's day: when they leave and come back (fractions of the day). */
+  /** Plan everyone's day as fractions of the day (one second = one hour at 1x). */
   planDay() {
     for (const c of this.citizens.values()) {
       c.errand = false;
       if (c.job >= 0) {
-        c.leaveAt = rand(0.22, 0.32);
-        c.returnAt = rand(0.66, 0.76);
+        c.leaveAt = rand(0.24, 0.33);
+        c.returnAt = rand(0.7, 0.78);
       } else if (c.school >= 0) {
-        c.leaveAt = rand(0.24, 0.3);
-        c.returnAt = rand(0.58, 0.64);
+        c.leaveAt = rand(0.28, 0.32);
+        c.returnAt = rand(0.6, 0.65);
       } else if (c.age >= 3 && c.role !== 'child' && Math.random() < 0.45) {
-        // errands / walks — mothers on leave take the baby along
         c.errand = true;
-        c.leaveAt = rand(0.34, 0.55);
-        c.returnAt = c.leaveAt + rand(0.06, 0.14);
+        c.leaveAt = rand(0.36, 0.55);
+        c.returnAt = c.leaveAt + rand(0.08, 0.15);
       } else {
         c.leaveAt = 2;
         c.returnAt = 2;
@@ -228,17 +221,27 @@ export class Population {
     }
   }
 
-  wage(c: Citizen, b: Building | undefined, powered: number) {
+  wage(c: Citizen, b: Building | undefined) {
     if (!b) return 0;
     const d = BUILDINGS[b.kind];
-    const needsPower = d.energy > 0 ? 0.5 + 0.5 * powered : 1;
-    return d.salary * (1 + 0.5 * c.edu) * needsPower;
+    const power = d.energy > 0 && !b.powered ? 0.5 : 1;
+    return d.salary * (1 + 0.5 * c.edu) * power;
   }
 
-  /** End-of-day simulation: wages, food, ageing, births, deaths, cars, moving out. */
-  daily(buildings: Buildings, food: number, powered: number, freeHomes: () => Building[]): DayReport {
-    const r: DayReport = { incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: 0, leftTown: 0, carsBought: 0 };
+  /** Hunger drops through the day; it's restored at the evening meal. */
+  tickNeeds(dayFraction: number) {
+    for (const c of this.citizens.values()) c.hunger = Math.max(0, c.hunger - dayFraction * 55);
+  }
+
+  /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
+  daily(buildings: Buildings, food: number, water: number, freeHomes: () => Building[], hasHall: boolean): DayReport {
+    const r: DayReport = { incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
     let foodLeft = food;
+    const die = (c: Citizen, cause: DeathCause) => {
+      const f = this.families.get(c.family);
+      r.deaths.push({ name: `${c.name} ${f?.surname ?? ''}`.trim(), cause });
+      this.removeCitizen(c);
+    };
 
     for (const f of [...this.families.values()]) {
       const people = this.members(f);
@@ -246,23 +249,20 @@ export class Population {
       for (const c of people) {
         if (c.job < 0) continue;
         const b = buildings.get(c.job);
-        const gross = this.wage(c, b, powered);
+        const gross = this.wage(c, b);
         if (b && BUILDINGS[b.kind].publicJob) r.publicWages += gross;
         r.incomeTax += gross * INCOME_TAX;
         earned += gross * (1 - INCOME_TAX);
       }
-      // food: each person eats one unit a day and pays for it
-      const need = people.length;
-      if (foodLeft >= need) {
-        foodLeft -= need;
-        r.foodEaten += need;
-        r.foodSales += need * FOOD_PRICE;
-        earned -= need * FOOD_PRICE;
-        f.hunger = 0;
-      } else {
-        r.foodEaten += foodLeft;
-        foodLeft = 0;
-        f.hunger++;
+      // evening meal: everyone who gets food is full again, the family pays for it
+      for (const c of people) {
+        if (foodLeft >= 1) {
+          foodLeft--;
+          r.foodEaten++;
+          r.foodSales += FOOD_PRICE;
+          earned -= FOOD_PRICE;
+          c.hunger = 100;
+        }
       }
       earned -= PROPERTY_TAX;
       r.propertyTax += PROPERTY_TAX;
@@ -277,36 +277,38 @@ export class Population {
       }
     }
 
-    // ageing, school progress, deaths
+    // health, ageing, school progress, deaths
     for (const c of [...this.citizens.values()]) {
-      c.age++;
-      if (c.school >= 0) c.edu = Math.min(1, c.edu + 1 / 10);
+      let cause: DeathCause = 'old age';
+      if (c.hunger < 25) { c.health -= 30; cause = 'starvation'; }
+      if (Math.random() > water) { c.health -= 22; cause = c.hunger < 25 ? cause : 'thirst'; }
+      if (c.age > 60) c.health -= (c.age - 60) * 0.35;
+      else if (c.hunger >= 25) c.health = Math.min(100, c.health + 12);
+      c.age += PER_YEAR;
+      if (c.school >= 0) c.edu = Math.min(1, c.edu + 0.1 * PER_YEAR);
       if (c.age >= ADULT_AGE && c.role === 'child' && c.school >= 0) c.school = -1;
       if (c.role === 'parent' && c.age >= 70) c.role = 'elder';
-      if (c.age >= 68 && Math.random() < (c.age - 66) * 0.035) {
-        this.removeCitizen(c);
-        r.deaths++;
-      }
+      if (c.health <= 0) die(c, cause);
     }
 
-    // births
+    // births (couples aged 20–42, about one child every three years)
     for (const f of this.families.values()) {
       const people = this.members(f);
-      const dad = people.find((c) => c.role === 'parent' && c.sex === 'm' && c.age < 50);
+      const dad = people.find((c) => c.role === 'parent' && c.sex === 'm' && c.age < 55);
       const mom = people.find((c) => c.role === 'parent' && c.sex === 'f' && c.age >= 20 && c.age <= 42);
-      if (dad && mom && people.length < BUILDINGS.house.housing && f.hunger === 0 && Math.random() < 0.18) {
+      if (dad && mom && people.length < BUILDINGS.house.housing && mom.hunger > 40 && Math.random() < 0.35 * PER_YEAR) {
         this.addCitizen(f, Math.random() < 0.5 ? 'm' : 'f', 0, 'child');
         r.births++;
       }
     }
 
-    // grown-up children move into their own home (sometimes with a partner)
+    // grown-up children start their own household; with a Wedding Hall they can marry
     for (const f of [...this.families.values()]) {
       const grown = this.members(f).filter((c) => c.role === 'child' && c.age >= 20);
       for (const c of grown) {
         const home = freeHomes()[0];
-        if (!home || Math.random() > 0.35) continue;
-        const nf: Family = { id: this.nextFamily++, surname: f.surname, home: home.id, money: 150, income: 0, car: null, members: [], hunger: 0, debtDays: 0 };
+        if (!home || Math.random() > 0.25) continue;
+        const nf: Family = { id: this.nextFamily++, surname: f.surname, home: home.id, money: 150, income: 0, car: null, members: [], debtDays: 0 };
         this.families.set(nf.id, nf);
         f.members = f.members.filter((id) => id !== c.id);
         c.family = nf.id;
@@ -314,21 +316,23 @@ export class Population {
         nf.members.push(c.id);
         f.money -= 100;
         nf.money += 100;
+        if (!hasHall) continue;
         const partner = [...this.citizens.values()].find((p) => p.role === 'child' && p.age >= 20 && p.sex !== c.sex && p.family !== f.id);
-        if (partner && Math.random() < 0.6) {
+        if (partner && Math.random() < 0.7) {
           const pf = this.families.get(partner.family)!;
           pf.members = pf.members.filter((id) => id !== partner.id);
           partner.family = nf.id;
           partner.role = 'parent';
           nf.members.push(partner.id);
+          r.weddings.push([c.name, partner.name]);
         }
       }
     }
 
-    // hungry or broke families leave; empty families disappear
+    // broke families leave; empty families disappear
     for (const f of [...this.families.values()]) {
       if (!f.members.length) { this.families.delete(f.id); continue; }
-      if (f.hunger >= 3 || f.debtDays >= 6) {
+      if (f.debtDays >= 6) {
         r.leftTown += f.members.length;
         this.removeFamily(f);
       }
@@ -337,7 +341,7 @@ export class Population {
   }
 
   counts() {
-    const out = { men: 0, women: 0, boys: 0, girls: 0, babies: 0, elders: 0, students: 0, workers: 0, workforce: 0 };
+    const out = { men: 0, women: 0, boys: 0, girls: 0, babies: 0, elders: 0, students: 0, workers: 0, workforce: 0, hungry: 0, sick: 0 };
     for (const c of this.citizens.values()) {
       if (c.age < 3) out.babies++;
       else if (c.age < ADULT_AGE) c.sex === 'm' ? out.boys++ : out.girls++;
@@ -346,6 +350,8 @@ export class Population {
       if (c.school >= 0) out.students++;
       if (c.job >= 0) out.workers++;
       if (this.canWork(c)) out.workforce++;
+      if (c.hunger < 25) out.hungry++;
+      if (c.health < 50) out.sick++;
     }
     return out;
   }
@@ -353,8 +359,11 @@ export class Population {
   serialize() {
     return [...this.families.values()].map((f) => ({
       id: f.id, surname: f.surname, home: f.home, money: Math.round(f.money), income: f.income,
-      car: f.car ? { color: f.car.color } : null, hunger: f.hunger, debtDays: f.debtDays,
-      members: this.members(f).map((c) => ({ id: c.id, name: c.name, sex: c.sex, age: c.age, role: c.role, job: c.job, school: c.school, edu: c.edu, variant: c.variant })),
+      car: f.car ? { color: f.car.color } : null, debtDays: f.debtDays,
+      members: this.members(f).map((c) => ({
+        id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
+        edu: c.edu, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
+      })),
     }));
   }
 
@@ -362,11 +371,11 @@ export class Population {
     this.citizens.clear();
     this.families.clear();
     for (const fd of data) {
-      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home' } : null, members: [], hunger: fd.hunger, debtDays: fd.debtDays };
+      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home' } : null, members: [], debtDays: fd.debtDays };
       this.families.set(f.id, f);
       this.nextFamily = Math.max(this.nextFamily, f.id + 1);
       for (const m of fd.members) {
-        const c: Citizen = { ...m, family: f.id, state: 'home', at: f.home, leaveAt: 2, returnAt: 2, errand: false, drove: false };
+        const c: Citizen = { ...m, family: f.id, state: 'home', at: f.home, leaveAt: 2, returnAt: 2, errand: false, drove: false, activity: 'At home' };
         this.citizens.set(c.id, c);
         f.members.push(c.id);
         this.nextCitizen = Math.max(this.nextCitizen, c.id + 1);

@@ -4,8 +4,8 @@ import { BuildingKind } from '../buildings/BuildingTypes';
 import { Sample } from '../sim/History';
 import { PopulationSave } from '../people/Population';
 
-/** v3 = families & citizens, resources, footpaths. Older worlds are hidden (incompatible). */
-export const SAVE_VERSION = 3;
+/** v4 = needs, seasons, canals, reshaped terrain. Older worlds are hidden (incompatible). */
+export const SAVE_VERSION = 4;
 const INDEX_KEY = 'mcw_index';
 const worldKey = (id: string) => `mcw_w_${id}`;
 
@@ -27,6 +27,9 @@ export interface WorldSave {
   roads: number[];
   roundabouts?: number[];
   footpaths?: number[];
+  canals?: number[];
+  terrain?: { height: number[]; water: number[] };
+  sandbox?: boolean;
   cleared: number[];
   stumps?: [number, number][];
   buildings: { id: number; kind: BuildingKind; x: number; z: number; stored: number; cropT?: number }[];

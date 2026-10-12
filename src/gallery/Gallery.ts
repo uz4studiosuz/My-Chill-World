@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CATALOG, CatalogEntry, CatalogGroup, centerObject, disposeObject, fitCamera } from '../models/catalog';
 import { el, icon } from '../ui/dom';
+import { t } from '../i18n/i18n';
 
 const GROUPS: CatalogGroup[] = ['Buildings', 'Roads', 'People', 'Vehicles', 'Animals', 'Nature'];
 
@@ -24,6 +25,8 @@ export class Gallery {
   private buttons = new Map<string, HTMLButtonElement>();
   private autoBtn: HTMLButtonElement;
   private wireBtn: HTMLButtonElement;
+  private resetBtn!: HTMLButtonElement;
+  private head!: HTMLElement;
 
   constructor(private canvas: HTMLCanvasElement, parent: HTMLElement, private onClose: () => void) {
     this.scene.background = new THREE.Color('#a9c9d6');
@@ -48,7 +51,8 @@ export class Gallery {
     const side = el('div', 'gallery-side');
     const head = el('div', 'gallery-head');
     const h = el('b', '');
-    h.textContent = 'Gallery';
+    this.head = h;
+    h.textContent = t('Gallery');
     const close = el('button', 'rbtn');
     close.innerHTML = icon('close');
     close.setAttribute('aria-label', 'Close gallery');
@@ -63,31 +67,48 @@ export class Gallery {
     this.stats = el('div', 'gallery-stats');
     const tools = el('div', 'gallery-tools');
     this.autoBtn = el('button', 'chipbtn active');
-    this.autoBtn.textContent = 'Auto-rotate';
+    this.autoBtn.textContent = t('Auto-rotate');
     this.autoBtn.addEventListener('click', () => this.setAutoRotate(!this.autoRotate));
     this.wireBtn = el('button', 'chipbtn');
-    this.wireBtn.textContent = 'Wireframe';
+    this.wireBtn.textContent = t('Wireframe');
     this.wireBtn.addEventListener('click', () => this.setWireframe(!this.wireframe));
     const reset = el('button', 'chipbtn');
-    reset.textContent = 'Reset view';
+    this.resetBtn = reset;
+    reset.textContent = t('Reset view');
     reset.addEventListener('click', () => this.frame());
     tools.append(this.autoBtn, this.wireBtn, reset);
     info.append(this.title, this.desc, this.stats, tools);
 
+    this.buildList();
+    this.root.append(side, info);
+    parent.appendChild(this.root);
+  }
+
+  private buildList() {
+    this.list.replaceChildren();
+    this.buttons.clear();
     for (const g of GROUPS) {
       const label = el('div', 'gallery-group');
-      label.textContent = g;
+      label.textContent = t(g);
       this.list.appendChild(label);
       for (const e of CATALOG.filter((c) => c.group === g)) {
         const b = el('button', 'gallery-item');
-        b.textContent = e.name;
+        b.textContent = t(e.name);
         b.addEventListener('click', () => this.select(e));
         this.buttons.set(e.id, b);
         this.list.appendChild(b);
       }
     }
-    this.root.append(side, info);
-    parent.appendChild(this.root);
+  }
+
+  /** Language changed: re-translate labels. */
+  relabel() {
+    this.head.textContent = t('Gallery');
+    this.autoBtn.textContent = t('Auto-rotate');
+    this.wireBtn.textContent = t('Wireframe');
+    this.resetBtn.textContent = t('Reset view');
+    this.buildList();
+    if (this.visible) this.select(this.entry);
   }
 
   show() {
@@ -147,9 +168,9 @@ export class Gallery {
       const g = (o as THREE.Mesh).geometry;
       if (g?.attributes.position) tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
     });
-    this.title.textContent = e.name;
-    this.desc.textContent = e.desc;
-    this.stats.textContent = `${e.group} · ${Math.round(tris).toLocaleString('en-US')} triangles · ${fmt(size.x)} × ${fmt(size.z)} tiles · height ${fmt(size.y)}${scale > 1 ? ` · shown ×${fmt(scale)}` : ''}`;
+    this.title.textContent = t(e.name);
+    this.desc.textContent = t(e.desc);
+    this.stats.textContent = `${t(e.group)} · ${t('{n} triangles', { n: Math.round(tris).toLocaleString('en-US') })} · ${fmt(size.x)} × ${fmt(size.z)} · ${t('height {n}', { n: fmt(size.y) })}${scale > 1 ? ` · ×${fmt(scale)}` : ''}`;
   }
 
   private frame() {

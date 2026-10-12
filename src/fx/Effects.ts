@@ -72,6 +72,31 @@ export class Effects {
     });
   }
 
+  /** Flames and sparks rising from a burning spot. */
+  fire(x: number, z: number, spread: number) {
+    const cols = ['#ff7a1a', '#ffb02e', '#ff4d1a', '#ffd166'];
+    for (let i = 0; i < 3; i++) {
+      this.add({
+        x: x + (Math.random() - 0.5) * spread, y: 0.05 + Math.random() * 0.3, z: z + (Math.random() - 0.5) * spread,
+        vx: (Math.random() - 0.5) * 0.1, vy: 0.5 + Math.random() * 0.5, vz: (Math.random() - 0.5) * 0.1,
+        life: 0, max: 0.6 + Math.random() * 0.5, size: 0.07 + Math.random() * 0.06, delay: 0,
+        color: new THREE.Color(cols[Math.floor(Math.random() * cols.length)]), flat: false, rise: true,
+      });
+    }
+    if (Math.random() < 0.3) this.smoke(x, 0.6, z);
+  }
+
+  /** Little pink hearts (weddings). */
+  hearts(x: number, z: number) {
+    for (let i = 0; i < 14; i++) {
+      this.add({
+        x: x + (Math.random() - 0.5) * 0.5, y: 0.4 + Math.random() * 0.3, z: z + (Math.random() - 0.5) * 0.5,
+        vx: (Math.random() - 0.5) * 0.2, vy: 0.4 + Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.2,
+        life: 0, max: 1.4 + Math.random(), size: 0.05, delay: i * 0.05, color: new THREE.Color(i % 2 ? '#ff6fa5' : '#ffd1e3'), flat: false, rise: true,
+      });
+    }
+  }
+
   private add(p: Particle) {
     if (this.parts.length < MAX * 2) this.parts.push(p);
   }

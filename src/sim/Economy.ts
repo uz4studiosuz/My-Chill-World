@@ -1,14 +1,13 @@
 import { DAY_SECONDS } from '../config';
-import { Buildings } from '../buildings/Buildings';
-import { BUILDINGS, ENERGY_PER_WOOD } from '../buildings/BuildingTypes';
+import { ENERGY_PER_WOOD } from '../buildings/BuildingTypes';
 
 export interface EconomyState { money: number; stone: number; wood: number; food: number; day: number; dayT: number }
 
 /** City resources and the energy grid. Wages, taxes and food are settled daily by Population. */
 export class Economy {
-  money = 4000;
+  money = 5000;
   stone = 120;
-  wood = 60;
+  wood = 120;
   food = 400;
   day = 1;
   /** Seconds into the current day. New worlds start in the morning. */
@@ -23,13 +22,14 @@ export class Economy {
 
   get timeOfDay() { return this.dayT / DAY_SECONDS; }
 
-  canAfford(money: number, stone: number) {
-    return this.money >= money && this.stone >= stone;
+  canAfford(money: number, stone: number, wood = 0) {
+    return this.money >= money && this.stone >= stone && this.wood >= wood;
   }
 
-  spend(money: number, stone: number) {
+  spend(money: number, stone: number, wood = 0) {
     this.money -= money;
     this.stone -= stone;
+    this.wood -= wood;
   }
 
   /** Advance the clock; returns true when a new day starts. */
@@ -41,24 +41,17 @@ export class Economy {
     return true;
   }
 
-  /** Burn wood in the power plants to cover the energy demand. */
-  updateEnergy(dt: number, buildings: Buildings) {
-    let demand = 0, capacity = 0;
-    for (const b of buildings.list) {
-      const d = BUILDINGS[b.kind];
-      demand += d.energy;
-      if (d.power) capacity += d.power * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1);
-    }
+  /** Burn wood in the power plants to cover the demand of grid-connected buildings. */
+  updateEnergy(dt: number, demand: number, capacity: number) {
     this.energyDemand = demand;
     this.energyCapacity = capacity;
-    if (demand <= 0) { this.powered = 1; return; }
-    const need = (Math.min(demand, capacity) * dt) / DAY_SECONDS;
-    const woodNeed = need / ENERGY_PER_WOOD;
-    const burnt = Math.min(this.wood, woodNeed);
-    this.wood -= burnt;
-    const made = burnt * ENERGY_PER_WOOD;
-    const ratio = need > 0 ? (made / need) * (Math.min(demand, capacity) / demand) : capacity >= demand ? 1 : 0;
-    // smooth so the HUD doesn't flicker
+    let ratio = 1;
+    if (demand > 0) {
+      const need = (Math.min(demand, capacity) * dt) / DAY_SECONDS;
+      const burnt = Math.min(this.wood, need / ENERGY_PER_WOOD);
+      this.wood -= burnt;
+      ratio = need > 0 ? ((burnt * ENERGY_PER_WOOD) / need) * (Math.min(demand, capacity) / demand) : 0;
+    }
     this.powered += (ratio - this.powered) * Math.min(1, dt * 2);
   }
 
