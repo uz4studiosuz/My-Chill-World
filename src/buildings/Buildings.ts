@@ -6,7 +6,7 @@ import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
-  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, fireStationGeometry, busDepotGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
+  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, ironMineGeometry, fisheryGeometry, fireStationGeometry, busDepotGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
   carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
@@ -105,6 +105,8 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'cemetery': return cemeteryGeometry();
     case 'park': return parkGeometry();
     case 'police': return policeGeometry();
+    case 'ironmine': return ironMineGeometry();
+    case 'fishery': return fisheryGeometry();
     case 'firestation': return fireStationGeometry();
     case 'busdepot': return busDepotGeometry();
     case 'grocery': return groceryGeometry();
@@ -159,7 +161,8 @@ export class Buildings {
       if (this.roads.type[k] || this.occ[k] !== -1 || this.roads.isIsland(k) || this.ctx.isBlocked(k)) return { ok: false, reason: 'Space is occupied' };
     }
     const cx = x + (def.size >> 1), cz = z + (def.size >> 1);
-    if (kind === 'quarry' && this.map.mountainsNear(x, z, 3) < 3) return { ok: false, reason: 'A quarry must be next to mountains' };
+    if ((kind === 'quarry' || kind === 'ironmine') && this.map.mountainsNear(x, z, 3) < 3) return { ok: false, reason: 'A quarry must be next to mountains' };
+    if (kind === 'fishery' && !this.footprint(kind, x, z).some((tl) => this.map.isShore(tl.x, tl.z))) return { ok: false, reason: 'A fishing hut must stand on the shore' };
     if (kind === 'woodcutter' && this.ctx.treesNear(cx, cz, 7) < 6) return { ok: false, reason: 'A woodcutter needs a forest nearby' };
     if (def.needsRoad && this.findAccess(kind, x, z).access < 0) return { ok: false, reason: 'Needs a road next to it' };
     return { ok: true };

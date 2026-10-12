@@ -2,6 +2,7 @@ import { SaveStore, WorldMeta } from '../save/SaveStore';
 import { el, icon, IconName } from './dom';
 import { Lang, getLang, setLang, t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
+import { VERSION } from '../version';
 
 export interface MenuHandlers {
   newWorld: (name: string, seed: number) => void;
@@ -122,6 +123,7 @@ export class Menu {
     row.append(
       mk('Sound', () => sound.sfxOn, (v) => sound.setSfx(v)),
       mk('Music', () => sound.musicOn, (v) => sound.setMusic(v)),
+      mk('Nature', () => sound.natureOn, (v) => sound.setNature(v)),
     );
     return row;
   }
@@ -184,7 +186,7 @@ function button(label: string, onClick: (b: HTMLButtonElement) => void, cls = ''
 
 function footer() {
   const f = el('div', 'menu-foot');
-  f.textContent = 'My Chill World · v0.8';
+  f.textContent = `My Chill World · v${VERSION}`;
   return f;
 }
 

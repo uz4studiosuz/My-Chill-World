@@ -5,10 +5,11 @@ import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
+import { VERSION } from '../version';
 
 type Category = 'roads' | 'buildings' | 'services' | 'business' | 'production';
 
-interface ToolItem {
+export interface ToolItem {
   tool: ToolId;
   cat: Category;
   name: string;
@@ -16,6 +17,7 @@ interface ToolItem {
   money: number;
   stone: number;
   wood: number;
+  iron?: number;
   perTile?: boolean;
   tag: string;
   icon: IconName;
@@ -23,10 +25,10 @@ interface ToolItem {
 
 const b = (tool: BuildingKind & ToolId, cat: Category, tag: string, desc: string, ic: IconName): ToolItem => {
   const d = BUILDINGS[tool];
-  return { tool, cat, name: d.name, desc, money: d.money, stone: d.stone, wood: d.wood, tag, icon: ic };
+  return { tool, cat, name: d.name, desc, money: d.money, stone: d.stone, wood: d.wood, iron: d.iron, tag, icon: ic };
 };
 
-const ITEMS: ToolItem[] = [
+export const ITEMS: ToolItem[] = [
   { tool: 'road', cat: 'roads', name: 'Road', desc: 'Two-lane road with sidewalks. Over water it becomes a bridge.', ...ROAD_COST[2], wood: 0, perTile: true, tag: 'Cars, power, water', icon: 'road' },
   { tool: 'roundabout', cat: 'roads', name: 'Roundabout', desc: 'Place it on a junction — roads connect to the middle of each side.', ...ROUNDABOUT_COST, wood: 0, tag: '3×3 · no lights', icon: 'roundabout' },
   { tool: 'path', cat: 'roads', name: 'Footpath', desc: 'Free walking path. People walk faster on paths than on grass.', money: 0, stone: 0, wood: 0, perTile: true, tag: 'Free · pedestrians', icon: 'path' },
@@ -54,6 +56,8 @@ const ITEMS: ToolItem[] = [
   b('construction', 'business', 'Builders', 'Builders work here. Buildings are completed faster when the city has a construction company.', 'quarry'),
   b('factory', 'production', 'Industry', 'Many jobs and a high turnover — a big business tax payer. Needs lots of power.', 'production'),
   b('carfactory', 'production', 'Cars', 'Assembles cars: the best-paying workplace and the largest business tax payer.', 'car'),
+  b('ironmine', 'production', 'Iron', 'Must touch mountains. Miners dig iron ore — factories, hospitals and big buildings need iron.', 'iron'),
+  b('fishery', 'production', '+25 food/day', 'On the shore of a river or lake. Fishermen catch fish all year (less in winter).', 'food'),
   b('woodcutter', 'production', '3 jobs · wood', 'Near a forest. Workers fell trees bit by bit and carry logs to the power plant.', 'woodcutter'),
 
   b('powerplant', 'production', '+90 energy/day', 'Burns wood. Power reaches only buildings connected to it by road.', 'powerplant'),
@@ -63,7 +67,7 @@ const ITEMS: ToolItem[] = [
   b('quarry', 'production', '8 jobs · stone', 'Must touch mountains. Trucks bring stone to the Town Hall; with no road, miners carry it on foot.', 'quarry'),
 ];
 
-const CATS: { id: Category; label: string; icon: IconName }[] = [
+export const CATS: { id: Category; label: string; icon: IconName }[] = [
   { id: 'roads', label: 'Roads', icon: 'roads' },
   { id: 'buildings', label: 'Town', icon: 'buildings' },
   { id: 'services', label: 'Services', icon: 'heart' },
@@ -85,7 +89,7 @@ const BASE_HINTS: Partial<Record<ToolId, string>> = {
 };
 
 export interface HudStats {
-  money: number; daily: number; stone: number; wood: number; food: number; foodDaily: number;
+  money: number; iron: number; daily: number; stone: number; wood: number; food: number; foodDaily: number;
   powered: number; water: number; population: number; workers: number; workforce: number;
   dateText: string; seasonIcon: string; timeOfDay: number; broke: boolean;
   cityName: string; cities: number; happiness: number;
@@ -99,6 +103,8 @@ export interface HudHandlers {
   openMenu: () => void;
   openStats: () => void;
   openGoals: () => void;
+  openLog: () => void;
+  openGuide: () => void;
   toggleSound: () => boolean;
   cycleCity: () => void;
   confirmBuild: () => void;
@@ -128,6 +134,7 @@ export class Hud {
   private lastMoney = 0;
   private lastStone = 0;
   private lastWood = 0;
+  private lastIron = 0;
   private modal?: HTMLDivElement;
   private pendingEl: HTMLDivElement;
   private pendingText: HTMLSpanElement;
@@ -138,22 +145,23 @@ export class Hud {
 
     const top = el('div', 'topbar');
     const soundBtn = this.iconButton(sound.sfxOn ? 'sound' : 'mute', t('Sound'), () => { soundBtn.innerHTML = icon(h.toggleSound() ? 'sound' : 'mute'); });
-    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats), this.iconButton('trophy', t('Goals'), h.openGoals), soundBtn);
+    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats), this.iconButton('trophy', t('Goals'), h.openGoals), this.iconButton('list', t('Chronicle'), h.openLog), this.iconButton('book', t('Guide'), h.openGuide), soundBtn);
     const chips = el('div', 'chips');
-    for (const [key, ic, title] of [
-      ['city', 'buildings', 'City you are building for (click to switch)'],
-      ['money', 'coin', 'Town money (balance per day)'],
-      ['stone', 'stone', 'Stone'],
-      ['wood', 'wood', 'Wood (building material and fuel)'],
-      ['food', 'food', 'Food (everyone eats 1 per day)'],
-      ['energy', 'energy', 'Energy supplied'],
-      ['water', 'water', 'Drinking water supplied'],
-      ['pop', 'people', 'Population'],
-      ['happy', 'heart', 'Happiness'],
-      ['jobs', 'jobs', 'Employed / workforce'],
-      ['day', 'calendar', 'Date and time'],
-    ] as const) {
+    // grouped, colour-coded resource readouts: city · materials · utilities · people · time
+    const GROUPS: [string, IconName, string][][] = [
+      [['city', 'buildings', 'City you are building for (click to switch)']],
+      [['money', 'r_money', 'Town money (balance per day)'], ['stone', 'r_stone', 'Stone'], ['wood', 'r_wood', 'Wood (building material and fuel)'],
+        ['iron', 'r_iron', 'Iron (for industry and big buildings)'], ['food', 'r_food', 'Food (everyone eats 1 per day)']],
+      [['energy', 'r_energy', 'Energy supplied'], ['water', 'r_water', 'Drinking water supplied']],
+      [['pop', 'r_people', 'Population'], ['happy', 'r_happy', 'Happiness'], ['jobs', 'r_jobs', 'Employed / workforce']],
+      [['day', 'calendar', 'Date and time']],
+    ];
+    for (const group of GROUPS) {
+    const box = el('div', 'chip-group');
+    chips.appendChild(box);
+    for (const [key, ic, title] of group) {
       const chip = el('button', 'chip');
+      chip.dataset.k = key;
       chip.title = t(title);
       chip.innerHTML = icon(ic);
       chip.addEventListener('click', key === 'city' ? h.cycleCity : h.openStats);
@@ -163,7 +171,8 @@ export class Hud {
       this.stat[key] = v;
       this.chip[key] = chip;
       if (key === 'day') chip.appendChild(this.dayBar);
-      chips.appendChild(chip);
+      box.appendChild(chip);
+    }
     }
     top.appendChild(chips);
 
@@ -185,7 +194,9 @@ export class Hud {
       btn.addEventListener('click', () => h.rotate(dir));
       rot.appendChild(btn);
     }
-    corner.append(speeds, rot);
+    const ver = el('div', 'ver');
+    ver.textContent = `v${VERSION}`;
+    corner.append(speeds, rot, ver);
 
     this.drawer = el('div', 'drawer');
 
@@ -277,6 +288,7 @@ export class Hud {
     if (it.money) parts.push(`${icon('coin')}${it.money}`);
     if (it.stone) parts.push(`${icon('stone')}${it.stone}`);
     if (it.wood) parts.push(`${icon('wood')}${it.wood}`);
+    if (it.iron) parts.push(`${icon('iron')}${it.iron}`);
     cost.innerHTML = parts.length ? parts.join(' ') + (it.perTile ? `<i>/${t('tile')}</i>` : '') : t('Free');
     btn.title = t(it.desc);
     const showDesc = () => { if (this.descEl) this.descEl.textContent = t(it.desc); };
@@ -295,7 +307,7 @@ export class Hud {
     for (const it of ITEMS) {
       const c = this.cards.get(it.tool);
       if (!c) continue;
-      c.classList.toggle('poor', this.lastMoney < it.money || this.lastStone < it.stone || this.lastWood < it.wood);
+      c.classList.toggle('poor', this.lastMoney < it.money || this.lastStone < it.stone || this.lastWood < it.wood || this.lastIron < (it.iron ?? 0));
       c.classList.toggle('active', this.tool === it.tool);
     }
   }
@@ -343,6 +355,7 @@ export class Hud {
     this.stat.city.textContent = s.cities > 1 ? `${s.cityName} ▾` : s.cityName;
     this.stat.stone.textContent = fmt(s.stone);
     this.stat.wood.textContent = fmt(s.wood);
+    this.stat.iron.textContent = fmt(s.iron);
     this.stat.food.innerHTML = `${fmt(s.food)} <small class="${s.foodDaily >= 0 ? 'pos' : 'neg'}">${s.foodDaily >= 0 ? '+' : ''}${fmt(s.foodDaily)}</small>`;
     this.stat.energy.textContent = `${Math.round(s.powered * 100)}%`;
     this.stat.water.textContent = `${Math.round(s.water * 100)}%`;
@@ -361,6 +374,7 @@ export class Hud {
     this.lastMoney = s.money;
     this.lastStone = s.stone;
     this.lastWood = s.wood;
+    this.lastIron = s.iron;
     if (this.drawerCat) this.refreshCards();
   }
 

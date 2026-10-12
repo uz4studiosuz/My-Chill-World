@@ -6,6 +6,14 @@ import { t } from '../i18n/i18n';
 export interface StatsSnapshot {
   cityName: string;
   cities: number;
+  happiness: number;
+  taxRate: number;
+  loan: number;
+  iron: number;
+  mayor: string;
+  cityList: { name: string; pop: number; money: number; happiness: number; net: number; active: boolean }[];
+  services: [string, number][];
+  businesses: { owned: number; total: number };
   money: number;
   stone: number;
   wood: number;
@@ -33,11 +41,12 @@ export interface StatsSnapshot {
   history: Sample[];
 }
 
-type Tab = 'overview' | 'people' | 'economy' | 'traffic' | 'nature';
+type Tab = 'overview' | 'people' | 'economy' | 'cities' | 'traffic' | 'nature';
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'overview', label: 'Overview', icon: 'stats' },
   { id: 'people', label: 'People', icon: 'people' },
   { id: 'economy', label: 'Economy', icon: 'coin' },
+  { id: 'cities', label: 'Cities', icon: 'buildings' },
   { id: 'traffic', label: 'Traffic', icon: 'roads' },
   { id: 'nature', label: 'Nature', icon: 'cow' },
 ];
@@ -127,9 +136,13 @@ export class StatsPanel {
           [t('Food'), num(s.food), t('{n} days of food', { n: daysOfFood.toFixed(1) }), daysOfFood > 3],
           [t('Energy'), pct(s.powered), t('{a} made / {b} needed', { a: num(s.energyCapacity), b: num(s.energyDemand) }), s.powered > 0.95],
           [t('Water'), pct(s.water), t('drinking water'), s.water > 0.99],
+          [t('Happiness'), pct(s.happiness / 100), s.happiness >= 60 ? t('people are content') : s.happiness >= 45 ? t('could be better') : t('people are leaving'), s.happiness >= 45],
+          [t('Iron'), num(s.iron), t('for industry')],
+          [t('Mayor'), s.mayor || '—', ''],
         ]);
         this.notes(s);
         chart(t('Population'), [{ label: t('People'), color: C.blue, values: series('pop') }]);
+        chart(t('Happiness'), [{ label: '%', color: C.pink, values: series('happy') }], (n) => `${Math.round(n)}%`);
         chart(t('Money'), [{ label: t('Money'), color: C.amber, values: series('money') }], (n) => `$${short(n)}`);
         break;
       }
@@ -153,16 +166,44 @@ export class StatsPanel {
       case 'economy': {
         const b = s.balance;
         this.rows(t("Yesterday's town budget"), [
-          [t('Income tax (25%)'), `+$${num(b.incomeTax)}`, true],
+          [t('Income tax ({n}%)', { n: Math.round(s.taxRate * 100) }), `+$${num(b.incomeTax)}`, true],
           [t('Food sales'), `+$${num(b.foodSales)}`, true],
           [t('Property tax'), `+$${num(b.propertyTax)}`, true],
+          [t('Business tax'), `+$${num(b.businessTax)}`, true],
+          [t('Utility bills'), `+$${num(b.utilities)}`, true],
           [t('Public wages'), `−$${num(b.publicWages)}`, false],
           [t('Upkeep'), `−$${num(b.upkeep)}`, false],
           [t('Net'), `${sign(b.net)}$${num(Math.abs(b.net))}`, b.net >= 0],
         ]);
         chart(t('Money'), [{ label: t('Money'), color: C.amber, values: series('money') }], (n) => `$${short(n)}`);
+        this.kpis([
+          [t('Bank loan'), `$${num(s.loan)}`, t('1% interest per day'), s.loan === 0],
+          [t('Businesses'), num(s.businesses.total), t('{n} owned by families', { n: s.businesses.owned })],
+          [t('Tax rate'), pct(s.taxRate), t('set it in the Town Hall')],
+        ]);
         chart(t('Food & wood'), [{ label: t('Food'), color: C.green, values: series('food') }, { label: t('Wood'), color: C.brown, values: series('wood') }]);
         chart(t('Energy supplied'), [{ label: '%', color: '#ffe066', values: series('energy') }], (n) => `${Math.round(n)}%`);
+        chart(t('Iron'), [{ label: t('Iron'), color: C.gray, values: series('iron') }]);
+        break;
+      }
+      case 'cities': {
+        const box = el('div', 'srows');
+        const tt = el('div', 'srows-title');
+        tt.textContent = t('All cities');
+        box.appendChild(tt);
+        const table = el('div', 'city-table');
+        table.innerHTML = `<span>${t('City')}</span><span>${t('People')}</span><span>${t('Money')}</span><span>${t('Happiness')}</span><span>${t('Net')}</span>`;
+        for (const c of s.cityList) {
+          for (const [i, v] of [c.name, num(c.pop), `$${short(c.money)}`, `${Math.round(c.happiness)}%`, `${sign(c.net)}$${num(Math.abs(c.net))}`].entries()) {
+            const cell = el('span', i === 0 && c.active ? 'active' : i === 4 ? (c.net >= 0 ? 'pos' : 'neg') : '');
+            cell.textContent = v;
+            table.appendChild(cell);
+          }
+        }
+        box.appendChild(table);
+        this.body.appendChild(box);
+        this.bars(t('City services'), s.services.map(([k, n], i) => [t(k), n, [C.blue, C.green, C.amber, C.red, C.violet, C.pink, C.brown, C.gray][i % 8]] as [string, number, string]));
+        this.rows(t('Services in {city}', { city: s.cityName }), s.services.map(([k, n]) => [t(k), num(n), n > 0] as [string, string, boolean]));
         break;
       }
       case 'traffic': {

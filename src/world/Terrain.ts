@@ -4,7 +4,7 @@ import { WorldMap } from './WorldMap';
 import { LEVEL_H, WATER_BED, WATER_LEVEL } from '../config';
 import { fbm, mulberry32 } from '../utils/rng';
 import { TREE_PARTS } from '../buildings/BuildingTypes';
-import { canopyGeometry, pineGeometry, rockGeometry, trunkGeometry, tuftGeometry } from '../models/nature';
+import { bushGeometry, cactusGeometry, canopyGeometry, pineGeometry, rockGeometry, trunkGeometry, tuftGeometry } from '../models/nature';
 
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 const MAP_BOTTOM = -2.5;
@@ -21,7 +21,11 @@ const SPRING_TINT = new THREE.Color('#79c04a');
 const BARE = new THREE.Color('#7d6b55');
 const SNOWY = new THREE.Color('#eef3f6');
 const TUFT_GRASS = ['#7da84a', '#6c9a40', '#93b858', '#86ad4e'];
-const TUFT_FLOWER = ['#f2efe2', '#f0d54a', '#b9a3e0'];
+const TUFT_FLOWER = ['#f2efe2', '#f0d54a', '#b9a3e0', '#e8738f', '#f29b4b'];
+const TUFT_DRY = ['#c2b46a', '#b3a35a', '#d0c27c', '#a89a58'];
+const BUSH_GREEN = ['#5f8f3a', '#6c9a40', '#4f7d34'];
+const BUSH_DRY = ['#9a8a4e', '#8a7a46', '#a8975a'];
+const smoothstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 const C = {
   grassA: new THREE.Color('#8cb156'),
@@ -29,6 +33,10 @@ const C = {
   dry: new THREE.Color('#bdb873'),
   dark: new THREE.Color('#759e48'),
   sand: new THREE.Color('#d9c99a'),
+  steppeA: new THREE.Color('#b8b06a'),
+  steppeB: new THREE.Color('#a8a25c'),
+  desertA: new THREE.Color('#e2cc92'),
+  desertB: new THREE.Color('#d5ba7c'),
   bed: new THREE.Color('#b0a479'),
   dirt: new THREE.Color('#8a6a46'),
   rockLow: new THREE.Color('#8f9a6a'),
@@ -40,6 +48,7 @@ const C = {
 
 /** Ground (with mountains and water) + procedural decoration. */
 export class Terrain {
+  private tmpCol = new THREE.Color();
   readonly group = new THREE.Group();
   readonly cleared = new Uint8Array(N * N);
   private decorByTile = new Map<number, DecorRef[]>();
@@ -182,6 +191,10 @@ export class Terrain {
           c.copy(C.grassA).lerp(C.grassB, n);
           if (m > 0.58) c.lerp(C.dry, Math.min(1, (m - 0.58) * 2.5));
           c.lerp(C.dark, rnd() * 0.12);
+          const ar = map.arid[k];
+          const st = smoothstep(0.52, 0.58, ar), de = smoothstep(0.6, 0.66, ar);
+          if (st > 0) c.lerp(this.tmpCol.copy(C.steppeA).lerp(C.steppeB, n), st);
+          if (de > 0) c.lerp(this.tmpCol.copy(C.desertA).lerp(C.desertB, n), de);
         }
         if ((x + z) & 1) c.multiplyScalar(0.985);
 
@@ -316,7 +329,7 @@ export class Terrain {
   private buildDecor() {
     const map = this.map, seed = map.seed;
     const rnd = mulberry32(seed ^ 0x9e3779b9);
-    const pines: DecorItem[] = [], leafy: DecorItem[] = [], rocks: DecorItem[] = [], tufts: DecorItem[] = [];
+    const pines: DecorItem[] = [], leafy: DecorItem[] = [], rocks: DecorItem[] = [], tufts: DecorItem[] = [], cacti: DecorItem[] = [], bushes: DecorItem[] = [];
     const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
     const mat = (x: number, y: number, z: number, s: number) =>
       new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q.setFromAxisAngle(up, rnd() * Math.PI * 2), new THREE.Vector3(s, s, s));
@@ -347,7 +360,18 @@ export class Terrain {
 
         const forest = fbm(x * 0.07 + 100, z * 0.07 + 100, seed + 3);
         const centre = Math.hypot(x - N / 2, z - N / 2) < 14 ? 0.15 : 1;
-        const treeChance = (forest > 0.6 ? 0.75 : forest > 0.52 ? 0.18 : 0.02) * centre;
+        const ar = map.arid[k];
+        const steppe = smoothstep(0.52, 0.58, ar), desert = smoothstep(0.6, 0.66, ar);
+        const treeChance = (forest > 0.6 ? 0.75 : forest > 0.52 ? 0.18 : 0.02) * centre * (1 - steppe * 0.85) * (1 - desert);
+        if (desert > 0.5) {
+          if (rnd() < 0.035 * centre) cacti.push({ m: mat(jx(), 0, jz(), 0.8 + rnd() * 0.6), tile: k });
+          else if (rnd() < 0.04) rocks.push({ m: mat(jx(), 0, jz(), 0.5 + rnd() * 0.7), tile: k, color: new THREE.Color(0.75 + rnd() * 0.1, 0.66 + rnd() * 0.08, 0.5) });
+          else if (rnd() < 0.08) tufts.push({ m: mat(jx(), 0, jz(), 0.6 + rnd() * 0.5), tile: k, color: pick(TUFT_DRY) });
+          continue;
+        }
+        if (rnd() < (steppe > 0.5 ? 0.06 : 0.025) * centre) {
+          bushes.push({ m: mat(jx(), 0, jz(), 0.7 + rnd() * 0.7), tile: k, color: pick(steppe > 0.5 ? BUSH_DRY : BUSH_GREEN) });
+        }
 
         if (rnd() < treeChance) {
           if (rnd() < (forest > 0.6 ? 0.55 : 0.35)) {
@@ -369,7 +393,7 @@ export class Terrain {
           tufts.push({
             m: mat(wx + (rnd() - 0.5) * 0.9, 0, wz + (rnd() - 0.5) * 0.9, 0.7 + rnd() * 0.7),
             tile: k,
-            color: pick(rnd() < 0.12 ? TUFT_FLOWER : TUFT_GRASS),
+            color: steppe > 0.5 ? pick(TUFT_DRY) : pick(rnd() < (forest < 0.4 ? 0.3 : 0.12) ? TUFT_FLOWER : TUFT_GRASS),
           });
         }
       }
@@ -389,6 +413,8 @@ export class Terrain {
     this.canopy = this.instances(canopyGeo, tinted, leafy, true, true, true);
     this.instances(rockGeo, tinted, rocks, true, true);
     this.tuftMesh = this.instances(tuftGeo, new THREE.MeshLambertMaterial(), tufts, false, true);
+    this.instances(cactusGeometry(), vertexColored, cacti, true, false);
+    this.instances(bushGeometry(), new THREE.MeshLambertMaterial(), bushes, true, true);
     for (const it of [...pines, ...leafy]) if (this.map.height[it.tile] <= 3) this.trees.add(it.tile);
   }
 

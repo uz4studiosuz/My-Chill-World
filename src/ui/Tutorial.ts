@@ -33,6 +33,7 @@ export class Tutorial {
   private count: HTMLSpanElement;
   private step = 0;
   private start: TutorialContext;
+  private last?: TutorialContext;
   finished = false;
 
   static wanted() {
@@ -49,7 +50,10 @@ export class Tutorial {
     const skip = el('button', 'tut-skip');
     skip.textContent = t('Skip');
     skip.addEventListener('click', () => this.finish());
-    head.append(label, this.count, skip);
+    const next = el('button', 'tut-next');
+    next.textContent = t('Next');
+    next.addEventListener('click', () => this.advance());
+    head.append(label, this.count, skip, next);
     this.text = el('div', 'tut-text');
     this.root.append(head, this.text);
     parent.appendChild(this.root);
@@ -58,13 +62,18 @@ export class Tutorial {
 
   update(ctx: TutorialContext) {
     if (this.finished) return;
-    if (STEPS[this.step].done(ctx, this.start)) {
-      this.step++;
-      this.start = { ...ctx };
-      if (this.step >= STEPS.length) return this.finish(true);
-      this.render();
-      this.onDone();
-    }
+    this.last = ctx;
+    if (STEPS[this.step].done(ctx, this.start)) this.advance();
+  }
+
+  /** Go to the next step (done automatically, or with the Next button). */
+  advance() {
+    if (this.finished) return;
+    this.step++;
+    if (this.last) this.start = { ...this.last };
+    if (this.step >= STEPS.length) return this.finish(true);
+    this.render();
+    this.onDone();
   }
 
   private render() {

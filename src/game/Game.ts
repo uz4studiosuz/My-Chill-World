@@ -19,6 +19,9 @@ import { sound } from '../audio/Sound';
 import { GoalContext, Goals } from '../sim/Goals';
 import { GoalsPanel } from '../ui/GoalsPanel';
 import { Tutorial, TutorialContext } from '../ui/Tutorial';
+import { EventLog, LogEntry } from '../ui/EventLog';
+import { Guide } from '../ui/Guide';
+import { StreetLights } from '../roads/StreetLights';
 import { Walkers } from '../people/Walkers';
 import { Traffic } from '../traffic/Traffic';
 import { Animals } from '../animals/Animals';
@@ -61,7 +64,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
   parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
   woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
-  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
+  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
 };
@@ -70,9 +73,9 @@ const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
   townhall: ['Civil servant'], office: ['Clerk', 'Manager'], school: ['School staff', 'Teacher'], university: ['University staff', 'Professor'],
   hospital: ['Nurse', 'Doctor'], market: ['Seller'], carmarket: ['Car salesman'], bank: ['Cashier', 'Banker'], gasstation: ['Pump attendant'],
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
-  farm: ['Farmer'], orchard: ['Fruit grower'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'], quarry: ['Quarryman'],
+  farm: ['Farmer'], orchard: ['Fruit grower'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
   powerplant: ['Power operator', 'Power engineer'], watertower: ['Water technician'], weddinghall: ['Registrar'], park: ['Gardener'],
-  police: ['Police officer', 'Police chief'], firestation: ['Firefighter'], busdepot: ['Bus driver'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
+  police: ['Police officer', 'Police chief'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -109,6 +112,12 @@ export class Game implements ToolHost {
   private marker: THREE.Mesh;
   private goals = new Goals();
   private goalsPanel?: GoalsPanel;
+  private eventLog?: EventLog;
+  private guide?: Guide;
+  private savedLog: LogEntry[] = [];
+  private lights: StreetLights;
+  private ambT = 0;
+  private nightness = 0;
   private tutorial?: Tutorial;
   private wantTutorial = false;
   private tradeTarget = 0;
@@ -169,6 +178,7 @@ export class Game implements ToolHost {
       treesNear: (x, z, r) => this.terrain.treesNear(x, z, r),
     });
     this.traffic = new Traffic(this.net);
+    this.lights = new StreetLights(this.net);
     this.life = new Life({
       map: this.map, terrain: this.terrain, net: this.net, footpaths: this.footpaths, canals: this.canals,
       buildings: this.buildings, eco: this.eco, pop: this.pop, walkers: this.walkers, traffic: this.traffic,
@@ -213,7 +223,7 @@ export class Game implements ToolHost {
     this.animals = new Animals(this.map, (k) => this.map.isLand(k) && !this.net.type[k] && !this.net.isIsland(k) && this.buildings.occ[k] === -1);
     this.scene.add(
       this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
-      this.walkers.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker, this.ring, this.beam,
+      this.walkers.group, this.lights.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker, this.ring, this.beam,
     );
     this.pop.assign(this.buildings);
     this.networkChanged(false);
@@ -252,8 +262,10 @@ export class Game implements ToolHost {
       rotate: (dir) => this.cam.rotate((dir * Math.PI) / 2),
       setSpeed: (s) => this.setSpeed(s),
       openMenu: () => this.onMenu(),
-      openStats: () => { this.goalsPanel?.hide(); this.stats?.toggle(); },
-      openGoals: () => { this.stats?.hide(); this.goalsPanel?.toggle(); },
+      openStats: () => { this.goalsPanel?.hide(); this.eventLog?.hide(); this.stats?.toggle(); },
+      openGoals: () => { this.stats?.hide(); this.eventLog?.hide(); this.goalsPanel?.toggle(); },
+      openLog: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.toggle(); },
+      openGuide: () => this.guide?.toggle(),
       toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setMusic(on); return on; },
       cycleCity: () => this.cycleCity(),
       confirmBuild: () => this.tool?.confirm(),
@@ -262,6 +274,10 @@ export class Game implements ToolHost {
     this.inspector = new Inspector(this.hud.root, () => this.select(null), (id) => this.select({ type: 'person', id }));
     this.stats = new StatsPanel(this.hud.root, () => this.snapshot());
     this.goalsPanel = new GoalsPanel(this.hud.root, this.goals, () => this.goalContext());
+    const keep = this.eventLog?.entries.slice() ?? this.savedLog;
+    this.eventLog = new EventLog(this.hud.root, (d) => `${t('Day {n}', { n: d })} · ${t(MONTHS[monthOf(d)]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(d) })}`);
+    this.eventLog.load(keep);
+    this.guide = new Guide(this.hud.root);
     if (this.wantTutorial && !this.tutorial?.finished) {
       this.tutorial = new Tutorial(this.hud.root, this.tutorialContext(), () => sound.play('complete'));
     }
@@ -293,7 +309,7 @@ export class Game implements ToolHost {
           money: Math.round(this.eco.totalMoney), stone: Math.round(this.eco.totalStone), food: Math.round(this.eco.totalFood),
           wood: Math.round(this.eco.totalWood), energy: Math.round(this.eco.powered * 100),
           cars: this.traffic.count('car'), trucks: this.traffic.count('truck'), walkers: this.walkers.list.length,
-          animals: this.animals.list.length,
+          animals: this.animals.list.length, happy: Math.round(this.eco.city.happiness), iron: Math.round([...this.eco.cities.values()].reduce((a, c) => a + c.iron, 0)),
         }));
         this.chimneySmoke(sdt);
         if (this.eco.day !== this.lastDay) this.onNewDay();
@@ -311,6 +327,8 @@ export class Game implements ToolHost {
     }
     this.updateLighting();
     this.updateMarker(dt);
+    this.ambT -= dt;
+    if (this.ambT <= 0 && !this.demo) { this.ambT = 0.5; this.updateAmbience(); }
 
     if (this.demo) this.cam.rotate(dt * 0.04, false);
     this.input?.update(dt);
@@ -432,10 +450,10 @@ export class Game implements ToolHost {
     if (kind === 'townhall' && this.buildings.halls().some((h) => Math.max(Math.abs(h.x - tl.x), Math.abs(h.z - tl.z)) < CITY_MIN_DISTANCE)) {
       return { ok: false, reason: t('Too close to another Town Hall') };
     }
-    if (!this.eco.canAfford(def.money, def.stone, def.wood)) {
-      return { ok: false, reason: t('Needs {cost}', { cost: costText(def.money, def.stone, def.wood) }) };
+    if (!this.eco.canAfford(def.money, def.stone, def.wood, def.iron)) {
+      return { ok: false, reason: t('Needs {cost}', { cost: costText(def.money, def.stone, def.wood, def.iron) }) };
     }
-    return { ok: true, money: def.money, stone: def.stone, wood: def.wood };
+    return { ok: true, money: def.money, stone: def.stone, wood: def.wood, iron: def.iron };
   }
 
   place(kind: PlaceKind, tl: Tile) {
@@ -455,7 +473,7 @@ export class Game implements ToolHost {
       return;
     }
     const def = BUILDINGS[kind];
-    this.eco.spend(def.money, def.stone, def.wood);
+    this.eco.spend(def.money, def.stone, def.wood, def.iron);
     // a Town Hall founds a new city; everything else belongs to the city being built for
     let owner = this.eco.active;
     let founded: City | null = null;
@@ -570,6 +588,7 @@ export class Game implements ToolHost {
 
   private networkChanged(dirty = true) {
     this.roadMesh.rebuild();
+    this.lights.rebuild();
     this.footpaths.rebuild((k) => this.net.type[k] !== 0);
     this.canals.rebuild();
     this.buildings.refreshAccess();
@@ -613,6 +632,8 @@ export class Game implements ToolHost {
     const tod = this.eco.timeOfDay;
     const season = seasonBlend(this.eco.day, tod);
     const day = smooth(0.22, 0.3, tod) * (1 - smooth(0.74, 0.84, tod));
+    this.nightness = 1 - day;
+    this.lights.setNight(Math.max(0, (0.85 - day) / 0.85));
     const low = Math.max(0, 1 - Math.abs(tod - 0.26) * 12) + Math.max(0, 1 - Math.abs(tod - 0.79) * 12);
     const rain = this.weather.naturalActive ? 0.35 : 0;
     const winter = season.snow * 0.15;
@@ -766,6 +787,7 @@ export class Game implements ToolHost {
     if (c.health < 50) tags.push({ text: t('Sick'), tone: 'bad' });
     if (c.edu >= 0.99 && age >= 18) tags.push({ text: t('Educated'), tone: 'good' });
     if (c.role === 'parent' && this.buildings.list.some((x) => x.owner === c.family)) tags.push({ text: t('Business owner'), tone: 'good' });
+    for (const city of this.eco.cities.values()) if (city.mayor === c.id) tags.unshift({ text: t('Mayor of {city}', { city: city.name }), tone: 'good' });
     if (c.skill === 2) tags.push({ text: t('Degree'), tone: 'good' });
     else if (c.skill === 1 && age >= 18) tags.push({ text: t('Skilled trade'), tone: 'info' });
     if (f?.car && age >= 18) tags.push({ text: t('Family car'), tone: 'info' });
@@ -941,7 +963,7 @@ export class Game implements ToolHost {
     const counts = this.pop.counts(mine);
     this.hud!.setStats({
       cityName: e.city.name, cities: e.cities.size, happiness: e.city.happiness,
-      money: e.money, daily: e.city.balance.net, stone: e.stone, wood: e.wood, food: e.food,
+      money: e.money, iron: e.iron, daily: e.city.balance.net, stone: e.stone, wood: e.wood, food: e.food,
       foodDaily: this.foodBalance(), powered: e.powered, water: e.city.water,
       population: this.life.populationByCity().get(e.active) ?? 0, workers: counts.workers, workforce: counts.workforce,
       dateText: this.dateText(), seasonIcon: SEASON_ICON[seasonOf(monthOf(e.day))], timeOfDay: e.timeOfDay, broke: e.money < 0,
@@ -954,7 +976,10 @@ export class Game implements ToolHost {
     if (this.goalsPanel?.visible && this.statsTick % 4 === 0) this.goalsPanel.render();
     this.tutorial?.update(this.tutorialContext());
     const ev = this.life.events.shift();
-    if (ev) this.hud!.toast(ev);
+    if (ev) {
+      this.hud!.toast(ev);
+      this.eventLog?.add(this.eco.day, ev);
+    }
     if (this.selection) this.refreshInspector();
     if (this.stats?.visible && ++this.statsTick % 4 === 0) this.stats.render();
   }
@@ -981,7 +1006,18 @@ export class Game implements ToolHost {
     let jobs = 0, seats = 0;
     for (const b of own) { kinds[b.kind]++; jobs += BUILDINGS[b.kind].jobs; seats += BUILDINGS[b.kind].students; }
     const population = this.life.populationByCity().get(city.id) ?? 0;
+    const svc: [string, BuildingKind[]][] = [
+      ['Schools', ['school']], ['Universities', ['university']], ['Hospitals', ['hospital']], ['Police', ['police']],
+      ['Fire stations', ['firestation']], ['Parks', ['park']], ['Shops', ['grocery', 'clothes', 'market']], ['Bus depots', ['busdepot']],
+    ];
+    const mayor = this.pop.citizens.get(city.mayor);
+    const pops = this.life.populationByCity();
     return {
+      happiness: city.happiness, taxRate: city.taxRate, loan: city.loan, iron: city.iron,
+      mayor: mayor ? `${mayor.name} ${this.pop.families.get(mayor.family)?.surname ?? ''}` : '',
+      cityList: [...this.eco.cities.values()].map((c) => ({ name: c.name, pop: pops.get(c.id) ?? 0, money: c.money, happiness: c.happiness, net: c.balance.net, active: c.id === city.id })),
+      services: svc.map(([label, kinds]) => [label, own.filter((b) => kinds.includes(b.kind)).length] as [string, number]),
+      businesses: { total: own.filter((b) => BUSINESS_KINDS.includes(b.kind)).length, owned: own.filter((b) => b.owner >= 0).length },
       cityName: city.name, cities: this.eco.cities.size,
       money: city.money, stone: city.stone, wood: city.wood, food: city.food, foodRate: this.foodBalance() + population,
       energyDemand: city.energyDemand, energyCapacity: city.energyCapacity, powered: city.powered, water: city.water,
@@ -1081,13 +1117,36 @@ export class Game implements ToolHost {
     };
   }
 
+  /** Nature sounds follow the camera: water, forest, town, rain and night. */
+  private updateAmbience() {
+    const tg = this.cam.target;
+    const cx = Math.floor(tg.x + N / 2), cz = Math.floor(tg.z + N / 2);
+    const r = Math.max(5, Math.min(16, Math.round(this.cam.viewHalf * 0.6)));
+    let total = 0, water = 0, trees = 0, town = 0;
+    for (let z = cz - r; z <= cz + r; z += 2) for (let x = cx - r; x <= cx + r; x += 2) {
+      if (!inBounds(x, z)) continue;
+      const k = idx(x, z);
+      total++;
+      if (this.map.water[k] || this.canals.flowing[k]) water++;
+      else if (this.terrain.trees.has(k)) trees++;
+      else if (this.buildings.occ[k] !== -1 || this.net.type[k]) town++;
+    }
+    const near = Math.max(0.35, Math.min(1, (42 - this.cam.viewHalf) / 30));
+    const f = (n: number, gain: number) => Math.min(1, (n / Math.max(1, total)) * gain) * near;
+    sound.setAmbience({
+      water: f(water, 4), forest: f(trees, 2.2), town: f(town, 2.5),
+      rain: this.weather.naturalActive && this.weather.kind === 'rain' ? 1 : 0,
+      night: this.nightness,
+    });
+  }
+
   /** Weaker devices: no shadows. */
   setLowQuality() {
     this.sun.castShadow = false;
   }
 
   /** Travelling merchants sell stone and wood for money — a way out when materials run out. */
-  private buyMaterial(city: City, what: 'stone' | 'wood') {
+  private buyMaterial(city: City, what: 'stone' | 'wood' | 'iron') {
     const m = MERCHANT[what];
     if (city.money < m.price) return this.hud?.toast(t('Not enough money — needs ${n}', { n: m.price }));
     city.money -= m.price;
@@ -1113,6 +1172,7 @@ export class Game implements ToolHost {
     const daysFood = population ? city.food / population : 99;
     const hasHall = own.some((x) => x.kind === 'weddinghall');
     const hasTower = own.some((x) => x.kind === 'watertower');
+    const mayor = this.pop.citizens.get(city.mayor);
     const hasBank = own.some((x) => x.kind === 'bank' && x.built >= 1 && x.workers > 0);
     const bal = city.balance;
     const money = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(Math.floor(n)).toLocaleString('en-US')}`;
@@ -1147,12 +1207,14 @@ export class Game implements ToolHost {
         { label: t('Water supplied'), value: city.water, color: '#4fa3d1' },
       ],
       rows: [
+        [t('Mayor'), mayor ? `${mayor.name} ${this.pop.families.get(mayor.family)?.surname ?? ''}` : t('No mayor yet')],
         [t('Treasury'), money(city.money), city.money < 0 ? 'bad' : undefined],
         [t('Net yesterday'), signed(bal.net), bal.net >= 0 ? 'good' : 'bad'],
         [t('Tax rate'), `${Math.round(city.taxRate * 100)}%`, city.taxRate > 0.3 ? 'bad' : undefined],
         ...(city.loan > 0 || hasBank ? [[t('Bank loan'), money(city.loan), city.loan > 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]] : []),
         [t('Stone'), `${Math.floor(city.stone)}`],
         [t('Wood'), `${Math.floor(city.wood)}`, city.wood < 15 ? 'bad' : undefined],
+        [t('Iron'), `${Math.floor(city.iron)}`],
         [t('Food'), `${Math.floor(city.food)}`],
       ],
       sections: [
@@ -1189,6 +1251,7 @@ export class Game implements ToolHost {
         return { id: c.id, icon: this.personIcon(c), name: `${c.name} ${f?.surname ?? ''}`, detail: `${t('{n} years', { n: Math.floor(c.age) })} · ${t(c.activity)}`, warn: c.hunger < 25 || c.health < 50 };
       }),
       actions: [
+        ...(mayor ? [{ label: t('Show the mayor'), icon: 'people' as const, onClick: () => this.select({ type: 'person', id: mayor.id }) }] : []),
         {
           label: `${t('Buy {n} stone', { n: MERCHANT.stone.amount })} · $${MERCHANT.stone.price}`, icon: 'stone' as const,
           onClick: () => this.buyMaterial(city, 'stone'),
@@ -1196,6 +1259,10 @@ export class Game implements ToolHost {
         {
           label: `${t('Buy {n} wood', { n: MERCHANT.wood.amount })} · $${MERCHANT.wood.price}`, icon: 'wood' as const,
           onClick: () => this.buyMaterial(city, 'wood'),
+        },
+        {
+          label: `${t('Buy {n} iron', { n: MERCHANT.iron.amount })} · $${MERCHANT.iron.price}`, icon: 'iron' as const,
+          onClick: () => this.buyMaterial(city, 'iron'),
         },
         ...(city.taxRate > 0.1 ? [{ label: t('Tax −5%'), onClick: () => { city.taxRate = Math.round((city.taxRate - 0.05) * 100) / 100; this.refreshInspector(); } }] : []),
         ...(city.taxRate < 0.4 ? [{ label: t('Tax +5%'), onClick: () => { city.taxRate = Math.round((city.taxRate + 0.05) * 100) / 100; this.refreshInspector(); } }] : []),
@@ -1342,6 +1409,7 @@ export class Game implements ToolHost {
     this.time = s.time ?? 0;
     this.sandbox = !!s.sandbox;
     this.goals.load(s.goals);
+    this.savedLog = s.log ?? [];
     this.history.samples = s.history ?? [];
     this.cam.setState(s.cam.x, s.cam.z, s.cam.yaw, s.cam.view);
     this.pop.planDay();
@@ -1375,6 +1443,7 @@ export class Game implements ToolHost {
       sandbox: this.sandbox,
       history: this.history.samples,
       goals: this.goals.save(),
+      log: (this.eventLog?.entries ?? this.savedLog).slice(-80),
     };
   }
 }
@@ -1383,9 +1452,10 @@ function barColor(v: number) {
   return v > 0.6 ? '#7be08f' : v > 0.3 ? '#f2b33d' : '#ff6b5e';
 }
 
-function costText(money: number, stone: number, wood: number) {
+function costText(money: number, stone: number, wood: number, iron = 0) {
   const parts = [`$${money}`];
   if (stone) parts.push(t('{n} stone', { n: stone }));
   if (wood) parts.push(t('{n} wood', { n: wood }));
+  if (iron) parts.push(t('{n} iron', { n: iron }));
   return parts.join(' + ');
 }

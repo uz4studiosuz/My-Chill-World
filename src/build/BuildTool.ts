@@ -7,12 +7,12 @@ import { t as tr } from '../i18n/i18n';
 export type PlaceKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower' | 'quarry'
   | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout'
-  | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
+  | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
 
 export type LineKind = 'road' | 'path' | 'canal';
 export type ToolId = 'pan' | 'bulldoze' | LineKind | PlaceKind;
 
-export interface CheckResult { ok: boolean; reason?: string; money?: number; stone?: number; wood?: number; bridges?: number }
+export interface CheckResult { ok: boolean; reason?: string; money?: number; stone?: number; wood?: number; iron?: number; bridges?: number }
 
 /** What the tool needs from the game. Every action re-validates and reports its own errors. */
 export interface ToolHost {
@@ -140,5 +140,6 @@ function cost(r: CheckResult) {
   if (r.money) parts.push(`$${r.money}`);
   if (r.stone) parts.push(tr('{n} stone', { n: r.stone }));
   if (r.wood) parts.push(tr('{n} wood', { n: r.wood }));
+  if (r.iron) parts.push(tr('{n} iron', { n: r.iron }));
   return parts.length ? parts.join(' + ') : tr('Free');
 }

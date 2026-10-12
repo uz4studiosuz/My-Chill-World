@@ -36,6 +36,8 @@ const MAX_PER_VARIANT = 400;
 
 /** Pedestrians: walking along footpaths / sidewalks / fields, carrying logs or babies, working. */
 export class Walkers {
+  /** May a walker enter the segment (x0,z0)→(x1,z1)? Used for red lights at crossings. */
+  gate?: (x0: number, z0: number, x1: number, z1: number) => boolean;
   readonly group = new THREE.Group();
   readonly list: Walker[] = [];
   private nextId = 1;
@@ -124,7 +126,13 @@ export class Walkers {
         }
         continue;
       }
-      w.s += w.speed * dt;
+      const next = w.s + w.speed * dt;
+      if (this.gate && this.blocked(w, next)) {
+        w.anim = 'none';
+        this.place(w);
+        continue;
+      }
+      w.s = next;
       if (w.s >= w.len) {
         w.s = w.len;
         this.place(w);
@@ -137,6 +145,21 @@ export class Walkers {
       this.place(w);
     }
     this.render();
+  }
+
+  /** Before stepping into a new segment, ask the gate (traffic lights at zebra crossings). */
+  private blocked(w: Walker, next: number) {
+    let j = w.seg;
+    while (j < w.cum.length - 2 && w.cum[j + 1] < next) {
+      j++;
+      const p = w.pts;
+      if (!this.gate!(p[j * 2], p[j * 2 + 1], p[j * 2 + 2], p[j * 2 + 3])) {
+        w.s = w.cum[j];
+        w.seg = j;
+        return true;
+      }
+    }
+    return false;
   }
 
   private setRoute(w: Walker, r: WalkRoute) {

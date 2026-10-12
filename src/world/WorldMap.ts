@@ -5,6 +5,8 @@ import { DIRS, N, idx, inBounds } from './grid';
 export class WorldMap {
   readonly height = new Uint8Array(N * N);
   readonly water = new Uint8Array(N * N);
+  /** 0 = green meadow, ~0.55 = dry steppe, ~0.65+ = sandy desert (from the seed). */
+  readonly arid = new Float32Array(N * N);
 
   constructor(readonly seed: number) {}
 

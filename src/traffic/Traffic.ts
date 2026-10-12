@@ -124,6 +124,9 @@ export class Traffic {
 
   get signalCount() { return this.lights.size; }
 
+  /** Is this junction controlled by traffic lights? */
+  hasLight(k: number) { return this.lights.has(k); }
+
   setParked(list: ParkedCar[]) {
     this.parked = list.slice(0, MAX_PARKED);
   }

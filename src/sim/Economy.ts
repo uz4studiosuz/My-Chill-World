@@ -13,6 +13,7 @@ export interface City {
   stone: number;
   wood: number;
   food: number;
+  iron: number;
   /** Energy per day: demand of grid-connected buildings and what the plants could make. */
   energyDemand: number;
   energyCapacity: number;
@@ -31,25 +32,29 @@ export interface City {
   happiness: number;
   /** Income tax rate 0.10..0.40 (business tax is 80% of it). */
   taxRate: number;
+  /** Citizen id of the mayor (-1 = none). */
+  mayor: number;
+  /** Day of the last election. */
+  elected: number;
 }
 
 export interface CitySave {
-  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number;
+  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
 }
 
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
 
-export interface Grant { money: number; stone: number; wood: number; food: number }
-export const START_GRANT: Grant = { money: 5000, stone: 120, wood: 120, food: 400 };
+export interface Grant { money: number; stone: number; wood: number; food: number; iron: number }
+export const START_GRANT: Grant = { money: 5000, stone: 120, wood: 120, food: 400, iron: 30 };
 /** What a freshly founded city starts with (the founding cost is paid by the active city). */
-export const NEW_CITY_GRANT: Grant = { money: 1800, stone: 50, wood: 50, food: 200 };
+export const NEW_CITY_GRANT: Grant = { money: 1800, stone: 50, wood: 50, food: 200, iron: 10 };
 
 const blankBalance = (): Balance => ({ incomeTax: 0, foodSales: 0, propertyTax: 0, businessTax: 0, utilities: 0, publicWages: 0, upkeep: 0, net: 0 });
 
-function blankCity(id: number, name: string, founded: number, g: Grant = { money: 0, stone: 0, wood: 0, food: 0 }): City {
+function blankCity(id: number, name: string, founded: number, g: Grant = { money: 0, stone: 0, wood: 0, food: 0, iron: 0 }): City {
   return {
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
-    foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25,
+    foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25, mayor: -1, elected: 0,
   };
 }
 
@@ -85,6 +90,8 @@ export class Economy {
   set wood(v: number) { this.city.wood = v; }
   get food() { return this.city.food; }
   set food(v: number) { this.city.food = v; }
+  get iron() { return this.city.iron; }
+  set iron(v: number) { this.city.iron = v; }
   get powered() { return this.city.powered; }
   get energyDemand() { return this.city.energyDemand; }
   get energyCapacity() { return this.city.energyCapacity; }
@@ -96,14 +103,15 @@ export class Economy {
 
   get timeOfDay() { return this.dayT / DAY_SECONDS; }
 
-  canAfford(money: number, stone: number, wood = 0) {
-    return this.money >= money && this.stone >= stone && this.wood >= wood;
+  canAfford(money: number, stone: number, wood = 0, iron = 0) {
+    return this.money >= money && this.stone >= stone && this.wood >= wood && this.iron >= iron;
   }
 
-  spend(money: number, stone: number, wood = 0) {
+  spend(money: number, stone: number, wood = 0, iron = 0) {
     this.money -= money;
     this.stone -= stone;
     this.wood -= wood;
+    this.iron -= iron;
   }
 
   /** Advance the clock; returns true when a new day starts. */
@@ -140,7 +148,7 @@ export class Economy {
     return {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
-        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate,
+        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
       })),
     };
   }
@@ -150,11 +158,13 @@ export class Economy {
     this.dayT = s.dayT;
     this.cities.clear();
     for (const c of s.cities) {
-      const city = blankCity(c.id, c.name, c.founded, { money: c.money, stone: c.stone, wood: c.wood, food: c.food });
+      const city = blankCity(c.id, c.name, c.founded, { money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: c.iron ?? 0 });
       city.brokeDays = c.brokeDays;
       city.loan = c.loan ?? 0;
       city.happiness = c.happiness ?? 65;
       city.taxRate = c.taxRate ?? 0.25;
+      city.mayor = c.mayor ?? -1;
+      city.elected = c.elected ?? 0;
       this.cities.set(c.id, city);
       this.nextCity = Math.max(this.nextCity, c.id + 1);
     }

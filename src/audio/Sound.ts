@@ -18,12 +18,18 @@ class SoundEngine {
   private last = new Map<SoundName, number>();
   sfxOn = true;
   musicOn = true;
+  natureOn = true;
+  private natureGain: GainNode | null = null;
+  private layers: Partial<Record<'water' | 'wind' | 'rain' | 'town', GainNode>> = {};
+  private amb = { water: 0, forest: 0, rain: 0, night: 0, town: 0 };
+  private critterTimer = 0;
 
   constructor() {
     try {
       const s = JSON.parse(localStorage.getItem(KEY) ?? '{}');
       if (typeof s.sfx === 'boolean') this.sfxOn = s.sfx;
       if (typeof s.music === 'boolean') this.musicOn = s.music;
+      if (typeof s.nature === 'boolean') this.natureOn = s.nature;
     } catch { /* storage blocked */ }
   }
 
@@ -47,6 +53,7 @@ class SoundEngine {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.scheduleMusic();
+    this.startNature();
   }
 
   setSfx(on: boolean) {
@@ -61,6 +68,98 @@ class SoundEngine {
     this.store();
   }
 
+  setNature(on: boolean) {
+    this.natureOn = on;
+    if (this.natureGain && this.ctx) this.natureGain.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.3);
+    this.store();
+  }
+
+  /**
+   * Calm nature soundscape following the camera: a stream near water, wind in the leaves and birds near forests,
+   * crickets at night, rain on the roof, a soft murmur over the town.
+   */
+  setAmbience(a: { water: number; forest: number; rain: number; night: number; town: number }) {
+    this.amb = a;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const set = (k: 'water' | 'wind' | 'rain' | 'town', v: number) => this.layers[k]?.gain.setTargetAtTime(v, now, 1.2);
+    set('water', a.water * 0.5);
+    set('wind', 0.05 + a.forest * 0.18);
+    set('rain', a.rain * 0.35);
+    set('town', a.town * 0.12 * (1 - a.night * 0.6));
+  }
+
+  private startNature() {
+    const ctx = this.ctx!;
+    this.natureGain = ctx.createGain();
+    this.natureGain.gain.value = this.natureOn ? 1 : 0;
+    this.natureGain.connect(ctx.destination);
+    const layer = (type: BiquadFilterType, freq: number, q: number, lfoHz: number, depth: number) => {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      src.playbackRate.value = 0.7 + Math.random() * 0.2;
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      // slow swell so it breathes like real water / wind
+      const swell = ctx.createGain();
+      swell.gain.value = 1 - depth;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = lfoHz;
+      const lfoAmp = ctx.createGain();
+      lfoAmp.gain.value = depth;
+      lfo.connect(lfoAmp).connect(swell.gain);
+      src.connect(f).connect(swell).connect(g).connect(this.natureGain!);
+      src.start();
+      lfo.start();
+      return g;
+    };
+    this.layers.water = layer('bandpass', 850, 0.6, 0.23, 0.35);
+    this.layers.wind = layer('lowpass', 420, 0.4, 0.07, 0.45);
+    this.layers.rain = layer('highpass', 1400, 0.3, 0.5, 0.1);
+    this.layers.town = layer('lowpass', 160, 0.5, 0.11, 0.3);
+    this.setAmbience(this.amb);
+    const tick = () => {
+      if (this.ctx && this.natureOn && ctx.state === 'running') this.critters();
+      this.critterTimer = window.setTimeout(tick, 400 + Math.random() * 500);
+    };
+    clearTimeout(this.critterTimer);
+    tick();
+  }
+
+  /** Birds by day near trees, crickets at night. */
+  private critters() {
+    const a = this.amb;
+    const ctx = this.ctx!;
+    if (a.night < 0.5 && Math.random() < a.forest * 0.45 * (1 - a.rain)) {
+      const base = 2200 + Math.random() * 1800;
+      const notes = 2 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < notes; i++) this.chirp(base * (0.9 + Math.random() * 0.25), ctx.currentTime + i * (0.09 + Math.random() * 0.05), 0.07, 0.05 + a.forest * 0.05);
+    }
+    if (a.night > 0.5 && Math.random() < 0.5 * (1 - a.rain) * (1 - a.town * 0.7)) {
+      for (let i = 0; i < 3; i++) this.chirp(4700, ctx.currentTime + i * 0.05, 0.03, 0.025);
+    }
+  }
+
+  private chirp(freq: number, t0: number, dur: number, vol: number) {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    o.frequency.exponentialRampToValueAtTime(freq * 1.35, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + dur * 0.3);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(this.natureGain!);
+    o.start(t0);
+    o.stop(t0 + dur + 0.02);
+  }
+
   /** Mute everything (ads, hidden tab). */
   suspend(on: boolean) {
     if (!this.ctx) return;
@@ -69,7 +168,7 @@ class SoundEngine {
   }
 
   private store() {
-    try { localStorage.setItem(KEY, JSON.stringify({ sfx: this.sfxOn, music: this.musicOn })); } catch { /* ignore */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ sfx: this.sfxOn, music: this.musicOn, nature: this.natureOn })); } catch { /* ignore */ }
   }
 
   play(name: SoundName) {

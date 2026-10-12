@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DAY_SECONDS } from '../config';
+import { DAY_SECONDS, DAYS_PER_YEAR } from '../config';
 import { DIRS, N, tileToWorld, worldToTile, inBounds, idx } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { Terrain } from '../world/Terrain';
@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, FIRE_RANGE, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, FIRE_RANGE, IRON_PER_DAY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, DayReport, Family, Population } from '../people/Population';
@@ -58,6 +58,7 @@ export class Life {
   private immigrationT = 0;
   private stormT = 40;
   private porters = new Set<number>();
+  private privateBuild = new Map<number, number>();
   /** Builders currently working on each construction site. */
   private crews = new Map<number, Set<number>>();
   private busyBuilders = new Set<number>();
@@ -68,7 +69,14 @@ export class Life {
   events: string[] = [];
 
   constructor(private c: LifeContext) {
-    const { map, net, footpaths, canals, buildings } = c;
+    const { map, net, footpaths, canals, buildings, traffic } = c;
+    // pedestrians cross at signalled junctions only on green for their direction
+    c.walkers.gate = (x0, z0, x1, z1) => {
+      if (Math.abs(x1 - x0) + Math.abs(z1 - z0) < 0.25) return true;
+      const k = worldToTile((z0 + z1) / 2) * N + worldToTile((x0 + x1) / 2);
+      if (k < 0 || k >= N * N || !net.type[k] || !traffic.hasLight(k)) return true;
+      return traffic.light(k, Math.abs(x1 - x0) > Math.abs(z1 - z0) ? 2 : 1) === 'green';
+    };
     this.graph = new PedGraph({
       roadType: (k) => net.type[k],
       roadConn: (k) => net.conn[k],
@@ -296,6 +304,7 @@ export class Life {
       }
       this.entrepreneurs(city.id, say);
       this.updateHappiness(city, own, r, belongs, say);
+      this.elect(city, belongs, say);
       this.upgradeHouses(city.id, say);
       for (const inc of r.incidents) if (inc.kind === 'accident') this.crash(city.id);
       for (const inc of r.incidents) {
@@ -362,8 +371,32 @@ export class Life {
       }
     }
 
-    // 2) build a new grocery / clothing store when there are too few for the people
-    if (Math.random() > 0.3) return;
+    // private construction is slow and only answers a real need: at most one project every few days
+    if (eco.day - (this.privateBuild.get(cityId) ?? -99) < 3 || Math.random() > 0.35) return;
+    // 2a) parents build a house for a grown-up child when the city has no free homes
+    if (!this.freeHomes(cityId).length) {
+      const parents = rich.find((f) => f.money > 700 && pop.members(f).some((m) => m.role === 'child' && m.age >= 20));
+      const home = parents && buildings.get(parents.home);
+      if (parents && home && this.privateSite('house', home, (x, z) => {
+        parents.money -= BUILDINGS.house.money * 1.5;
+        buildings.place('house', x, z, { city: cityId });
+        this.privateBuild.set(cityId, eco.day);
+        say(t('The {family} family is building a house for their grown-up child', { family: parents.surname }));
+      })) return;
+    }
+    // 2b) a filling station once the town has enough cars
+    const cityCars = [...pop.families.values()].filter((f) => f.car && buildings.get(f.home)?.city === cityId).length;
+    if (cityCars >= 20 && !buildings.list.some((b) => b.kind === 'gasstation' && b.city === cityId)) {
+      const investor = rich.find((f) => f.money > BUILDINGS.gasstation.money * 1.5 + 400);
+      const home = investor && buildings.get(investor.home);
+      if (investor && home && this.privateSite('gasstation', home, (x, z) => {
+        investor.money -= BUILDINGS.gasstation.money * 1.5;
+        buildings.place('gasstation', x, z, { city: cityId, owner: investor.id });
+        this.privateBuild.set(cityId, eco.day);
+        say(t('The {family} family is building a {name}', { family: investor.surname, name: t(BUILDINGS.gasstation.name) }));
+      })) return;
+    }
+    // 2c) a new grocery / clothing store when there are too few for the people
     const people = this.populationByCity().get(cityId) ?? 0;
     const count = (kind: string) => buildings.list.filter((b) => b.city === cityId && b.kind === kind).length;
     const kind = count('grocery') < Math.floor(people / 50) + 1 ? 'grocery' : count('clothes') < Math.floor(people / 80) + 1 ? 'clothes' : null;
@@ -378,6 +411,7 @@ export class Life {
         const x = home.x + dx, z = home.z + dz;
         if (!buildings.check(kind, x, z).ok) continue;
         builder.money -= cost;
+        this.privateBuild.set(cityId, eco.day);
         const b = buildings.place(kind, x, z, { city: cityId, owner: builder.id });
         this.c.terrain.clearTiles(buildings.footprint(kind, x, z).map((tl) => tl.z * N + tl.x));
         this.rebuildGrid();
@@ -385,6 +419,23 @@ export class Life {
         return;
       }
     }
+  }
+
+  /** Find a buildable spot near a family's home and build there. */
+  private privateSite(kind: 'house' | 'gasstation', home: Building, build: (x: number, z: number) => void) {
+    const { buildings, terrain } = this.c;
+    for (let r = 1; r <= 6; r++) {
+      for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const x = home.x + dx, z = home.z + dz;
+        if (!buildings.check(kind, x, z).ok) continue;
+        build(x, z);
+        terrain.clearTiles(buildings.footprint(kind, x, z).map((tl) => tl.z * N + tl.x));
+        this.rebuildGrid();
+        return true;
+      }
+    }
+    return false;
   }
 
   private cleanupSpots() {
@@ -471,9 +522,11 @@ export class Life {
           }
         }
       }
+      if (b.kind === 'ironmine') city.iron += IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share;
       if (!d.food || !d.jobs) continue;
       let f = d.food * Math.min(1, b.workers / d.jobs);
       if (b.kind === 'farm') f *= (growingSeason(month) ? (b.irrigated ? 1 : 0.15) : 0) * (this.c.weather.drought > 0 ? 0.4 : 1);
+      if (b.kind === 'fishery') f *= seasonOf(month) === 'winter' ? 0.3 : 1;
       if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : month === 3 || month === 4 || month === 10 ? 0.4 : 0;
       if (b.kind === 'ranch') f *= (seasonOf(month) === 'winter' ? 0.7 : 1) * ((b.cattleCount ?? 4) / 4);
       city.food += f * share;
@@ -637,6 +690,26 @@ export class Life {
         say(t('The unhappy {family} family left the city', { family: leaving.surname }));
       }
     }
+  }
+
+  /** Every 4 years (or when the mayor is gone) the city elects a mayor — respected, educated adults stand a better chance. */
+  private elect(city: City, belongs: (f: Family) => boolean, say: (msg: string) => void) {
+    const { pop, eco } = this.c;
+    const current = pop.citizens.get(city.mayor);
+    const stillHere = current && belongs(pop.families.get(current.family)!);
+    if (stillHere && eco.day - city.elected < DAYS_PER_YEAR * 4) return;
+    const candidates = [...pop.citizens.values()].filter((c) => {
+      const f = pop.families.get(c.family);
+      return !!f && belongs(f) && c.age >= 28 && c.age < 72 && c.health > 40;
+    });
+    if (!candidates.length) { city.mayor = -1; return; }
+    const score = (c: typeof candidates[number]) => c.skill * 3 + c.edu * 2 + Math.min(1, (pop.families.get(c.family)?.money ?? 0) / 3000) + Math.random() * 3;
+    const winner = candidates.reduce((a, b) => (score(b) > score(a) ? b : a));
+    const reelected = winner.id === city.mayor;
+    city.mayor = winner.id;
+    city.elected = eco.day;
+    const name = `${winner.name} ${pop.families.get(winner.family)?.surname ?? ''}`.trim();
+    say(reelected ? t('{name} was re-elected mayor', { name }) : t('{name} is the new mayor', { name }));
   }
 
   /** Rich families add a floor to their house (pays more property tax). */

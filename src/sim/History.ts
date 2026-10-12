@@ -14,6 +14,8 @@ export interface Sample {
   trucks: number;
   walkers: number;
   animals: number;
+  happy?: number;
+  iron?: number;
 }
 
 const INTERVAL = 6;

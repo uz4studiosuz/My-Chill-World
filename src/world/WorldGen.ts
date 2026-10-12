@@ -23,6 +23,17 @@ export function generateWorld(seed: number): WorldMap {
 
   // Mountains: noise ranges + one guaranteed mountain near the town (stone for quarries)
   const waterDist = distanceField(map.water, 4);
+
+  // Climate: dry steppe and sandy desert regions away from the town and from water
+  for (let z = 0; z < N; z++) {
+    for (let x = 0; x < N; x++) {
+      const k = idx(x, z);
+      let a = fbm(x * 0.018 + 300, z * 0.018 + 700, seed + 61, 3);
+      const town = Math.max(0, 1 - (distC(x, z) - CENTER_CLEAR) / 14);
+      a -= town * 0.25 + (waterDist[k] < 3 ? (3 - waterDist[k]) * 0.05 : 0);
+      map.arid[k] = Math.max(0, Math.min(1, a));
+    }
+  }
   const ma = rnd() * Math.PI * 2, md = 24 + rnd() * 6;
   const mx = c + Math.cos(ma) * md, mz = c + Math.sin(ma) * md;
   for (let z = 0; z < N; z++) {

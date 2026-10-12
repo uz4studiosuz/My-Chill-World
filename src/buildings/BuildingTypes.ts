@@ -1,7 +1,7 @@
 export type BuildingKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower'
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
-  | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
+  | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
 
 
 /** How a building's workers behave while at work. */
@@ -18,6 +18,7 @@ export interface BuildingDef {
   money: number;
   stone: number;
   wood: number;
+  iron: number;
   /** Max family members (houses only — one family per house). */
   housing: number;
   jobs: number;
@@ -46,7 +47,7 @@ export interface BuildingDef {
 }
 
 const def = (d: Partial<BuildingDef> & Pick<BuildingDef, 'kind' | 'name' | 'size'>): BuildingDef => ({
-  money: 0, stone: 0, wood: 0, housing: 0, jobs: 0, salary: 0, publicJob: false, upkeep: 0, energy: 0, power: 0, food: 0, water: 0,
+  money: 0, stone: 0, wood: 0, iron: 0, housing: 0, jobs: 0, salary: 0, publicJob: false, upkeep: 0, energy: 0, power: 0, food: 0, water: 0,
   students: 0, slots: [], revenue: 0, heal: 0, needsRoad: true, work: 'indoor', buildable: true, ...d,
 });
 
@@ -72,18 +73,20 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   cemetery: def({ kind: 'cemetery', name: 'Cemetery', size: 2, money: 400, stone: 20, wood: 10, jobs: 1, salary: 10, publicJob: true, upkeep: 2 }),
   grocery: def({ kind: 'grocery', name: 'Grocery Store', size: 1, money: 500, stone: 8, wood: 8, jobs: 3, salary: 11, energy: 2 }),
   clothes: def({ kind: 'clothes', name: 'Clothing Store', size: 1, money: 600, stone: 8, wood: 10, jobs: 3, salary: 12, energy: 2 }),
-  firestation: def({ kind: 'firestation', name: 'Fire Station', size: 1, money: 900, stone: 20, wood: 10, jobs: 4, salary: 16, publicJob: true, upkeep: 4, energy: 2 }),
-  busdepot: def({ kind: 'busdepot', name: 'Bus Depot', size: 2, money: 1600, stone: 30, wood: 10, jobs: 4, salary: 14, publicJob: true, upkeep: 6, energy: 3 }),
+  firestation: def({ kind: 'firestation', name: 'Fire Station', size: 1, money: 900, iron: 5, stone: 20, wood: 10, jobs: 4, salary: 16, publicJob: true, upkeep: 4, energy: 2 }),
+  busdepot: def({ kind: 'busdepot', name: 'Bus Depot', size: 2, money: 1600, iron: 10, stone: 30, wood: 10, jobs: 4, salary: 14, publicJob: true, upkeep: 6, energy: 3 }),
+  ironmine: def({ kind: 'ironmine', name: 'Iron Mine', size: 2, money: 900, wood: 15, jobs: 6, salary: 15, upkeep: 4, needsRoad: false }),
+  fishery: def({ kind: 'fishery', name: 'Fishing Hut', size: 1, money: 350, wood: 10, jobs: 2, salary: 10, food: 25, needsRoad: false, work: 'indoor' }),
   police: def({ kind: 'police', name: 'Police Station', size: 1, money: 1200, stone: 20, wood: 10, jobs: 4, salary: 18, publicJob: true, upkeep: 5, energy: 3 }),
   park: def({ kind: 'park', name: 'Park', size: 2, money: 400, wood: 10, jobs: 1, salary: 10, publicJob: true, upkeep: 2, heal: 4 }),
-  hospital: def({ kind: 'hospital', name: 'Hospital', size: 2, money: 1800, stone: 30, wood: 20, jobs: 6, salary: 22, publicJob: true, upkeep: 8, energy: 5, heal: 20 }),
-  university: def({ kind: 'university', name: 'University', size: 3, money: 3500, stone: 70, wood: 40, jobs: 8, salary: 22, publicJob: true, upkeep: 12, energy: 8, students: 30 }),
+  hospital: def({ kind: 'hospital', name: 'Hospital', size: 2, money: 1800, iron: 10, stone: 30, wood: 20, jobs: 6, salary: 22, publicJob: true, upkeep: 8, energy: 5, heal: 20 }),
+  university: def({ kind: 'university', name: 'University', size: 3, money: 3500, iron: 10, stone: 70, wood: 40, jobs: 8, salary: 22, publicJob: true, upkeep: 12, energy: 8, students: 30 }),
   market: def({ kind: 'market', name: 'Market', size: 2, money: 900, stone: 20, wood: 15, jobs: 5, salary: 12, energy: 3 }),
   carmarket: def({ kind: 'carmarket', name: 'Car Market', size: 2, money: 1400, stone: 20, wood: 10, jobs: 4, salary: 14, energy: 3 }),
-  bank: def({ kind: 'bank', name: 'Bank', size: 1, money: 1500, stone: 25, wood: 5, jobs: 4, salary: 20, energy: 3, revenue: 180 }),
+  bank: def({ kind: 'bank', name: 'Bank', size: 1, money: 1500, iron: 5, stone: 25, wood: 5, jobs: 4, salary: 20, energy: 3, revenue: 180 }),
   gasstation: def({ kind: 'gasstation', name: 'Gas Station', size: 1, money: 600, stone: 10, wood: 5, jobs: 2, salary: 11, energy: 2, revenue: 60 }),
-  factory: def({ kind: 'factory', name: 'Factory', size: 3, money: 2500, stone: 60, wood: 30, jobs: 14, salary: 16, energy: 8, revenue: 280 }),
-  carfactory: def({ kind: 'carfactory', name: 'Car Factory', size: 3, money: 4500, stone: 90, wood: 40, jobs: 18, salary: 20, energy: 12, revenue: 450 }),
+  factory: def({ kind: 'factory', name: 'Factory', size: 3, money: 2500, iron: 20, stone: 60, wood: 30, jobs: 14, salary: 16, energy: 8, revenue: 280 }),
+  carfactory: def({ kind: 'carfactory', name: 'Car Factory', size: 3, money: 4500, iron: 40, stone: 90, wood: 40, jobs: 18, salary: 20, energy: 12, revenue: 450 }),
   construction: def({ kind: 'construction', name: 'Construction Company', size: 2, money: 700, stone: 15, wood: 20, jobs: 6, salary: 14, energy: 2, revenue: 90, work: 'builder' }),
 };
 
@@ -99,10 +102,12 @@ export const HOUSE_UPGRADE = { money: 1200, minSavings: 2600, maxLevel: 3 };
 export const FIRE_RANGE = 16;
 /** Lower = filled first when people look for work (water, food, energy and materials keep the town alive). */
 export const JOB_PRIORITY: Partial<Record<BuildingKind, number>> = {
-  watertower: 0, farm: 1, orchard: 1, ranch: 1, powerplant: 1, woodcutter: 2, quarry: 2, hospital: 3, townhall: 3, construction: 3,
+  watertower: 0, farm: 1, orchard: 1, ranch: 1, fishery: 1, powerplant: 1, woodcutter: 2, quarry: 2, ironmine: 2, hospital: 3, townhall: 3, construction: 3,
 };
 /** Emergency purchase of building materials from travelling merchants. */
-export const MERCHANT = { stone: { amount: 10, price: 80 }, wood: { amount: 10, price: 50 } };
+export const MERCHANT = { stone: { amount: 10, price: 80 }, wood: { amount: 10, price: 50 }, iron: { amount: 10, price: 140 } };
+/** Iron per day from a fully staffed mine. */
+export const IRON_PER_DAY = 12;
 /** Shops: what each person spends there per day. */
 export const SHOP_SPEND = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 export type ShopKind = keyof typeof SHOP_SPEND;

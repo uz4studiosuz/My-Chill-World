@@ -39,6 +39,7 @@ export interface WorldSave {
   time?: number;
   history?: Sample[];
   goals?: GoalsSave;
+  log?: { day: number; text: string }[];
 }
 
 /** Multiple worlds: a small index + one key per world. */
