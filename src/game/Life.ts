@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, FIRE_RANGE, IRON_PER_DAY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, CARS, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, DayReport, Family, Population } from '../people/Population';
@@ -58,7 +58,16 @@ export class Life {
   private immigrationT = 0;
   private stormT = 40;
   private porters = new Set<number>();
+  private serviceT = 5;
+  /** Buses / patrol cars on the road per depot or station. */
+  private fleet = new Map<number, number>();
+  /** Street lamp energy per city (set by the game when roads change). */
+  lampDemand: [number, number][] = [];
+  lampsLit = true;
   private privateBuild = new Map<number, number>();
+  /** Food eaten / missing today per city (people eat through the day, not once at midnight). */
+  private meals = new Map<number, { eaten: number; short: number }>();
+  private people = new Map<number, number>();
   /** Builders currently working on each construction site. */
   private crews = new Map<number, Set<number>>();
   private busyBuilders = new Set<number>();
@@ -94,9 +103,12 @@ export class Life {
     const { eco, pop } = this.c;
     if (eco.tick(dt)) this.newDay();
     pop.tickNeeds(dt / DAY_SECONDS);
+    this.eat(dt);
     this.updateEnergy(dt);
     this.presentT -= dt;
-    if (this.presentT <= 0) { this.presentT = 0.5; this.countPresent(); this.checkRain(); this.dispatchBuilders(); }
+    this.serviceT -= dt;
+    if (this.serviceT <= 0) { this.serviceT = 3; this.dispatchServices(); }
+    if (this.presentT <= 0) { this.presentT = 0.5; this.people = this.populationByCity(); this.countPresent(); this.checkRain(); this.dispatchBuilders(); }
     this.produce(dt);
     this.schedule();
     this.updateFires(dt);
@@ -109,12 +121,17 @@ export class Life {
   parkedCars() {
     const { pop, buildings } = this.c;
     const out: { x: number; z: number; rot: number; color: THREE.Color }[] = [];
+    const at = new Map<number, number>();
     for (const f of pop.families.values()) {
       if (!f.car || f.car.at === 'moving') continue;
       const color = colorOf(f.car.color);
       if (f.car.at === 'home') {
         const h = buildings.get(f.home);
-        if (h) out.push({ ...buildings.slot(h, 0), color });
+        if (!h) continue;
+        const i = at.get(h.id) ?? 0;
+        at.set(h.id, i + 1);
+        const slots = BUILDINGS[h.kind].slots.length;
+        if (slots) out.push({ ...buildings.slot(h, i % slots), color });
       } else if (f.car.lot !== undefined) {
         const lot = buildings.get(f.car.lot);
         if (lot) out.push({ ...buildings.slot(lot, f.car.slot!), color });
@@ -131,8 +148,15 @@ export class Life {
   /** Empty houses (of one city, or all). */
   freeHomes(city?: number) {
     const { buildings, pop } = this.c;
-    const taken = new Set([...pop.families.values()].map((f) => f.home));
-    return buildings.ofKind('house').filter((h) => h.built >= 1 && !taken.has(h.id) && (city === undefined || h.city === city));
+    const used = new Map<number, number>();
+    for (const f of pop.families.values()) used.set(f.home, (used.get(f.home) ?? 0) + 1);
+    const out: Building[] = [];
+    for (const b of buildings.list) {
+      const units = BUILDINGS[b.kind].units;
+      if (!units || b.built < 1 || (city !== undefined && b.city !== city)) continue;
+      for (let i = used.get(b.id) ?? 0; i < units; i++) out.push(b);
+    }
+    return out;
   }
 
   /** People living in each city. */
@@ -185,22 +209,34 @@ export class Life {
       for (const b of buildings.list) {
         if (b.city !== city.id || b.built < 1) continue;
         const d = BUILDINGS[b.kind];
-        if (d.energy && this.gridIds.has(b.id)) demand += d.energy;
+        if (d.energy && this.gridIds.has(b.id)) demand += d.energy * (b.kind === 'house' ? b.level : 1);
         if (d.power && b.access >= 0) {
           const p = d.power * Math.min(1, b.workers / d.jobs);
           capacity += p;
           if (p > 0) plants.push({ city, power: p });
         }
       }
-      city.energyDemand = demand;
+      city.energyDemand = demand + (this.lampDemand.find(([id]) => id === city.id)?.[1] ?? 0);
       city.energyCapacity = capacity;
       total += demand;
     }
-    eco.updateEnergy(dt, total, plants);
-    for (const b of buildings.list) {
-      if (!BUILDINGS[b.kind].energy) { b.powered = true; continue; }
-      const city = eco.cities.get(b.city);
-      b.powered = this.gridIds.has(b.id) && !!city && city.powered > 0.35;
+    total += this.lampDemand.reduce((a, [, n]) => a + n, 0);
+    const available = eco.updateEnergy(dt, total, plants);
+    // essential buildings first; when the plants can't cover everything, the rest goes dark
+    const consumers = buildings.list.filter((b) => BUILDINGS[b.kind].energy > 0 && b.built >= 1);
+    consumers.sort((a, b) => (POWER_PRIORITY[a.kind] ?? 4) - (POWER_PRIORITY[b.kind] ?? 4));
+    let left = available;
+    const got = new Map<number, number>();
+    for (const b of buildings.list) if (!BUILDINGS[b.kind].energy) b.powered = true;
+    for (const b of consumers) {
+      const e = BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1);
+      b.powered = this.gridIds.has(b.id) && left >= e;
+      if (b.powered) { left -= e; got.set(b.city, (got.get(b.city) ?? 0) + e); }
+    }
+    this.lampsLit = left > 0;
+    for (const city of eco.cities.values()) {
+      const share = city.energyDemand > 0 ? Math.min(1, (got.get(city.id) ?? 0) / city.energyDemand) : 1;
+      city.powered += (share - city.powered) * Math.min(1, dt * 2);
     }
     const people = this.populationByCity();
     for (const city of eco.cities.values()) {
@@ -231,34 +267,40 @@ export class Life {
       };
       const own = buildings.list.filter((b) => b.city === city.id && b.built >= 1);
       const hasHall = own.some((b) => b.kind === 'weddinghall');
-      const staffed = (kind: string) => own.some((b) => b.kind === kind && b.workers > 0);
       const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0);
-      const r = pop.daily(buildings, belongs, city.food, city.water, () => this.freeHomes(city.id), hasHall, {
-        heal: Math.min(40, heal), carMarket: staffed('carmarket'),
-        shops: { market: staffed('market'), grocery: staffed('grocery'), clothes: staffed('clothes') },
+      const meal = this.meals.get(city.id) ?? { eaten: 1, short: 0 };
+      const fed = meal.eaten + meal.short > 0 ? meal.eaten / (meal.eaten + meal.short) : 1;
+      const portions = Math.round((this.people.get(city.id) ?? 0) * fed + (fed >= 0.999 ? 1000 : 0));
+      const r = pop.daily(buildings, belongs, portions, city.water, () => this.freeHomes(city.id), hasHall, {
+        heal: Math.min(40, heal), carStock: this.carStock(city.id),
+        shops: { market: false, grocery: false, clothes: false },
         taxRate: city.taxRate,
-        safety: Math.min(0.75, own.filter((b) => b.kind === 'police').reduce((a, b) => a + 0.45 * Math.min(1, b.workers / BUILDINGS.police.jobs), 0)),
+        safety: this.policeCover(city.id) * 0.75,
       });
-      city.food -= r.foodEaten;
       city.foodYesterday = { made: Math.round(city.foodMade), eaten: r.foodEaten };
       city.foodMade = 0;
+      let rentToCity = 0;
+      for (const [bid, amount] of r.rent) {
+        const flat = buildings.get(bid);
+        const owner = flat && flat.owner >= 0 ? pop.families.get(flat.owner) : undefined;
+        if (owner) { owner.money += amount; owner.income += amount; } else rentToCity += amount;
+      }
       const interest = city.loan * LOAN.interest;
       const upkeep = Math.round(roadShare + interest + buildings.list.reduce((a, b) => (b.city === city.id ? a + BUILDINGS[b.kind].upkeep : a), 0));
       // business tax: turnover of staffed shops, factories, banks… plus market and car dealer sales
-      const cars = [...pop.families.values()].filter((f) => f.car && homeCity(f) === city.id).length;
       // each business pays 20% tax on its turnover; a family owner keeps a share as profit
       const working = (kind: string) => own.filter((b) => b.kind === kind && b.workers > 0);
       let business = 0;
       for (const b of own) {
         const d = BUILDINGS[b.kind];
         let turnover = 0;
-        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes') {
-          turnover = b.workers > 0 ? r.spent[b.kind] / Math.max(1, working(b.kind).length) : 0;
+        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'gasstation') {
+          turnover = b.sales ?? 0;
+          b.sales = 0;
         } else if (b.kind === 'carmarket') {
           turnover = b.workers > 0 ? r.carSales / Math.max(1, working('carmarket').length) : 0;
         } else if (d.revenue) {
           turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5);
-          if (b.kind === 'gasstation') turnover += Math.min(150, cars * 3) * (b.workers > 0 ? 1 : 0);
         }
         if (!turnover) continue;
         business += turnover * city.taxRate * 0.8;
@@ -269,10 +311,10 @@ export class Life {
           owner.income += Math.round(profit);
         } else if (b.owner >= 0) b.owner = -1;
       }
-      const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax + r.utilities + business - r.publicWages - upkeep);
+      const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax + rentToCity + r.utilities + business - r.publicWages - upkeep);
       city.money += net;
       city.balance = {
-        incomeTax: Math.round(r.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax, businessTax: Math.round(business),
+        incomeTax: Math.round(r.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax + rentToCity, businessTax: Math.round(business),
         utilities: Math.round(r.utilities), publicWages: Math.round(r.publicWages), upkeep, net,
       };
       city.deaths = r.deaths.length;
@@ -302,6 +344,15 @@ export class Life {
           say(t('A new calf was born in the ranch!'));
         }
       }
+      this.sellCars(city.id, r.carsBought);
+      // without a working gas station in town, empty cars are filled up out of town overnight (twice the price)
+      if (!buildings.list.some((b) => b.kind === 'gasstation' && b.city === city.id && b.built >= 1 && b.workers > 0)) {
+        for (const f of pop.families.values()) {
+          if (!f.car || f.car.fuel >= 20 || homeCity(f) !== city.id) continue;
+          f.money -= (100 - f.car.fuel) * FUEL.price * 2;
+          f.car.fuel = 100;
+        }
+      }
       this.entrepreneurs(city.id, say);
       this.updateHappiness(city, own, r, belongs, say);
       this.elect(city, belongs, say);
@@ -321,6 +372,7 @@ export class Life {
     for (const c of pop.citizens.values()) if (c.state !== 'home') this.teleportHome(c);
     for (const w of [...this.c.walkers.list]) if (!w.leaving) this.c.walkers.dismiss(w);
     this.porters.clear();
+    this.meals.clear();
     this.crews.clear();
     this.busyBuilders.clear();
     this.cleanupSpots();
@@ -373,7 +425,19 @@ export class Life {
 
     // private construction is slow and only answers a real need: at most one project every few days
     if (eco.day - (this.privateBuild.get(cityId) ?? -99) < 3 || Math.random() > 0.35) return;
-    // 2a) parents build a house for a grown-up child when the city has no free homes
+    // 2a) a businessman builds an apartment block to rent out when homes run short in a bigger town
+    if (this.freeHomes(cityId).length < 2 && (this.people.get(cityId) ?? 0) >= 60) {
+      const cost = BUILDINGS.apartment.money * 1.4;
+      const investor = rich.find((f) => f.money > cost + 800);
+      const home = investor && buildings.get(investor.home);
+      if (investor && home && this.privateSite('apartment', home, (x, z) => {
+        investor.money -= cost;
+        buildings.place('apartment', x, z, { city: cityId, owner: investor.id });
+        this.privateBuild.set(cityId, eco.day);
+        say(t('The {family} family is building an apartment block to rent out', { family: investor.surname }));
+      })) return;
+    }
+    // 2b) parents build a house for a grown-up child when the city has no free homes
     if (!this.freeHomes(cityId).length) {
       const parents = rich.find((f) => f.money > 700 && pop.members(f).some((m) => m.role === 'child' && m.age >= 20));
       const home = parents && buildings.get(parents.home);
@@ -422,7 +486,7 @@ export class Life {
   }
 
   /** Find a buildable spot near a family's home and build there. */
-  private privateSite(kind: 'house' | 'gasstation', home: Building, build: (x: number, z: number) => void) {
+  private privateSite(kind: 'house' | 'gasstation' | 'apartment', home: Building, build: (x: number, z: number) => void) {
     const { buildings, terrain } = this.c;
     for (let r = 1; r <= 6; r++) {
       for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
@@ -467,6 +531,20 @@ export class Life {
     }
   }
 
+  /** Everyone eats a little all the time; shortages are remembered for the evening settlement. */
+  private eat(dt: number) {
+    for (const city of this.c.eco.cities.values()) {
+      const need = ((this.people.get(city.id) ?? 0) * dt) / DAY_SECONDS;
+      if (need <= 0) continue;
+      const eaten = Math.min(Math.max(0, city.food), need);
+      city.food -= eaten;
+      const m = this.meals.get(city.id) ?? { eaten: 0, short: 0 };
+      m.eaten += eaten;
+      m.short += need - eaten;
+      this.meals.set(city.id, m);
+    }
+  }
+
   // ---------- production ----------
 
   private countPresent() {
@@ -485,10 +563,6 @@ export class Life {
       if (b.kind === 'farm') {
         if (weather.isWet(b.mesh.position.x, b.mesh.position.z)) this.rained.add(b.id);
         b.irrigated = this.rained.has(b.id) || canals.watered(b.x, b.z, BUILDINGS.farm.size);
-      }
-      if (b.fire > 0 && weather.isWet(b.mesh.position.x, b.mesh.position.z)) {
-        b.fire = 0;
-        this.events.push(t('The rain put out a fire'));
       }
     }
   }
@@ -523,6 +597,12 @@ export class Life {
         }
       }
       if (b.kind === 'ironmine') city.iron += IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share;
+      if (b.kind === 'carfactory' && b.stored < CARS.factoryMax) {
+        const made = CARS.perDay * Math.min(1, b.workers / d.jobs) * (b.powered ? 1 : 0.4) * share;
+        const iron = made * CARS.iron;
+        if (city.iron >= iron) { city.iron -= iron; b.stored += made; }
+      }
+      if (b.kind === 'carfactory' && b.stored >= CARS.truckLoad && b.trucks === 0 && b.access >= 0) this.deliverCars(b);
       if (!d.food || !d.jobs) continue;
       let f = d.food * Math.min(1, b.workers / d.jobs);
       if (b.kind === 'farm') f *= (growingSeason(month) ? (b.irrigated ? 1 : 0.15) : 0) * (this.c.weather.drought > 0 ? 0.4 : 1);
@@ -582,6 +662,32 @@ export class Life {
     }, 'log');
   }
 
+  /** Trucks bring new cars from the factory to the car market with room in its lot. */
+  private deliverCars(factory: Building) {
+    const { buildings, traffic } = this.c;
+    const market = buildings.list
+      .filter((m) => m.kind === 'carmarket' && m.city === factory.city && m.built >= 1 && m.access >= 0 && m.stored + CARS.truckLoad <= CARS.marketMax)
+      .sort((a, b) => a.stored - b.stored)[0];
+    if (!market) return;
+    // next door: the cars are simply driven over
+    if (market.access === factory.access || dist(market, factory) <= 3) {
+      factory.stored -= CARS.truckLoad;
+      market.stored += CARS.truckLoad;
+      return;
+    }
+    const ok = traffic.spawn({
+      kind: 'truck', loaded: true, from: factory.access, to: market.access, color: new THREE.Color('#3a6fd1'),
+      fromPos: buildings.door(factory), toPos: buildings.door(market),
+      onArrive: () => {
+        market.stored += CARS.truckLoad;
+        factory.trucks = 0;
+        traffic.spawn({ kind: 'truck', from: market.access, to: factory.access, fromPos: buildings.door(market), toPos: buildings.door(factory) });
+      },
+      onFail: () => { factory.stored += CARS.truckLoad; factory.trucks = 0; },
+    });
+    if (ok) { factory.stored -= CARS.truckLoad; factory.trucks = 1; }
+  }
+
   private truckBack(b: Building) {
     const { buildings, traffic } = this.c;
     const th = buildings.townHall(b.city);
@@ -596,13 +702,13 @@ export class Life {
   /** A thunderstorm now and then strikes on its own during natural rain. */
   private storm() {
     const { weather, buildings, effects } = this.c;
-    if (!weather.naturalActive || weather.kind !== 'rain' || Math.random() < 0.45) return;
-    let x = 0, z = 0;
-    if (buildings.list.length) {
-      const b = pick(buildings.list);
-      x = b.mesh.position.x + (Math.random() - 0.5) * 6;
-      z = b.mesh.position.z + (Math.random() - 0.5) * 6;
-    }
+    if (Math.random() < 0.45) return;
+    // lightning strikes under a rain cloud — often a tall building attracts it
+    const p = weather.wetPoint();
+    if (!p) return;
+    let { x, z } = p;
+    const tall = buildings.list.filter((b) => Math.hypot(b.mesh.position.x - x, b.mesh.position.z - z) < 4);
+    if (tall.length && Math.random() < 0.5) { const b = pick(tall); x = b.mesh.position.x; z = b.mesh.position.z; }
     weather.strike(x, z);
     effects.puff(x, z, 0.4, 16, ['#fff3b0', '#ffd166', '#3a2a20']);
     this.lightning(x, z);
@@ -615,7 +721,7 @@ export class Life {
     if (emit) this.fireT = 0.15;
     for (const b of [...buildings.list]) {
       if (b.fire <= 0) continue;
-      b.fire -= dt;
+      b.fire -= dt * (this.c.weather.isWet(b.mesh.position.x, b.mesh.position.z) ? 0.5 : 1);
       if (emit) effects.fire(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.6);
       // flames jump to neighbours
       if (Math.random() < dt * 0.04) {
@@ -692,6 +798,16 @@ export class Life {
     }
   }
 
+  /** Share of the city's homes within reach of a staffed police station. */
+  policeCover(cityId: number) {
+    const { buildings } = this.c;
+    const stations = buildings.list.filter((b) => b.kind === 'police' && b.city === cityId && b.built >= 1 && b.workers > 0);
+    const homes = buildings.list.filter((b) => b.kind === 'house' && b.city === cityId);
+    if (!stations.length || !homes.length) return 0;
+    const covered = homes.filter((h) => stations.some((s) => Math.hypot(s.x - h.x, s.z - h.z) <= POLICE_RANGE)).length;
+    return covered / homes.length;
+  }
+
   /** Every 4 years (or when the mayor is gone) the city elects a mayor — respected, educated adults stand a better chance. */
   private elect(city: City, belongs: (f: Family) => boolean, say: (msg: string) => void) {
     const { pop, eco } = this.c;
@@ -718,7 +834,7 @@ export class Life {
     if (Math.random() > 0.4) return;
     for (const f of pop.families.values()) {
       const h = buildings.get(f.home);
-      if (!h || h.city !== cityId || h.level >= HOUSE_UPGRADE.maxLevel || f.money < HOUSE_UPGRADE.minSavings) continue;
+      if (!h || h.kind !== 'house' || h.city !== cityId || h.level >= HOUSE_UPGRADE.maxLevel || f.money < HOUSE_UPGRADE.minSavings) continue;
       const cost = HOUSE_UPGRADE.money * h.level;
       if (f.money < cost + 800) continue;
       f.money -= cost;
@@ -743,8 +859,19 @@ export class Life {
     if (!junctions.length) return;
     const k = pick(junctions);
     const x = tileToWorld(k % N), z = tileToWorld((k / N) | 0);
-    effects.wreck(x, z);
+    const wreck = effects.wreck(x, z);
     sound.play('demolish');
+    const police = buildings.list.find((b) => b.kind === 'police' && b.city === cityId && b.built >= 1 && b.workers > 0 && b.access >= 0);
+    if (police) {
+      traffic.spawn({
+        kind: 'car', from: police.access, to: k, color: new THREE.Color('#1f3f86'), fromPos: buildings.door(police),
+        onArrive: () => {
+          effects.clearWreck(wreck);
+          this.events.push(t('The traffic police cleared the crash'));
+          traffic.spawn({ kind: 'car', from: k, to: police.access, color: new THREE.Color('#1f3f86'), toPos: buildings.door(police) });
+        },
+      });
+    }
     const hospital = buildings.list.find((b) => b.kind === 'hospital' && b.city === cityId && b.built >= 1 && b.access >= 0);
     if (hospital) {
       traffic.spawn({
@@ -811,6 +938,8 @@ export class Life {
     if (c.school >= 0) return buildings.get(c.school);
     if (c.errand) {
       const home = buildings.get(this.family(c)?.home ?? -1);
+      const shops = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && b.workers > 0 && SHOP_PRICE[b.kind]);
+      if (shops.length && Math.random() < 0.6) return pick(shops);
       const spots = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && (b.kind === 'townhall' || b.kind === 'park' || b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'bank' || b.kind === 'orchard' || b.kind === 'parking' || b.kind === 'weddinghall' || b.kind === 'school'));
       return spots.length ? pick(spots) : undefined;
     }
@@ -830,13 +959,14 @@ export class Life {
     const purpose = c.job === dest.id ? 'work' : c.school === dest.id ? 'school' : 'errand';
     const arrive = () => this.arrive(c, dest);
 
-    if (f.car?.at === 'home' && c.age >= 18 && home.access >= 0) {
+    if (f.car?.at === 'home' && c.age >= 18 && home.access >= 0 && f.car.fuel > FUEL.empty) {
       const spot = this.findSpot(dest);
       if (spot && traffic.canRoute(home.access, spot.lot.access)) {
         const key = `${spot.lot.id}:${spot.slot}`;
         this.spots.set(key, f.id);
         const car = f.car;
         car.at = 'moving';
+        car.fuel = Math.max(0, car.fuel - (6 + Math.random() * 4));
         const slotPos = buildings.slot(spot.lot, spot.slot);
         const ok = traffic.spawn({
           kind: 'car', from: home.access, to: spot.lot.access, color: colorOf(car.color),
@@ -874,6 +1004,7 @@ export class Life {
     c.at = b.id;
     const work = c.job === b.id ? BUILDINGS[b.kind].work : 'indoor';
     c.activity = c.job === b.id ? 'At work' : c.school === b.id ? 'At school' : 'Visiting';
+    if (c.job !== b.id && c.school !== b.id) this.shop(c, b);
     if (work === 'woodcutter') this.woodcutterLoop(c, b);
     else if (work === 'farmer') this.farmLoop(c, b);
     else if (work === 'builder') this.builderLoop(c, b);
@@ -908,12 +1039,28 @@ export class Life {
         const slotPos = buildings.slot(lot, car.slot!);
         const key = `${lot.id}:${car.slot}`;
         this.walk(c, from, fromTile, null, () => {
-          const ok = traffic.spawn({
-            kind: 'car', from: lot.access, to: home.access, color: colorOf(car.color),
-            fromPos: slotPos, toPos: buildings.slot(home, 0),
+          car.fuel = Math.max(0, car.fuel - (6 + Math.random() * 4));
+          const station = car.fuel < FUEL.low ? this.gasStation(lot) : undefined;
+          const driveHome = (fromAccess: number, fromPos: Point) => traffic.spawn({
+            kind: 'car', from: fromAccess, to: home.access, color: colorOf(car.color),
+            fromPos, toPos: buildings.slot(home, 0),
             onArrive: () => { car.at = 'home'; done(); },
             onFail: () => { car.at = 'home'; done(); },
           });
+          const ok = station
+            ? traffic.spawn({
+              kind: 'car', from: lot.access, to: station.access, color: colorOf(car.color), fromPos: slotPos, toPos: buildings.door(station),
+              onArrive: () => {
+                const cost = (100 - car.fuel) * FUEL.price;
+                f.money -= cost;
+                station.sales = (station.sales ?? 0) + cost;
+                car.fuel = 100;
+                c.activity = 'Refuelling';
+                if (!driveHome(station.access, buildings.door(station))) { car.at = 'home'; done(); }
+              },
+              onFail: () => { car.at = 'home'; done(); },
+            })
+            : driveHome(lot.access, slotPos);
           this.spots.delete(key);
           car.lot = undefined;
           if (ok) {
@@ -932,8 +1079,98 @@ export class Life {
       car.lot = undefined;
     }
     c.drove = false;
+    if (c.job >= 0 && Math.random() < 0.2) {
+      const shop = this.c.buildings.list.find((b) => SHOP_PRICE[b.kind] && b.city === home.city && b.built >= 1 && b.workers > 0 && dist(b, home) < 14);
+      if (shop) {
+        c.activity = 'Going shopping';
+        this.walk(c, from, fromTile, shop, () => {
+          if (!this.alive(c)) return;
+          this.shop(c, shop);
+          this.walk(c, buildings.door(shop), buildings.frontTile(shop), home, done);
+        });
+        return;
+      }
+    }
     if (!outside && at && this.rideBus(c, at, home, done)) return;
     this.walk(c, from, fromTile, home, done, this.carryFor(c));
+  }
+
+  /** Nearest staffed gas station reachable from this building. */
+  private gasStation(from: Building) {
+    const { buildings, traffic } = this.c;
+    return buildings.list
+      .filter((b) => b.kind === 'gasstation' && b.city === from.city && b.built >= 1 && b.workers > 0 && b.access >= 0)
+      .sort((a, b) => dist(a, from) - dist(b, from))
+      .find((b) => traffic.canRoute(from.access, b.access));
+  }
+
+  /** A visit to a shop: the family pays, the shop records the sale. */
+  private shop(c: Citizen, b: Building) {
+    const range = SHOP_PRICE[b.kind];
+    const f = this.family(c);
+    if (!range || !f || b.workers <= 0 || f.money < 20) return;
+    const spend = Math.round(range[0] + Math.random() * (range[1] - range[0]));
+    f.money -= spend;
+    b.sales = (b.sales ?? 0) + spend;
+    c.activity = 'Shopping';
+  }
+
+  /** Cars waiting for buyers at the city's car markets. */
+  private carStock(cityId: number) {
+    return this.c.buildings.list.reduce((a, b) => a + (b.kind === 'carmarket' && b.city === cityId && b.built >= 1 && b.workers > 0 ? Math.floor(b.stored) : 0), 0);
+  }
+
+  /** Remove sold cars from the markets; markets without a local factory import a car now and then. */
+  private sellCars(cityId: number, sold: number) {
+    const { buildings } = this.c;
+    const markets = buildings.list.filter((b) => b.kind === 'carmarket' && b.city === cityId && b.built >= 1);
+    for (const m of markets) {
+      const take = Math.min(sold, Math.floor(m.stored));
+      m.stored -= take;
+      sold -= take;
+    }
+    const factory = buildings.list.some((b) => b.kind === 'carfactory' && b.city === cityId && b.built >= 1);
+    if (!factory) for (const m of markets) if (m.stored < 3 && Math.random() < 0.5) m.stored += 1;
+  }
+
+  /** Buses run their routes; police cars patrol their district. */
+  private dispatchServices() {
+    const { buildings, net } = this.c;
+    for (const b of buildings.list) {
+      if (b.built < 1 || b.workers <= 0 || b.access < 0) continue;
+      if (b.kind !== 'busdepot' && b.kind !== 'police') continue;
+      const want = b.kind === 'busdepot' ? Math.min(3, b.workers) : Math.min(2, Math.ceil(b.workers / 2));
+      if ((this.fleet.get(b.id) ?? 0) >= want) continue;
+      let stops: number[];
+      if (b.kind === 'busdepot') {
+        stops = buildings.list.filter((s) => s.city === b.city && s.built >= 1 && s.access >= 0 && s.kind !== 'house' && s !== b && dist(s, b) < 30).map((s) => s.access);
+      } else {
+        stops = [];
+        for (let z = b.z - POLICE_RANGE; z <= b.z + POLICE_RANGE; z += 2) for (let x = b.x - POLICE_RANGE; x <= b.x + POLICE_RANGE; x += 2) {
+          if (inBounds(x, z) && net.type[idx(x, z)]) stops.push(idx(x, z));
+        }
+      }
+      if (!stops.length) continue;
+      this.fleet.set(b.id, (this.fleet.get(b.id) ?? 0) + 1);
+      this.serviceRun(b, b.access, stops, 4 + Math.floor(Math.random() * 3));
+    }
+  }
+
+  private serviceRun(home: Building, at: number, stops: number[], hops: number): void {
+    const { traffic, buildings } = this.c;
+    const bus = home.kind === 'busdepot';
+    const finish = () => { this.fleet.set(home.id, Math.max(0, (this.fleet.get(home.id) ?? 1) - 1)); };
+    if (home.removed) return finish();
+    const to = hops <= 0 ? home.access : stops[Math.floor(Math.random() * stops.length)];
+    if (to === at && hops > 0) return this.serviceRun(home, at, stops, hops - 1);
+    const ok = traffic.spawn({
+      kind: bus ? 'bus' : 'car', from: at, to, color: bus ? undefined : new THREE.Color('#1f3f86'),
+      fromPos: at === home.access ? buildings.door(home) : undefined,
+      toPos: hops <= 0 ? buildings.door(home) : undefined,
+      onArrive: () => { if (hops <= 0) finish(); else this.serviceRun(home, to, stops, hops - 1); },
+      onFail: finish,
+    });
+    if (!ok) finish();
   }
 
   /** Public transport: with a staffed bus depot, people without a car take the bus for longer trips. */
@@ -1145,9 +1382,8 @@ export class Life {
       this.spots.delete(key);
     }
     for (const c of pop.citizens.values()) if (c.at === b.id && c.state === 'away') this.teleportHome(c);
-    if (b.kind === 'house') {
-      const f = pop.familyAt(b.id);
-      if (f) {
+    if (BUILDINGS[b.kind].units) {
+      for (const f of [...pop.families.values()].filter((x) => x.home === b.id)) {
         const other = this.freeHomes(b.city)[0];
         if (other) f.home = other.id;
         else {

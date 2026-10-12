@@ -838,3 +838,11 @@ button.chip:hover { background: var(--raised); }
 }
 .tutorial { top: calc(var(--safe-top) + 88px); }
 @media (max-width: 760px) { .tutorial { top: calc(var(--safe-top) + 128px); } }
+
+/* panels scroll all the way down, without visible scrollbars */
+.stats-body, .goals-body, .guide-body, .inspector, .ins-list, .drawer .cards, .worlds, .gallery-list, .panel { scrollbar-width: none; -ms-overflow-style: none; }
+.stats-body::-webkit-scrollbar, .goals-body::-webkit-scrollbar, .guide-body::-webkit-scrollbar, .inspector::-webkit-scrollbar,
+.ins-list::-webkit-scrollbar, .drawer .cards::-webkit-scrollbar, .worlds::-webkit-scrollbar, .gallery-list::-webkit-scrollbar, .panel::-webkit-scrollbar { display: none; }
+.stats-body, .goals-body, .guide-body { min-height: 0; padding-bottom: 28px; }
+.stats, .goals { overflow: hidden; }
+.inspector { padding-bottom: 18px; }

@@ -127,21 +127,23 @@ export class Economy {
    * One shared grid: every plant feeds every connected building, whichever city it belongs to.
    * Each plant's city pays for the wood it burns, in proportion to the plant's output.
    */
+  /**
+   * Burn wood for the energy the grid needs right now. Returns how much energy per day is really available
+   * (plant capacity, limited by wood); the caller decides which buildings get it.
+   */
   updateEnergy(dt: number, demand: number, plants: { city: City; power: number }[]) {
     const capacity = plants.reduce((a, p) => a + p.power, 0);
-    let ratio = 1;
-    if (demand > 0) {
-      const served = Math.min(demand, capacity);
-      const need = (served * dt) / DAY_SECONDS;
-      let supplied = 0;
-      for (const p of plants) {
-        const burnt = Math.min(p.city.wood, (need * (p.power / capacity)) / ENERGY_PER_WOOD);
-        p.city.wood -= burnt;
-        supplied += burnt * ENERGY_PER_WOOD;
-      }
-      ratio = need > 0 ? (supplied / need) * (served / demand) : 0;
+    if (capacity <= 0) return 0;
+    const served = Math.min(demand, capacity);
+    const need = (served * dt) / DAY_SECONDS;
+    if (need <= 0) return capacity;
+    let supplied = 0;
+    for (const p of plants) {
+      const burnt = Math.min(Math.max(0, p.city.wood), (need * (p.power / capacity)) / ENERGY_PER_WOOD);
+      p.city.wood -= burnt;
+      supplied += burnt * ENERGY_PER_WOOD;
     }
-    for (const c of this.cities.values()) c.powered += (ratio - c.powered) * Math.min(1, dt * 2);
+    return capacity * (supplied / need);
   }
 
   state(): EconomyState {

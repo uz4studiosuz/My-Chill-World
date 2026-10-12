@@ -122,7 +122,6 @@ export class Menu {
     };
     row.append(
       mk('Sound', () => sound.sfxOn, (v) => sound.setSfx(v)),
-      mk('Music', () => sound.musicOn, (v) => sound.setMusic(v)),
       mk('Nature', () => sound.natureOn, (v) => sound.setNature(v)),
     );
     return row;

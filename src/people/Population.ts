@@ -1,5 +1,5 @@
 import { DAYS_PER_YEAR } from '../config';
-import { BUILDINGS, JOB_PRIORITY } from '../buildings/BuildingTypes';
+import { BUILDINGS, JOB_PRIORITY, RENT } from '../buildings/BuildingTypes';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { Walker } from './Walkers';
 import { clanName, firstName } from './names';
@@ -43,6 +43,8 @@ export interface Citizen {
 export interface FamilyCar {
   color: string;
   at: 'home' | 'away' | 'moving';
+  /** Fuel in the tank, 0..100. */
+  fuel: number;
   lot?: number;
   slot?: number;
 }
@@ -73,7 +75,8 @@ export interface DailyOptions {
   heal: number;
   /** Working shops in the city (staffed). */
   shops: Record<'market' | 'grocery' | 'clothes', boolean>;
-  carMarket: boolean;
+  /** Cars in stock at the city's car markets. */
+  carStock: number;
   /** 0..1 — how much policing reduces fights and murders. */
   safety: number;
   /** Income tax rate. */
@@ -81,6 +84,8 @@ export interface DailyOptions {
 }
 
 export interface DayReport {
+  /** Rent collected per apartment block id. */
+  rent: Map<number, number>;
   utilities: number;
   shopping: number;
   /** Money spent in each kind of shop. */
@@ -148,7 +153,7 @@ export class Population {
     const size = opts.size ?? 2 + Math.floor(Math.random() * 4);
     const f: Family = {
       id: this.nextFamily++, surname: clanName(), home, money: opts.money ?? Math.round(rand(200, 1200)),
-      income: 0, car: Math.random() < (opts.carChance ?? 0.4) ? { color: pick(CAR_COLORS), at: 'home' } : null,
+      income: 0, car: Math.random() < (opts.carChance ?? 0.4) ? { color: pick(CAR_COLORS), at: 'home', fuel: 50 + Math.random() * 50 } : null,
       members: [], debtDays: 0,
     };
     this.families.set(f.id, f);
@@ -238,6 +243,26 @@ export class Population {
         if (id >= 0) { c.job = id; free.set(id, free.get(id)! - 1); }
       }
     }
+    // essential jobs (water, food, energy, materials) never stay empty while people sit in ordinary jobs
+    const prio = (id: number) => { const b = buildings.get(id); return b ? (JOB_PRIORITY[b.kind] ?? 5) : 9; };
+    for (const [id, n] of free) {
+      if (n <= 0 || prio(id) > 2) continue;
+      const target = buildings.get(id)!;
+      let left = n;
+      const movers = [...this.citizens.values()]
+        .filter((c) => c.job >= 0 && prio(c.job) >= 4 && homeOf(c)?.city === target.city)
+        .sort((a, b) => {
+          const ha = homeOf(a), hb = homeOf(b);
+          return (ha ? Math.abs(ha.x - target.x) + Math.abs(ha.z - target.z) : 0) - (hb ? Math.abs(hb.x - target.x) + Math.abs(hb.z - target.z) : 0);
+        });
+      for (const c of movers) {
+        if (left <= 0) break;
+        free.set(c.job, (free.get(c.job) ?? 0) + 1);
+        c.job = id;
+        left--;
+      }
+      free.set(id, left);
+    }
     for (const b of buildings.list) b.workers = 0;
     for (const c of this.citizens.values()) {
       const b = c.job >= 0 ? buildings.get(c.job) : undefined;
@@ -280,8 +305,8 @@ export class Population {
   }
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
-  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, shops: { market: false, grocery: false, clothes: false }, carMarket: false, safety: 0, taxRate: 0.25 }): DayReport {
-    const r: DayReport = { spent: { market: 0, grocery: 0, clothes: 0 }, utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
+  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, shops: { market: false, grocery: false, clothes: false }, carStock: 0, safety: 0, taxRate: 0.25 }): DayReport {
+    const r: DayReport = { rent: new Map(), spent: { market: 0, grocery: 0, clothes: 0 }, utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
       const f = this.families.get(c.family);
@@ -325,13 +350,19 @@ export class Population {
         r.shopping += spend;
         r.spent[kind] += spend;
       }
+      const flat = buildings.get(f.home);
+      if (flat?.kind === 'apartment') {
+        earned -= RENT;
+        r.rent.set(flat.id, (r.rent.get(flat.id) ?? 0) + RENT);
+      }
       if (f.car) earned -= CAR_UPKEEP;
       f.money += earned;
       f.income = Math.round(earned);
       f.debtDays = f.money < 0 ? f.debtDays + 1 : 0;
-      if (!f.car && opts.carMarket && f.money > CAR_PRICE + 500) {
+      if (!f.car && opts.carStock > 0 && f.money > CAR_PRICE + 500) {
+        opts.carStock--;
         f.money -= CAR_PRICE;
-        f.car = { color: pick(CAR_COLORS), at: 'home' };
+        f.car = { color: pick(CAR_COLORS), at: 'home', fuel: 100 };
         r.carsBought++;
         r.carSales += CAR_PRICE;
       }
@@ -468,7 +499,7 @@ export class Population {
   serialize() {
     return [...this.families.values()].map((f) => ({
       id: f.id, surname: f.surname, home: f.home, money: Math.round(f.money), income: f.income,
-      car: f.car ? { color: f.car.color } : null, debtDays: f.debtDays,
+      car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, debtDays: f.debtDays,
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
@@ -480,7 +511,7 @@ export class Population {
     this.citizens.clear();
     this.families.clear();
     for (const fd of data) {
-      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home' } : null, members: [], debtDays: fd.debtDays };
+      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays };
       this.families.set(f.id, f);
       this.nextFamily = Math.max(this.nextFamily, f.id + 1);
       for (const m of fd.members) {

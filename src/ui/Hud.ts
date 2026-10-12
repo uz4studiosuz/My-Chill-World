@@ -29,11 +29,13 @@ const b = (tool: BuildingKind & ToolId, cat: Category, tag: string, desc: string
 };
 
 export const ITEMS: ToolItem[] = [
-  { tool: 'road', cat: 'roads', name: 'Road', desc: 'Two-lane road with sidewalks. Over water it becomes a bridge.', ...ROAD_COST[2], wood: 0, perTile: true, tag: 'Cars, power, water', icon: 'road' },
+  { tool: 'road', cat: 'roads', name: 'Road', desc: 'Two-lane road with sidewalks, no street lamps. Over water it becomes a bridge.', ...ROAD_COST[2], wood: 0, perTile: true, tag: 'Cars, power, water', icon: 'road' },
+  { tool: 'litroad', cat: 'roads', name: 'Lit Street', desc: 'Road with street lamps that shine at night. Lamps use a little electricity. Drag over an existing road to add lamps.', money: ROAD_COST[2].money + 10, stone: ROAD_COST[2].stone, wood: 0, perTile: true, tag: 'Lamps at night', icon: 'energy' },
   { tool: 'roundabout', cat: 'roads', name: 'Roundabout', desc: 'Place it on a junction — roads connect to the middle of each side.', ...ROUNDABOUT_COST, wood: 0, tag: '3×3 · no lights', icon: 'roundabout' },
   { tool: 'path', cat: 'roads', name: 'Footpath', desc: 'Free walking path. People walk faster on paths than on grass.', money: 0, stone: 0, wood: 0, perTile: true, tag: 'Free · pedestrians', icon: 'path' },
   { tool: 'canal', cat: 'roads', name: 'Irrigation Canal', desc: 'Dig from a river or lake to a crop farm — farms need water to grow.', money: 8, stone: 0, wood: 0, perTile: true, tag: 'Water for farms', icon: 'canal' },
   b('townhall', 'buildings', 'New city', 'Found a new city with its own Town Hall, treasury and citizens. Select a Town Hall to build for that city.', 'buildings'),
+  b('apartment', 'buildings', '6 families', 'Five floors, six flats. Families pay rent to the owner — the city or a businessman who built it.', 'office'),
   b('house', 'buildings', 'One family', 'Home for one family (up to 10 people). Needs a road.', 'house'),
   b('watertower', 'buildings', 'Water for 160', 'Clean drinking water. Without it people get sick.', 'watertower'),
   b('park', 'buildings', 'Green space', 'A park with a pond and benches. People recover faster in a green town.', 'orchard'),

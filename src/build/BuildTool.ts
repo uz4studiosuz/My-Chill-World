@@ -7,9 +7,9 @@ import { t as tr } from '../i18n/i18n';
 export type PlaceKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower' | 'quarry'
   | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout'
-  | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
+  | 'apartment' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
 
-export type LineKind = 'road' | 'path' | 'canal';
+export type LineKind = 'road' | 'litroad' | 'path' | 'canal';
 export type ToolId = 'pan' | 'bulldoze' | LineKind | PlaceKind;
 
 export interface CheckResult { ok: boolean; reason?: string; money?: number; stone?: number; wood?: number; iron?: number; bridges?: number }
@@ -31,7 +31,7 @@ const OK = new THREE.Color('#5fe08a');
 const BAD = new THREE.Color('#ff5a4f');
 const REMOVE = new THREE.Color('#ff8a3d');
 
-const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'path' || t === 'canal';
+const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || t === 'path' || t === 'canal';
 const isPlace = (t: ToolId): t is PlaceKind => t !== 'pan' && t !== 'bulldoze' && !isLine(t);
 
 export class BuildTool {

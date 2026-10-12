@@ -27,7 +27,8 @@ export class Effects {
   private q = new THREE.Quaternion();
   private p = new THREE.Vector3();
   private s = new THREE.Vector3();
-  private wrecks: { group: THREE.Group; t: number; x: number; z: number }[] = [];
+  private wrecks: { group: THREE.Group; t: number; x: number; z: number; id: number }[] = [];
+  private wreckId = 0;
   private carGeo = carGeometry();
 
   constructor() {
@@ -105,7 +106,7 @@ export class Effects {
   }
 
   /** Two crashed cars with smoke, cleared after a while. */
-  wreck(x: number, z: number) {
+  wreck(x: number, z: number): number {
     const g = new THREE.Group();
     const colors = ['#d9443b', '#3a6fd1', '#f2f2ee', '#4c9a52'];
     for (let i = 0; i < 2; i++) {
@@ -117,8 +118,16 @@ export class Effects {
       g.add(m);
     }
     this.group.add(g);
-    this.wrecks.push({ group: g, t: 30, x, z });
+    const id = ++this.wreckId;
+    this.wrecks.push({ group: g, t: 45, x, z, id });
     this.puff(x, z, 0.25, 10, ['#6b6b6b', '#3a3a3a', '#d8d2c4']);
+    return id;
+  }
+
+  /** The traffic police towed the cars away. */
+  clearWreck(id: number) {
+    const w = this.wrecks.find((x) => x.id === id);
+    if (w) w.t = Math.min(w.t, 0.5);
   }
 
   update(dt: number) {

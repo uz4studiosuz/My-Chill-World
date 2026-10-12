@@ -28,7 +28,7 @@ export function generateWorld(seed: number): WorldMap {
   for (let z = 0; z < N; z++) {
     for (let x = 0; x < N; x++) {
       const k = idx(x, z);
-      let a = fbm(x * 0.018 + 300, z * 0.018 + 700, seed + 61, 3);
+      let a = fbm(x * 0.014 + 300, z * 0.014 + 700, seed + 61, 3) + 0.03;
       const town = Math.max(0, 1 - (distC(x, z) - CENTER_CLEAR) / 14);
       a -= town * 0.25 + (waterDist[k] < 3 ? (3 - waterDist[k]) * 0.05 : 0);
       map.arid[k] = Math.max(0, Math.min(1, a));

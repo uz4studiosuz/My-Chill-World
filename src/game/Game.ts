@@ -9,7 +9,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, CARS, LAMP, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -64,7 +64,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
   parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
   woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
-  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
+  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
 };
@@ -121,6 +121,9 @@ export class Game implements ToolHost {
   private tutorial?: Tutorial;
   private wantTutorial = false;
   private tradeTarget = 0;
+  /** Building being moved to a new place. */
+  private moving: Building | null = null;
+  private confirmDemolish = -1;
   private ring: THREE.Mesh;
   private beam: THREE.Mesh;
   private beamT = 0;
@@ -266,7 +269,7 @@ export class Game implements ToolHost {
       openGoals: () => { this.stats?.hide(); this.eventLog?.hide(); this.goalsPanel?.toggle(); },
       openLog: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.toggle(); },
       openGuide: () => this.guide?.toggle(),
-      toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setMusic(on); return on; },
+      toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setNature(on); return on; },
       cycleCity: () => this.cycleCity(),
       confirmBuild: () => this.tool?.confirm(),
       cancelBuild: () => this.tool?.cancel(),
@@ -412,6 +415,7 @@ export class Game implements ToolHost {
         money += c.money;
         stone += c.stone;
       }
+      if (kind === 'litroad' && !this.lights.lit[k]) money += LAMP.price;
       if (this.map.water[k]) bridges++;
     }
     if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }), money, stone };
@@ -437,6 +441,7 @@ export class Game implements ToolHost {
     this.eco.spend(r.money!, r.stone!);
     this.footpaths.remove(path);
     this.net.buildPath(path, ROAD_TWO_LANE);
+    this.lights.setLit(path.filter((tl) => this.net.type[idx(tl.x, tl.z)]).map((tl) => idx(tl.x, tl.z)), kind === 'litroad');
     this.terrain.clearTiles(path.map((tl) => idx(tl.x, tl.z)));
     this.effects.pave(path);
     this.networkChanged();
@@ -445,6 +450,14 @@ export class Game implements ToolHost {
   checkPlace(kind: PlaceKind, tl: Tile): CheckResult {
     if (kind === 'roundabout') return this.checkRoundabout(tl);
     const def = BUILDINGS[kind];
+    const mv = this.moving && this.moving.kind === kind ? this.moving : null;
+    if (mv) {
+      const r = this.buildings.withoutOcc(mv, () => this.buildings.check(kind, tl.x, tl.z));
+      if (!r.ok) return { ok: false, reason: t(r.reason!) };
+      const price = Math.round(def.money * 0.25);
+      if (this.cityOf(mv).money < price) return { ok: false, reason: t('Not enough money — needs ${n}', { n: price }) };
+      return { ok: true, money: price };
+    }
     const r = this.buildings.check(kind, tl.x, tl.z);
     if (!r.ok) return { ok: false, reason: t(r.reason!) };
     if (kind === 'townhall' && this.buildings.halls().some((h) => Math.max(Math.abs(h.x - tl.x), Math.abs(h.z - tl.z)) < CITY_MIN_DISTANCE)) {
@@ -473,6 +486,21 @@ export class Game implements ToolHost {
       return;
     }
     const def = BUILDINGS[kind];
+    if (this.moving && this.moving.kind === kind) {
+      const b = this.moving;
+      this.moving = null;
+      this.cityOf(b).money -= r.money ?? 0;
+      this.buildings.move(b, tl.x, tl.z);
+      this.terrain.clearTiles(this.footprint(kind, tl).map((f) => idx(f.x, f.z)));
+      this.effects.puff(b.mesh.position.x, b.mesh.position.z, def.size * 0.5, 14);
+      sound.play('place');
+      this.pop.assign(this.buildings);
+      this.networkChanged();
+      this.setTool('pan');
+      this.select({ type: 'building', id: b.id });
+      this.hud?.toast(t('{name} moved', { name: t(def.name) }));
+      return;
+    }
     this.eco.spend(def.money, def.stone, def.wood, def.iron);
     // a Town Hall founds a new city; everything else belongs to the city being built for
     let owner = this.eco.active;
@@ -514,6 +542,7 @@ export class Game implements ToolHost {
       const b = this.buildings.at(idx(tl.x, tl.z));
       if (!b) continue;
       if (b.kind === 'townhall') keptTownHall = true;
+      else if (b.kind === 'cemeteryext') continue;
       else targets.add(b);
     }
     if (keptTownHall) this.hud?.toast(t("The Town Hall can't be removed"));
@@ -544,6 +573,7 @@ export class Game implements ToolHost {
 
   private destroyBuilding(b: Building, refund: boolean) {
     if (b.removed) return;
+    for (const id of b.ext ?? []) { const e = this.buildings.get(id); if (e) { this.buildings.remove(e); } }
     const own = this.eco.cities.get(b.city);
     if (refund && own) own.money += Math.floor(BUILDINGS[b.kind].money / 2);
     this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.5, 18, refund ? undefined : ['#3a2a20', '#6b6b6b', '#ff7a1a']);
@@ -567,6 +597,7 @@ export class Game implements ToolHost {
   }
 
   private setTool(tl: ToolId) {
+    if (this.moving && tl !== this.moving.kind) this.moving = null;
     this.tool?.setTool(tl);
     this.grid.visible = tl !== 'pan';
     this.hud?.setActive(tl);
@@ -589,6 +620,16 @@ export class Game implements ToolHost {
   private networkChanged(dirty = true) {
     this.roadMesh.rebuild();
     this.lights.rebuild();
+    // every lamp draws power from the city whose Town Hall is closest
+    const halls = this.buildings.halls();
+    const perCity = new Map<number, number>();
+    for (const k of this.lights.lamps) {
+      const x = k % N, z = (k / N) | 0;
+      let best: Building | undefined, bd = Infinity;
+      for (const h of halls) { const d = Math.abs(h.x - x) + Math.abs(h.z - z); if (d < bd) { bd = d; best = h; } }
+      if (best) perCity.set(best.city, (perCity.get(best.city) ?? 0) + LAMP.energy);
+    }
+    this.life.lampDemand = [...perCity];
     this.footpaths.rebuild((k) => this.net.type[k] !== 0);
     this.canals.rebuild();
     this.buildings.refreshAccess();
@@ -633,9 +674,9 @@ export class Game implements ToolHost {
     const season = seasonBlend(this.eco.day, tod);
     const day = smooth(0.22, 0.3, tod) * (1 - smooth(0.74, 0.84, tod));
     this.nightness = 1 - day;
-    this.lights.setNight(Math.max(0, (0.85 - day) / 0.85));
+    this.lights.setNight(Math.max(0, (0.85 - day) / 0.85), this.life.lampsLit);
     const low = Math.max(0, 1 - Math.abs(tod - 0.26) * 12) + Math.max(0, 1 - Math.abs(tod - 0.79) * 12);
-    const rain = this.weather.naturalActive ? 0.35 : 0;
+    const rain = this.weather.rainingAt(this.cam.target.x, this.cam.target.z) ? 0.35 : 0;
     const winter = season.snow * 0.15;
     this.sun.intensity = (0.35 + 1.9 * day) * (1 - rain - winter) + this.weather.flash * 4;
     this.sun.color.copy(SUN_DAY).lerp(SUN_LOW, Math.min(1, low));
@@ -742,7 +783,7 @@ export class Game implements ToolHost {
     return t('Looking for work');
   }
 
-  private refreshInspector() {
+  private refreshInspector(): void {
     const s = this.selection;
     if (!this.inspector || !s) return;
     if (s.type === 'person') {
@@ -752,7 +793,10 @@ export class Game implements ToolHost {
     }
     const b = this.buildings.get(s.id);
     if (!b) return this.select(null);
-    this.inspector.show(b.kind === 'house' ? this.houseView(b) : b.kind === 'townhall' ? this.cityView(b) : this.buildingView(b));
+    if (b.kind === 'cemeteryext' && b.parent !== undefined) { const p = this.buildings.get(b.parent); if (p) { this.selection = { type: 'building', id: p.id }; return this.refreshInspector(); } }
+    const view = b.kind === 'apartment' ? this.apartmentView(b) : b.kind === 'house' ? this.houseView(b) : b.kind === 'townhall' ? this.cityView(b) : this.buildingView(b);
+    view.actions = [...(view.actions ?? []), ...this.buildingActions(b)];
+    this.inspector.show(view);
   }
 
   private professionOf(c: Citizen) {
@@ -765,6 +809,37 @@ export class Game implements ToolHost {
     return '—';
   }
 
+  /** Move / demolish buttons for the inspector. */
+  private buildingActions(b: Building): NonNullable<InspectorView['actions']> {
+    if (b.kind === 'cemeteryext') return [];
+    const out: NonNullable<InspectorView['actions']> = [];
+    if (!b.ext?.length) {
+      out.push({ label: `${t('Move')} · $${Math.round(BUILDINGS[b.kind].money * 0.25)}`, icon: 'pan', onClick: () => this.startMove(b) });
+    }
+    if (b.kind !== 'townhall') {
+      const sure = this.confirmDemolish === b.id;
+      out.push({
+        label: sure ? t('Tap again to demolish') : t('Demolish'), icon: 'bulldoze', active: sure,
+        onClick: () => {
+          if (this.confirmDemolish !== b.id) { this.confirmDemolish = b.id; this.refreshInspector(); return; }
+          this.confirmDemolish = -1;
+          sound.play('demolish');
+          this.destroyBuilding(b, true);
+          this.networkChanged();
+        },
+      });
+    }
+    return out;
+  }
+
+  private startMove(b: Building) {
+    this.moving = b;
+    this.setTool(b.kind as PlaceKind);
+    this.moving = b;
+    this.select(null);
+    this.hud?.toast(t('Choose a new place for the {name}', { name: t(BUILDINGS[b.kind].name) }));
+  }
+
   private upgradeCemetery(b: Building) {
     const city = this.cityOf(b);
     const u = CEMETERY_UPGRADE;
@@ -772,9 +847,22 @@ export class Game implements ToolHost {
     const m = u.money * b.level, s = u.stone * b.level, w = u.wood * b.level;
     if (city.money < m || city.stone < s || city.wood < w) return this.hud?.toast(t('Needs {cost}', { cost: costText(m, s, w) }));
     city.money -= m; city.stone -= s; city.wood -= w;
+    // the cemetery grows: a new walled plot next to it
+    const sz = BUILDINGS.cemetery.size;
+    const spots = [[b.x + sz, b.z], [b.x - sz, b.z], [b.x, b.z - sz], [b.x, b.z + sz], ...(b.ext ?? []).flatMap((id) => {
+      const e = this.buildings.get(id);
+      return e ? [[e.x + sz, e.z], [e.x - sz, e.z], [e.x, e.z - sz], [e.x, e.z + sz]] : [];
+    })];
+    const spot = spots.find(([x, z]) => this.buildings.check('cemeteryext', x, z).ok);
+    if (!spot) { city.money += m; city.stone += s; city.wood += w; return this.hud?.toast(t('No room next to the cemetery to expand')); }
+    const ext = this.buildings.place('cemeteryext', spot[0], spot[1], { city: b.city, built: 1 });
+    ext.parent = b.id;
+    (b.ext ??= []).push(ext.id);
+    this.terrain.clearTiles(this.buildings.footprint('cemeteryext', spot[0], spot[1]).map((f) => idx(f.x, f.z)));
     this.buildings.setLevel(b, b.level + 1);
+    this.networkChanged();
     this.effects.puff(b.mesh.position.x, b.mesh.position.z, 1, 16, ['#bdb7aa', '#8c8a87', '#4f8a3a']);
-    this.hud?.toast(t('Cemetery upgraded — it now holds {n} graves', { n: MAX_GRAVES_PER_CEMETERY * b.level }));
+    this.hud?.toast(t('Cemetery upgraded — it now holds {n} graves', { n: GRAVES_PER_PLOT * b.level }));
     this.refreshInspector();
   }
 
@@ -816,6 +904,29 @@ export class Game implements ToolHost {
         { label: this.following ? t('Stop following') : t('Follow'), icon: 'follow', active: this.following, onClick: () => { this.following = !this.following; this.refreshInspector(); } },
         ...(home ? [{ label: t('Show home'), icon: 'house' as const, onClick: () => { this.cam.setState(home.mesh.position.x, home.mesh.position.z, this.cam.yaw, this.cam.viewHalf); this.select({ type: 'building', id: home.id }); this.beamT = 4; } }] : []),
       ],
+    };
+  }
+
+  private apartmentView(b: Building): InspectorView {
+    const families = [...this.pop.families.values()].filter((f) => f.home === b.id);
+    const owner = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
+    const people = families.flatMap((f) => this.pop.members(f));
+    return {
+      key: `b${b.id}`, badge: '🏢', badgeColor: KIND_BADGE.apartment[1], title: t('Apartment Block'),
+      subtitle: t('{a} of {b} flats taken', { a: families.length, b: BUILDINGS.apartment.units }),
+      tags: b.built < 1 ? [{ text: t('Under construction'), tone: 'info' }] : [],
+      bars: [{ label: t('Flats'), value: families.length / BUILDINGS.apartment.units, color: '#6fb6ff', text: `${families.length}/${BUILDINGS.apartment.units}` }],
+      rows: [
+        [t('City'), this.cityOf(b).name],
+        [t('Owner'), owner ? t('{name} family', { name: owner.surname }) : t('City-owned')],
+        [t('Rent'), `$${RENT}/${t('day')} ${t('per flat')}`],
+        [t('Power'), b.powered ? t('Yes') : t('No'), b.powered ? 'good' : 'bad'],
+      ],
+      listTitle: t('Residents'),
+      people: people.map((c) => {
+        const f = this.pop.families.get(c.family);
+        return { id: c.id, icon: this.personIcon(c), name: `${c.name} ${f?.surname ?? ''}`, detail: `${t('{n} years', { n: Math.floor(c.age) })} · ${t(c.activity)}`, warn: c.hunger < 25 || c.health < 50 };
+      }),
     };
   }
 
@@ -898,6 +1009,12 @@ export class Game implements ToolHost {
     }
     if (b.kind === 'watertower') bars.push({ label: t('Water supplied'), value: city.water, color: '#4fa3d1' });
     if (b.kind === 'woodcutter') rows.push([t('Trees nearby'), `${this.terrain.treesNear(b.x, b.z, 10)}`]);
+    if (b.kind === 'carmarket') bars.push({ label: t('Cars in stock'), value: b.stored / CARS.marketMax, color: '#6fb6ff', text: `${Math.floor(b.stored)}/${CARS.marketMax}` });
+    if (b.kind === 'carfactory') {
+      bars.push({ label: t('Cars ready'), value: b.stored / CARS.factoryMax, color: '#6fb6ff', text: `${Math.floor(b.stored)}/${CARS.factoryMax}` });
+      rows.push([t('Iron per car'), `${CARS.iron}`], [t('Iron in stock'), `${Math.floor(city.iron)}`, city.iron < CARS.iron ? 'bad' : undefined]);
+    }
+    if (b.sales !== undefined && (b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'market' || b.kind === 'gasstation')) rows.push([t('Sales today'), `$${Math.round(b.sales)}`]);
     if (b.kind === 'quarry') {
       bars.push({ label: t('Stone ready'), value: b.stored / QUARRY.maxStored, color: '#aab4be', text: `${Math.floor(b.stored)}/${QUARRY.maxStored}` });
       rows.push([t('Trucks'), `${b.trucks}/2`]);
@@ -1135,7 +1252,7 @@ export class Game implements ToolHost {
     const f = (n: number, gain: number) => Math.min(1, (n / Math.max(1, total)) * gain) * near;
     sound.setAmbience({
       water: f(water, 4), forest: f(trees, 2.2), town: f(town, 2.5),
-      rain: this.weather.naturalActive && this.weather.kind === 'rain' ? 1 : 0,
+      rain: this.weather.kind === 'rain' && this.weather.rainingAt(tg.x, tg.z) ? 1 : 0,
       night: this.nightness,
     });
   }
@@ -1300,6 +1417,7 @@ export class Game implements ToolHost {
     const side: Tile[] = [];
     for (let z = c; z <= c + 7; z++) side.push({ x: c + 1, z });
     this.net.buildPath(main, ROAD_TWO_LANE);
+    this.lights.setLit(main.map((tl) => idx(tl.x, tl.z)), true);
     this.net.buildPath(side, ROAD_TWO_LANE);
     this.terrain.clearTiles([...main, ...side].map((tl) => idx(tl.x, tl.z)));
 
@@ -1394,6 +1512,7 @@ export class Game implements ToolHost {
       this.terrain.reshape([]);
     }
     this.net.deserialize(s.roads, s.roundabouts);
+    if (s.lit) this.lights.setLit(s.lit, true);
     this.footpaths.deserialize(s.footpaths);
     this.canals.deserialize(s.canals);
     this.terrain.clearTiles(s.cleared);
@@ -1401,8 +1520,17 @@ export class Game implements ToolHost {
     for (const b of s.buildings) {
       const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.built, level: b.level, owner: b.owner });
       if (b.cropT !== undefined) nb.cropT = b.cropT;
-      if (b.graves) for (const g of b.graves) this.buildings.addGrave(nb, g);
+      if (b.parent !== undefined) nb.parent = b.parent;
       if (b.cattleCount !== undefined) nb.cattleCount = b.cattleCount;
+    }
+    // extensions first, then the graves (they may lie in an extension)
+    for (const b of this.buildings.list) {
+      const p = b.parent !== undefined ? this.buildings.get(b.parent) : undefined;
+      if (p) (p.ext ??= []).push(b.id);
+    }
+    for (const b of s.buildings) {
+      const nb = this.buildings.get(b.id);
+      if (nb && b.graves) for (const g of b.graves) this.buildings.addGrave(nb, g);
     }
     this.pop.deserialize(s.population);
     this.eco.load(s.eco);
@@ -1435,7 +1563,7 @@ export class Game implements ToolHost {
         id: b.id, kind: b.kind, city: b.city, x: b.x, z: b.z, cropT: b.cropT,
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
         graves: b.graves, cattleCount: b.cattleCount,
-        built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
+        built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, parent: b.parent, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
       })),
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },
@@ -1443,6 +1571,7 @@ export class Game implements ToolHost {
       sandbox: this.sandbox,
       history: this.history.samples,
       goals: this.goals.save(),
+      lit: [...this.lights.lit.keys()].filter((k) => this.lights.lit[k]),
       log: (this.eventLog?.entries ?? this.savedLog).slice(-80),
     };
   }

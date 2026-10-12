@@ -13,6 +13,10 @@ const OFF = new THREE.Color('#c9c4b6');
  */
 export class StreetLights {
   readonly group = new THREE.Group();
+  /** Road tiles that have street lamps. */
+  readonly lit = new Uint8Array(N * N);
+  /** Lamps per road tile index (for energy accounting). */
+  lamps: number[] = [];
   private poles: THREE.InstancedMesh;
   private heads: THREE.InstancedMesh;
   private pools: THREE.InstancedMesh;
@@ -41,14 +45,16 @@ export class StreetLights {
     const { net } = this;
     const mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
     let n = 0;
+    this.lamps = [];
     for (let k = 0; k < net.type.length && n < MAX; k++) {
-      if (!net.type[k] || net.type[k] === ROAD_RING) continue;
+      if (!net.type[k]) { this.lit[k] = 0; continue; }
+      if (!this.lit[k] || net.type[k] === ROAD_RING) continue;
       const x = k % N, z = (k / N) | 0;
       const c = net.conn[k];
       const ns = c === 5 || c === 1 || c === 4, ew = c === 10 || c === 2 || c === 8;
       if (!ns && !ew) continue;
-      if ((ns ? z : x) % 3 !== 0) continue;
-      const side = ((ns ? z : x) / 3) % 2 === 0 ? 1 : -1;
+      if ((ns ? z : x) % 2 !== 0) continue;
+      const side = ((ns ? z : x) / 2) % 2 === 0 ? 1 : -1;
       // lamp stands on the sidewalk edge and leans over the road
       if (ns) { p.set(tileToWorld(x) + side * 0.46, 0, tileToWorld(z)); q.setFromAxisAngle(up, side > 0 ? Math.PI : 0); }
       else { p.set(tileToWorld(x), 0, tileToWorld(z) + side * 0.46); q.setFromAxisAngle(up, side > 0 ? Math.PI / 2 : -Math.PI / 2); }
@@ -56,6 +62,7 @@ export class StreetLights {
       this.poles.setMatrixAt(n, mtx);
       this.heads.setMatrixAt(n, mtx);
       this.pools.setMatrixAt(n, mtx);
+      this.lamps.push(k);
       n++;
     }
     for (const m of [this.poles, this.heads, this.pools]) {
@@ -64,9 +71,13 @@ export class StreetLights {
     }
   }
 
-  /** 0 = day, 1 = deep night. */
-  setNight(v: number) {
-    const night = Math.round(v * 20) / 20;
+  setLit(tiles: number[], on: boolean) {
+    for (const k of tiles) this.lit[k] = on ? 1 : 0;
+  }
+
+  /** 0 = day, 1 = deep night; lamps stay dark without power. */
+  setNight(v: number, powered = true) {
+    const night = powered ? Math.round(v * 20) / 20 : 0;
     if (night === this.night) return;
     this.night = night;
     this.headMat.color.copy(OFF).lerp(LIT, night);

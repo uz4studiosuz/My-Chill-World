@@ -2,17 +2,22 @@ import * as THREE from 'three';
 import { box, merge } from '../utils/voxel';
 import type { Season } from '../sim/Calendar';
 import { sound } from '../audio/Sound';
+import { MAP_SIZE } from '../config';
 
 interface RainArea { x: number; z: number; r: number; t: number }
+/** A natural rain / snow cloud drifting over the map. */
+interface Cell { x: number; z: number; r: number; vx: number; vz: number }
 interface Drop { x: number; y: number; z: number; v: number; area: number }
 interface Bolt { mesh: THREE.Mesh; t: number }
 
 const DROPS = 1400;
 const CLOUD_H = 4.5;
+const HALF = MAP_SIZE / 2;
+const UP = new THREE.Vector3(0, 1, 0);
 
 /**
- * Weather: natural rain / snow over the visible area, god-summoned rain clouds,
- * lightning bolts and a sky flash. `isWet(x, z)` tells the simulation where it rains.
+ * Weather: on rainy days a few rain (or snow) clouds drift across the map — it rains under them, not everywhere.
+ * Also local showers (`addRain`), lightning bolts and a sky flash. `isWet(x, z)` tells the simulation where it rains.
  */
 export class Weather {
   readonly group = new THREE.Group();
@@ -21,6 +26,7 @@ export class Weather {
   /** Natural weather runs between these day fractions. */
   private from = 0;
   private to = 0;
+  private cells: Cell[] = [];
   private areas: RainArea[] = [];
   private drops: Drop[] = [];
   private dropMesh: THREE.InstancedMesh;
@@ -42,7 +48,7 @@ export class Weather {
     this.dropMesh = this.make(new THREE.BoxGeometry(0.012, 0.22, 0.012), new THREE.MeshBasicMaterial({ color: '#b8d6f0', transparent: true, opacity: 0.6, depthWrite: false }), DROPS);
     this.flakeMesh = this.make(new THREE.BoxGeometry(0.04, 0.04, 0.04), new THREE.MeshBasicMaterial({ color: '#ffffff' }), DROPS);
     const cloudGeo = merge([box(1.6, 0.35, 1.2, 0, 0, 0), box(1.0, 0.3, 0.9, 0.5, 0.25, 0.1), box(0.9, 0.28, 0.8, -0.5, 0.2, -0.2)]);
-    this.cloudMesh = this.make(cloudGeo, new THREE.MeshLambertMaterial({ color: '#8d96a3', transparent: true, opacity: 0.92 }), 200);
+    this.cloudMesh = this.make(cloudGeo, new THREE.MeshLambertMaterial({ color: '#8d96a3', transparent: true, opacity: 0.9 }), 400);
     this.cloudMesh.castShadow = true;
   }
 
@@ -54,28 +60,50 @@ export class Weather {
     return m;
   }
 
-  /** Roll the natural weather for a new day. */
+  /** Roll the natural weather for a new day: a few clouds in random places. */
   newDay(season: Season) {
-    const r = Math.random();
     if (this.drought > 0) this.drought--;
-    const chance = this.drought > 0 ? 0 : season === 'summer' ? 0.15 : season === 'winter' ? 0.45 : 0.35;
-    this.kind = r < chance ? (season === 'winter' ? 'snow' : 'rain') : 'clear';
-    this.from = 0.1 + Math.random() * 0.5;
-    this.to = this.from + 0.15 + Math.random() * 0.3;
+    const chance = this.drought > 0 ? 0 : season === 'summer' ? 0.25 : season === 'winter' ? 0.5 : 0.45;
+    this.kind = Math.random() < chance ? (season === 'winter' ? 'snow' : 'rain') : 'clear';
+    this.from = 0.05 + Math.random() * 0.4;
+    this.to = this.from + 0.25 + Math.random() * 0.35;
+    this.cells = [];
+    if (this.kind === 'clear') return;
+    const n = 2 + Math.floor(Math.random() * 4);
+    const ang = Math.random() * Math.PI * 2, wind = 0.02 + Math.random() * 0.04;
+    for (let i = 0; i < n; i++) {
+      this.cells.push({
+        x: (Math.random() - 0.5) * MAP_SIZE * 0.9, z: (Math.random() - 0.5) * MAP_SIZE * 0.9,
+        r: 9 + Math.random() * 16, vx: Math.cos(ang) * wind, vz: Math.sin(ang) * wind,
+      });
+    }
   }
 
   get naturalActive() { return this.naturalOn; }
 
-  /** God power: a rain cloud over (x, z). */
+  /** Is it raining or snowing at this point right now (natural clouds)? */
+  rainingAt(x: number, z: number) {
+    return this.naturalOn && this.cells.some((c) => Math.hypot(c.x - x, c.z - z) < c.r);
+  }
+
+  /** A random point under a natural rain cloud (for thunderstorms), or null. */
+  wetPoint(): { x: number; z: number } | null {
+    if (!this.naturalOn || this.kind !== 'rain' || !this.cells.length) return null;
+    const c = this.cells[Math.floor(Math.random() * this.cells.length)];
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * c.r;
+    return { x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r };
+  }
+
+  /** Local shower over (x, z). */
   addRain(x: number, z: number, r = 2.5, seconds = 18) {
     const near = this.areas.find((a) => Math.hypot(a.x - x, a.z - z) < 1.5);
     if (near) { near.t = Math.max(near.t, seconds); return; }
     this.areas.push({ x, z, r, t: seconds });
   }
 
-  /** Is it raining (or snowing) at this spot right now? */
+  /** Is it raining at this spot right now? (Snow does not water fields.) */
   isWet(x: number, z: number) {
-    if (this.naturalOn && this.kind === 'rain') return true;
+    if (this.kind === 'rain' && this.rainingAt(x, z)) return true;
     return this.areas.some((a) => Math.hypot(a.x - x, a.z - z) < a.r);
   }
 
@@ -89,7 +117,7 @@ export class Weather {
       const len = Math.hypot(nx - px, 0.5, nz - pz);
       const g = new THREE.BoxGeometry(0.06, len, 0.06);
       const dir = new THREE.Vector3(nx - px, ny - y, nz - pz).normalize();
-      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
+      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, dir));
       g.translate((px + nx) / 2, (y + ny) / 2, (pz + nz) / 2);
       parts.push(g);
       px = nx; pz = nz;
@@ -99,12 +127,20 @@ export class Weather {
     this.bolts.push({ mesh, t: 0.35 });
     this.flash = 1;
     sound.play('thunder');
-
   }
 
-  /** `simDt` drives weather timers, `dt` the visuals. */
+  /** `simDt` drives weather timers and drifting clouds, `dt` the visuals. */
   update(dt: number, simDt: number, timeOfDay: number, center: THREE.Vector3, viewHalf: number) {
     this.naturalOn = this.kind !== 'clear' && timeOfDay >= this.from && timeOfDay < this.to;
+    for (const c of this.cells) {
+      c.x += c.vx * simDt;
+      c.z += c.vz * simDt;
+      // clouds that drift off the map come back from the other side
+      if (c.x > HALF + c.r) c.x = -HALF - c.r;
+      if (c.x < -HALF - c.r) c.x = HALF + c.r;
+      if (c.z > HALF + c.r) c.z = -HALF - c.r;
+      if (c.z < -HALF - c.r) c.z = HALF + c.r;
+    }
     for (let i = this.areas.length - 1; i >= 0; i--) {
       this.areas[i].t -= simDt;
       if (this.areas[i].t <= 0) this.areas.splice(i, 1);
@@ -121,13 +157,14 @@ export class Weather {
       }
     }
 
-    // keep a pool of drops: some over god clouds, the rest across the view during natural weather
-    const snow = this.kind === 'snow' && this.naturalOn;
-    const natural = this.naturalOn ? Math.min(DROPS, 900) : 0;
+    // drops only fall under clouds near the camera
+    const span = Math.min(viewHalf * 1.6, 30);
+    const near = this.naturalOn ? this.cells.filter((c) => Math.abs(c.x - center.x) < span + c.r && Math.abs(c.z - center.z) < span + c.r) : [];
+    const snow = this.kind === 'snow';
+    const natural = near.length ? 900 : 0;
     const perArea = this.areas.length ? Math.floor(Math.min(DROPS - natural, this.areas.length * 220) / this.areas.length) : 0;
     const want = natural + perArea * this.areas.length;
     while (this.drops.length > want) this.drops.pop();
-    const span = Math.min(viewHalf * 1.6, 30);
     const spawn = (d: Drop) => {
       if (d.area >= 0 && this.areas[d.area]) {
         const a = this.areas[d.area];
@@ -135,7 +172,12 @@ export class Weather {
         d.x = a.x + Math.cos(ang) * rr; d.z = a.z + Math.sin(ang) * rr;
         d.y = CLOUD_H - 0.2;
       } else {
-        d.x = center.x + (Math.random() - 0.5) * span * 2; d.z = center.z + (Math.random() - 0.5) * span * 2;
+        d.x = 1e5;
+        for (let i = 0; i < 6 && near.length; i++) {
+          const x = center.x + (Math.random() - 0.5) * span * 2;
+          const z = center.z + (Math.random() - 0.5) * span * 2;
+          if (near.some((c) => Math.hypot(c.x - x, c.z - z) < c.r)) { d.x = x; d.z = z; break; }
+        }
         d.y = Math.random() * 6;
       }
       d.v = snow && d.area < 0 ? 0.6 + Math.random() * 0.4 : 7 + Math.random() * 3;
@@ -154,6 +196,7 @@ export class Weather {
       d.y -= d.v * dt;
       if (snow && d.area < 0) d.x += Math.sin(d.y * 2 + d.z) * dt * 0.3;
       if (d.y <= 0) spawn(d);
+      if (d.x > 1e4) continue;
       this.p.set(d.x, d.y, d.z);
       this.m.compose(this.p, this.q, this.s);
       if (snow && d.area < 0) this.flakeMesh.setMatrixAt(nf++, this.m);
@@ -164,17 +207,31 @@ export class Weather {
     this.dropMesh.instanceMatrix.needsUpdate = true;
     this.flakeMesh.instanceMatrix.needsUpdate = true;
 
+    // clouds: natural cells (when active) and local showers
     let nc = 0;
+    const put = (x: number, z: number, i: number, fade: number) => {
+      if (nc >= 400) return;
+      this.p.set(x, CLOUD_H + Math.sin(i * 2.3) * 0.25, z);
+      this.s.set(fade * (1.2 + (i % 3) * 0.3), fade, fade * (1.2 + (i % 2) * 0.4));
+      this.q.setFromAxisAngle(UP, i * 1.7);
+      this.m.compose(this.p, this.q, this.s);
+      this.cloudMesh.setMatrixAt(nc++, this.m);
+    };
+    if (this.naturalOn) {
+      for (const c of this.cells) {
+        const n = Math.round(c.r * 0.9);
+        for (let i = 0; i < n; i++) {
+          const ang = i * 2.399, rr = Math.sqrt((i + 0.5) / n) * c.r * 0.85;
+          put(c.x + Math.cos(ang) * rr, c.z + Math.sin(ang) * rr, i, 1.4);
+        }
+      }
+    }
     for (const a of this.areas) {
       const n = Math.max(2, Math.round(a.r * 1.4));
-      for (let i = 0; i < n && nc < 200; i++) {
+      for (let i = 0; i < n; i++) {
         const ang = (i / n) * Math.PI * 2 + a.x;
         const rr = i === 0 ? 0 : a.r * 0.55;
-        const fade = Math.min(1, a.t / 2);
-        this.p.set(a.x + Math.cos(ang) * rr, CLOUD_H + Math.sin(i * 2.3) * 0.2, a.z + Math.sin(ang) * rr);
-        this.s.set(fade * (1 + (i % 3) * 0.2), fade, fade * (1 + (i % 2) * 0.3));
-        this.m.compose(this.p, this.q, this.s);
-        this.cloudMesh.setMatrixAt(nc++, this.m);
+        put(a.x + Math.cos(ang) * rr, a.z + Math.sin(ang) * rr, i, Math.min(1, a.t / 2));
       }
     }
     this.cloudMesh.count = nc;

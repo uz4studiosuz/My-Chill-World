@@ -6,7 +6,7 @@ import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
-  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, ironMineGeometry, fisheryGeometry, fireStationGeometry, busDepotGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
+  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, apartmentGeometry, cemeteryExtGeometry, GRAVE_OFFSETS, ironMineGeometry, fisheryGeometry, fireStationGeometry, busDepotGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
   carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
@@ -57,6 +57,11 @@ export interface Building {
   /** Family that owns this business (-1 = owned by the city). */
   owner: number;
   scaffold?: THREE.LineSegments;
+  /** Cemetery extension: the cemetery it belongs to. Cemetery: its extensions. */
+  parent?: number;
+  ext?: number[];
+  /** Money taken at the till today (shops, gas stations). */
+  sales?: number;
   /** A fire truck is already on its way. */
   fireCrew?: boolean;
   /** Cemetery: buried records. */
@@ -105,6 +110,8 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'cemetery': return cemeteryGeometry();
     case 'park': return parkGeometry();
     case 'police': return policeGeometry();
+    case 'apartment': return apartmentGeometry();
+    case 'cemeteryext': return cemeteryExtGeometry();
     case 'ironmine': return ironMineGeometry();
     case 'fishery': return fisheryGeometry();
     case 'firestation': return fireStationGeometry();
@@ -270,17 +277,19 @@ export class Buildings {
     if (b.graves.length >= MAX_GRAVES_PER_CEMETERY * (b.level || 1)) return false;
     const idx = b.graves.length;
     b.graves.push(g);
-    {
-      const [gx, gz] = graveOffset(idx);
-      const m = new THREE.Mesh(this.headstoneGeo, this.mat);
-      m.position.set(gx, 0.02, gz);
-      m.castShadow = true;
-      if (!b.gravesGroup) {
-        b.gravesGroup = new THREE.Group();
-        b.mesh.add(b.gravesGroup);
-      }
-      b.gravesGroup.add(m);
+    // the first 16 graves fill the cemetery, the next ones its extensions
+    const plot = Math.floor(idx / MAX_GRAVES_PER_CEMETERY);
+    const host = plot > 0 ? this.get(b.ext?.[plot - 1] ?? -1) : b;
+    const target = host ?? b;
+    const [gx, gz] = host && plot > 0 ? GRAVE_OFFSETS[idx % MAX_GRAVES_PER_CEMETERY] : graveOffset(idx);
+    const m = new THREE.Mesh(this.headstoneGeo, this.mat);
+    m.position.set(gx, 0.02, gz);
+    m.castShadow = true;
+    if (!target.gravesGroup) {
+      target.gravesGroup = new THREE.Group();
+      target.mesh.add(target.gravesGroup);
     }
+    target.gravesGroup.add(m);
     return true;
   }
 
@@ -395,6 +404,28 @@ export class Buildings {
     const [lx, lz, lr] = BUILDINGS[b.kind].slots[i];
     const c = Math.cos(b.rot), s = Math.sin(b.rot);
     return { x: b.mesh.position.x + lx * c + lz * s, z: b.mesh.position.z - lx * s + lz * c, rot: b.rot + lr };
+  }
+
+  /** Move a building to a new spot (people, owner and records stay with it). */
+  move(b: Building, x: number, z: number) {
+    for (const t of this.footprint(b.kind, b.x, b.z)) this.occ[idx(t.x, t.z)] = -1;
+    const { access, rot } = this.findAccess(b.kind, x, z);
+    const s = BUILDINGS[b.kind].size;
+    b.x = x;
+    b.z = z;
+    b.access = access;
+    b.rot = rot;
+    for (const t of this.footprint(b.kind, x, z)) this.occ[idx(t.x, t.z)] = b.id;
+    b.mesh.position.set(tileToWorld(x) + (s - 1) / 2, 0, tileToWorld(z) + (s - 1) / 2);
+    b.mesh.rotation.y = rot;
+    b.grow = 0;
+  }
+
+  /** Free a building's tiles for a moment (to test a new spot that overlaps the old one). */
+  withoutOcc<T>(b: Building, fn: () => T): T {
+    const tiles = this.footprint(b.kind, b.x, b.z).map((t) => idx(t.x, t.z));
+    for (const k of tiles) this.occ[k] = -1;
+    try { return fn(); } finally { for (const k of tiles) this.occ[k] = b.id; }
   }
 
   /** Re-resolve entrances after road edits (orientation stays as built). */
