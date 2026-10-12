@@ -13,8 +13,7 @@ export interface InputActions {
 }
 
 const TOOL_KEYS: Record<string, ToolId> = {
-  Digit1: 'pan', Digit2: 'road', Digit3: 'path', Digit4: 'canal', Digit5: 'house',
-  Digit6: 'rain', Digit7: 'lightning', Digit8: 'raise', Digit9: 'lower', KeyX: 'bulldoze',
+  Digit1: 'pan', Digit2: 'road', Digit3: 'path', Digit4: 'canal', Digit5: 'house', KeyX: 'bulldoze',
 };
 // CrazyGames requirement: these keys must not scroll the parent page
 const BLOCKED_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ']);

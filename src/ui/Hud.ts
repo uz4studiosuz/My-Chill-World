@@ -5,7 +5,7 @@ import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
 
-type Category = 'roads' | 'buildings' | 'services' | 'business' | 'production' | 'god';
+type Category = 'roads' | 'buildings' | 'services' | 'business' | 'production';
 
 interface ToolItem {
   tool: ToolId;
@@ -24,8 +24,6 @@ const b = (tool: BuildingKind & ToolId, cat: Category, tag: string, desc: string
   const d = BUILDINGS[tool];
   return { tool, cat, name: d.name, desc, money: d.money, stone: d.stone, wood: d.wood, tag, icon: ic };
 };
-const god = (tool: ToolId, name: string, tag: string, desc: string, ic: IconName): ToolItem =>
-  ({ tool, cat: 'god', name, desc, money: 0, stone: 0, wood: 0, tag, icon: ic });
 
 const ITEMS: ToolItem[] = [
   { tool: 'road', cat: 'roads', name: 'Road', desc: 'Two-lane road with sidewalks. Over water it becomes a bridge.', ...ROAD_COST[2], wood: 0, perTile: true, tag: 'Cars, power, water', icon: 'road' },
@@ -40,6 +38,7 @@ const ITEMS: ToolItem[] = [
   b('cemetery', 'buildings', '16 graves', 'Resting place for deceased citizens. Families buy graves. Can be upgraded.', 'cemetery'),
   b('school', 'services', '40 pupils', 'Children aged 6–17 study here. Educated adults earn 50% more.', 'school'),
   b('university', 'services', '30 students', 'Young adults with a school diploma study for 4 years and become specialists with a degree.', 'school'),
+  b('police', 'services', 'Safety', 'Officers cut down fights, accidents and murders in the city.', 'jobs'),
   b('hospital', 'services', 'Heals people', 'Doctors and nurses treat the sick. Reduces deaths from illness, fights and accidents.', 'heart'),
   b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one.', 'heart'),
   b('market', 'business', 'Shopping', 'Bazaar: families spend money on food, clothes and goods. The town takes 20% business tax.', 'food'),
@@ -56,11 +55,7 @@ const ITEMS: ToolItem[] = [
   b('farm', 'production', '+90 food/day', 'Crop field (3×3). Needs water from a canal or rain. Grows March–October.', 'farm'),
   b('orchard', 'production', '+30 food/day', 'Fruit trees — best harvest in summer and autumn.', 'orchard'),
   b('ranch', 'production', '+35 food/day', 'Fenced pasture with cattle (3×3). Produces all year.', 'ranch'),
-  b('quarry', 'production', '8 jobs · stone', 'Must touch mountains. Trucks bring stone to the Town Hall.', 'quarry'),
-  god('rain', 'Rain', 'Water from the sky', 'Drag to summon rain clouds. Rain waters farms and puts out fires.', 'rain'),
-  god('lightning', 'Lightning', 'Smite!', 'Click to strike. Burns trees, sets buildings on fire, kills whoever stands there.', 'energy'),
-  god('raise', 'Raise Land', 'Shape the world', 'Drag to raise the ground: water becomes land, land becomes hills.', 'up'),
-  god('lower', 'Lower Land', 'Shape the world', 'Drag to lower the ground: hills sink, flat land becomes a lake.', 'down'),
+  b('quarry', 'production', '8 jobs · stone', 'Must touch mountains. Trucks bring stone to the Town Hall; with no road, miners carry it on foot.', 'quarry'),
 ];
 
 const CATS: { id: Category; label: string; icon: IconName }[] = [
@@ -69,7 +64,6 @@ const CATS: { id: Category; label: string; icon: IconName }[] = [
   { id: 'services', label: 'Services', icon: 'heart' },
   { id: 'business', label: 'Business', icon: 'coin' },
   { id: 'production', label: 'Production', icon: 'production' },
-  { id: 'god', label: 'God', icon: 'energy' },
 ];
 
 const CAT_DESC: Record<Category, string> = {
@@ -78,7 +72,6 @@ const CAT_DESC: Record<Category, string> = {
   services: 'Schools, hospitals and the institutions people need.',
   business: 'Shops and companies earn money and pay business tax.',
   production: 'Food, wood, energy, stone and industry.',
-  god: 'Powers of nature — use them wisely.',
 };
 
 const BASE_HINTS: Partial<Record<ToolId, string>> = {
@@ -194,7 +187,6 @@ export class Hud {
     for (const c of CATS) {
       const btn = this.toolButton(c.icon, t(c.label));
       btn.classList.add('cat');
-      if (c.id === 'god') btn.classList.add('god');
       btn.addEventListener('click', () => this.toggleDrawer(c.id));
       this.catBtns.set(c.id, btn);
       bar.appendChild(btn);
@@ -251,7 +243,6 @@ export class Hud {
     for (const it of ITEMS.filter((i) => i.cat === cat)) row.appendChild(this.card(it));
     this.drawer.append(title, row, this.descEl);
     this.drawer.classList.add('show');
-    this.drawer.classList.toggle('god', cat === 'god');
     this.catBtns.forEach((btn, c) => btn.classList.toggle('open', c === cat));
     this.refreshCards();
   }

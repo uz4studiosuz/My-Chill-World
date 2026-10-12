@@ -25,10 +25,12 @@ export interface City {
   balance: Balance;
   deaths: number;
   brokeDays: number;
+  /** Money owed to the bank. */
+  loan: number;
 }
 
 export interface CitySave {
-  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; brokeDays: number;
+  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; brokeDays: number; loan?: number;
 }
 
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
@@ -43,7 +45,7 @@ const blankBalance = (): Balance => ({ incomeTax: 0, foodSales: 0, propertyTax: 
 function blankCity(id: number, name: string, founded: number, g: Grant = { money: 0, stone: 0, wood: 0, food: 0 }): City {
   return {
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
-    foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0,
+    foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0,
   };
 }
 
@@ -134,7 +136,7 @@ export class Economy {
     return {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
-        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, brokeDays: c.brokeDays,
+        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, brokeDays: c.brokeDays, loan: c.loan,
       })),
     };
   }
@@ -146,6 +148,7 @@ export class Economy {
     for (const c of s.cities) {
       const city = blankCity(c.id, c.name, c.founded, { money: c.money, stone: c.stone, wood: c.wood, food: c.food });
       city.brokeDays = c.brokeDays;
+      city.loan = c.loan ?? 0;
       this.cities.set(c.id, city);
       this.nextCity = Math.max(this.nextCity, c.id + 1);
     }

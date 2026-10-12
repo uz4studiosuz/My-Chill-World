@@ -361,6 +361,22 @@ const tree = (x: number, z: number, s = 1): THREE.BufferGeometry[] => [
   box(0.2 * s, 0.2 * s, 0.2 * s, x, 0.55 * s, z, '#6faa45'),
 ];
 
+export function policeGeometry(): THREE.BufferGeometry {
+  return merge([
+    box(0.98, 0.02, 0.98, 0, 0.01, 0, '#9aa0a6'),
+    box(0.74, 0.5, 0.52, 0, 0.27, -0.12, '#dfe6ee'),
+    box(0.8, 0.08, 0.58, 0, 0.56, -0.12, '#2d4f8a'),
+    box(0.74, 0.06, 0.02, 0, 0.36, 0.15, '#2d4f8a'),
+    box(0.16, 0.26, 0.02, 0, 0.15, 0.15, '#3a4a5c'),
+    box(0.1, 0.1, 0.02, -0.24, 0.3, 0.15, '#a8d0e6'),
+    box(0.1, 0.1, 0.02, 0.24, 0.3, 0.15, '#a8d0e6'),
+    box(0.03, 0.4, 0.03, 0.36, 0.7, 0.1, '#cccccc'),
+    box(0.16, 0.1, 0.01, 0.43, 0.82, 0.1, '#2d4f8a'),
+    box(0.3, 0.08, 0.16, -0.1, 0.06, 0.38, '#f2f4f6'),
+    box(0.16, 0.06, 0.14, -0.1, 0.13, 0.38, '#2d4f8a'),
+  ]);
+}
+
 export function parkGeometry(): THREE.BufferGeometry {
   const parts = [
     box(1.9, 0.02, 1.9, 0, 0.01, 0, '#76b04f'),

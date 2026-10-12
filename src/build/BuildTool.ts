@@ -7,12 +7,10 @@ import { t as tr } from '../i18n/i18n';
 export type PlaceKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower' | 'quarry'
   | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout'
-  | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
+  | 'police' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
 
 export type LineKind = 'road' | 'path' | 'canal';
-/** God powers are brushes: they act on every tile the pointer passes. */
-export type GodKind = 'rain' | 'lightning' | 'raise' | 'lower';
-export type ToolId = 'pan' | 'bulldoze' | LineKind | PlaceKind | GodKind;
+export type ToolId = 'pan' | 'bulldoze' | LineKind | PlaceKind;
 
 export interface CheckResult { ok: boolean; reason?: string; money?: number; stone?: number; wood?: number; bridges?: number }
 
@@ -24,8 +22,6 @@ export interface ToolHost {
   place(kind: PlaceKind, t: Tile): void;
   footprint(kind: PlaceKind, t: Tile): Tile[];
   bulldoze(path: Tile[]): void;
-  brush(kind: GodKind, t: Tile, first: boolean): void;
-  brushArea(kind: GodKind, t: Tile): Tile[];
   showHint(text: string | null): void;
   /** A build is waiting for the player's confirmation (null = nothing pending). */
   pending(info: { text: string; ok: boolean } | null): void;
@@ -35,10 +31,8 @@ const OK = new THREE.Color('#5fe08a');
 const BAD = new THREE.Color('#ff5a4f');
 const REMOVE = new THREE.Color('#ff8a3d');
 
-const GOD = new THREE.Color('#ffd166');
 const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'path' || t === 'canal';
-export const isGod = (t: ToolId): t is GodKind => t === 'rain' || t === 'lightning' || t === 'raise' || t === 'lower';
-const isPlace = (t: ToolId): t is PlaceKind => t !== 'pan' && t !== 'bulldoze' && !isLine(t) && !isGod(t);
+const isPlace = (t: ToolId): t is PlaceKind => t !== 'pan' && t !== 'bulldoze' && !isLine(t);
 
 export class BuildTool {
   tool: ToolId = 'pan';
@@ -57,32 +51,14 @@ export class BuildTool {
     this.tool = t;
   }
 
-  private lastBrush = '';
-
   begin(t: Tile) {
     if (this.waiting) { this.waiting = null; this.host.pending(null); }
     this.start = clampTile(t);
-    if (isGod(this.tool)) {
-      this.lastBrush = `${this.start.x},${this.start.z}`;
-      this.current = this.start;
-      this.host.brush(this.tool, this.start, true);
-      this.preview.show(this.host.brushArea(this.tool, this.start), GOD);
-      return;
-    }
     this.update(this.start);
   }
 
   drag(t: Tile) {
     if (!this.start) return;
-    if (isGod(this.tool)) {
-      const c = clampTile(t);
-      const key = `${c.x},${c.z}`;
-      this.preview.show(this.host.brushArea(this.tool, c), GOD);
-      if (key === this.lastBrush || this.tool === 'lightning') return;
-      this.lastBrush = key;
-      this.host.brush(this.tool, c, false);
-      return;
-    }
     this.update(t);
   }
 
@@ -93,10 +69,6 @@ export class BuildTool {
       this.host.showHint(null);
       return;
     }
-    if (isGod(this.tool)) {
-      this.preview.show(this.host.brushArea(this.tool, t), GOD);
-      return;
-    }
     this.start = t;
     this.update(t);
     this.start = null;
@@ -105,7 +77,6 @@ export class BuildTool {
   commit() {
     if (!this.start || !this.current) return;
     const path = this.path, cur = this.current, tool = this.tool;
-    if (isGod(tool)) { this.cancel(); return; }
     if (tool === 'bulldoze') { this.cancel(); this.host.bulldoze(path); return; }
     // buildings and lines wait for a confirmation (the preview stays on the map)
     const r = isLine(tool) ? this.host.checkLine(tool, path) : isPlace(tool) ? this.host.checkPlace(tool, cur) : { ok: false };

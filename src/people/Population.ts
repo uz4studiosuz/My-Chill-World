@@ -74,6 +74,8 @@ export interface DailyOptions {
   /** The city has a working market / car dealer. */
   market: boolean;
   carMarket: boolean;
+  /** 0..1 — how much policing reduces fights and murders. */
+  safety: number;
 }
 
 export interface DayReport {
@@ -275,7 +277,7 @@ export class Population {
   }
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
-  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, market: false, carMarket: false }): DayReport {
+  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, market: false, carMarket: false, safety: 0 }): DayReport {
     const r: DayReport = { utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
@@ -362,7 +364,8 @@ export class Population {
         for (let i = 0; i < 8 && (b === a || b.family === a.family); i++) b = pick(adults);
         return b === a ? null : [a, b];
       };
-      if (Math.random() < Math.min(0.3, n * 0.0012)) {
+      const calm = 1 - opts.safety;
+      if (Math.random() < Math.min(0.3, n * 0.0012) * calm) {
         const pair = two();
         if (pair && this.citizens.has(pair[0].id) && this.citizens.has(pair[1].id)) {
           for (const c of pair) c.health = Math.max(5, c.health - rand(10, 25));
@@ -377,7 +380,7 @@ export class Population {
           if (v.health <= 0) die(v, 'accident');
         }
       }
-      if (Math.random() < Math.min(0.05, n * 0.0002)) {
+      if (Math.random() < Math.min(0.05, n * 0.0002) * calm) {
         const pair = two();
         if (pair && this.citizens.has(pair[0].id) && this.citizens.has(pair[1].id)) {
           r.incidents.push({ kind: 'murder', a: pair[0].name, b: pair[1].name });

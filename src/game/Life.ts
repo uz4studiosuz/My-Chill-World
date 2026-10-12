@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_TAX, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_TAX, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, Family, Population } from '../people/Population';
@@ -55,6 +55,7 @@ export class Life {
   private reservedTrees = new Set<number>();
   private immigrationT = 0;
   private stormT = 40;
+  private porters = new Set<number>();
   private presentT = 0;
   private fireT = 0;
   private gridIds = new Set<number>();
@@ -221,11 +222,13 @@ export class Life {
       const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0);
       const r = pop.daily(buildings, belongs, city.food, city.water, () => this.freeHomes(city.id), hasHall, {
         heal: Math.min(40, heal), market: staffed('market'), carMarket: staffed('carmarket'),
+        safety: Math.min(0.75, own.filter((b) => b.kind === 'police').reduce((a, b) => a + 0.45 * Math.min(1, b.workers / BUILDINGS.police.jobs), 0)),
       });
       city.food -= r.foodEaten;
       city.foodYesterday = { made: Math.round(city.foodMade), eaten: r.foodEaten };
       city.foodMade = 0;
-      const upkeep = Math.round(roadShare + buildings.list.reduce((a, b) => (b.city === city.id ? a + BUILDINGS[b.kind].upkeep : a), 0));
+      const interest = city.loan * LOAN.interest;
+      const upkeep = Math.round(roadShare + interest + buildings.list.reduce((a, b) => (b.city === city.id ? a + BUILDINGS[b.kind].upkeep : a), 0));
       // business tax: turnover of staffed shops, factories, banks… plus market and car dealer sales
       const cars = [...pop.families.values()].filter((f) => f.car && homeCity(f) === city.id).length;
       let business = (r.shopping + r.carSales) * BUSINESS_TAX;
@@ -282,6 +285,7 @@ export class Life {
 
     for (const c of pop.citizens.values()) if (c.state !== 'home') this.teleportHome(c);
     for (const w of [...this.c.walkers.list]) if (!w.leaving) this.c.walkers.dismiss(w);
+    this.porters.clear();
     this.cleanupSpots();
     terrain.regrow();
     this.rained.clear();
@@ -388,7 +392,13 @@ export class Life {
       const th = buildings.townHall(b.city);
       if (b.built < 1) continue;
       b.stored = Math.min(QUARRY.maxStored, b.stored + QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share);
-      if (!th || b.stored < QUARRY.truckLoad || b.trucks >= TRUCKS_PER_QUARRY || b.access < 0 || th.access < 0) continue;
+      if (!th || b.stored < QUARRY.truckLoad) continue;
+      // no road link: a miner carries the stone to the Town Hall on foot
+      if (b.access < 0 || th.access < 0 || !traffic.canRoute(b.access, th.access)) {
+        this.sendPorter(b, th);
+        continue;
+      }
+      if (b.trucks >= TRUCKS_PER_QUARRY) continue;
       const sent = traffic.spawn({
         kind: 'truck', from: b.access, to: th.access, loaded: true,
         fromPos: buildings.door(b), toPos: buildings.door(th), color: new THREE.Color('#ffffff'),
@@ -397,6 +407,34 @@ export class Life {
       });
       if (sent) { b.stored -= QUARRY.truckLoad; b.trucks++; }
     }
+  }
+
+  /** Miners carry stone over footpaths (or open ground) when no road connects the quarry. */
+  private sendPorter(b: Building, th: Building) {
+    const { pop, buildings, eco } = this.c;
+    let active = 0;
+    for (const id of this.porters) if (pop.citizens.get(id)?.job === b.id) active++;
+    if (active >= 2) return;
+    const worker = [...pop.citizens.values()].find((c) => c.job === b.id && c.state === 'away' && c.at === b.id && !this.porters.has(c.id) && !c.walker);
+    if (!worker) return;
+    this.porters.add(worker.id);
+    b.stored -= QUARRY.truckLoad;
+    worker.activity = 'Carrying stone';
+    const finish = () => {
+      this.porters.delete(worker.id);
+      if (!this.alive(worker)) return;
+      if (worker.walker) { this.c.walkers.dismiss(worker.walker); worker.walker = undefined; }
+      if (worker.state === 'away') worker.activity = 'At work';
+    };
+    this.walk(worker, buildings.door(b), buildings.frontTile(b), th, () => {
+      if (!this.alive(worker)) { this.porters.delete(worker.id); return; }
+      const own = eco.cities.get(b.city);
+      if (own) own.stone += QUARRY.truckLoad;
+      if (worker.walker) worker.walker.carry = 'none';
+      worker.activity = 'Walking back to the quarry';
+      if (b.removed) return finish();
+      this.walk(worker, buildings.door(th), buildings.frontTile(th), b, finish);
+    }, 'log');
   }
 
   private truckBack(b: Building) {

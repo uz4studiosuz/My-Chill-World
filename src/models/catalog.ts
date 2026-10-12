@@ -102,6 +102,7 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'ranch', name: 'Cattle Ranch', group: 'Buildings', desc: 'Fenced pasture with a barn and a water trough.', make: () => group(mesh(buildingGeometry('ranch')), ...[[-0.3, 0.2, 0.4], [0.5, 0.3, -1.2], [0.1, -0.5, 2.2], [-0.8, 0.6, 3.5]].map(([x, z, r]) => at(mesh(cowGeometry()), x, 0.02, z, r))) },
   { id: 'quarry', name: 'Stone Quarry', group: 'Buildings', desc: 'Mines stone next to mountains. Trucks deliver it.', make: () => mesh(buildingGeometry('quarry')) },
   { id: 'cemetery', name: 'Cemetery', group: 'Buildings', desc: 'Resting place for the dead. Can be expanded twice.', make: () => mesh(buildingGeometry('cemetery')) },
+  { id: 'police', name: 'Police Station', group: 'Buildings', desc: 'Officers keep fights and crime down.', make: () => mesh(buildingGeometry('police')) },
   { id: 'park', name: 'Park', group: 'Buildings', desc: 'Green space with a pond and benches.', make: () => mesh(buildingGeometry('park')) },
   { id: 'hospital', name: 'Hospital', group: 'Buildings', desc: 'Doctors and nurses heal the sick.', make: () => mesh(buildingGeometry('hospital')) },
   { id: 'university', name: 'University', group: 'Buildings', desc: 'Four years of study for a degree and a better wage.', make: () => mesh(buildingGeometry('university')) },
