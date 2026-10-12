@@ -1,6 +1,7 @@
 export type BuildingKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower'
-  | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch';
+  | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery';
+
 
 /** How a building's workers behave while at work. */
 export type WorkStyle = 'indoor' | 'woodcutter' | 'farmer';
@@ -63,7 +64,12 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   farm: def({ kind: 'farm', name: 'Crop Farm', size: 3, money: 400, wood: 5, jobs: 4, salary: 10, food: 90, needsRoad: false, work: 'farmer' }),
   orchard: def({ kind: 'orchard', name: 'Fruit Orchard', size: 2, money: 300, stone: 5, wood: 5, jobs: 2, salary: 10, food: 30, needsRoad: false, work: 'farmer' }),
   ranch: def({ kind: 'ranch', name: 'Cattle Ranch', size: 3, money: 600, stone: 10, wood: 15, jobs: 2, salary: 11, food: 35, needsRoad: false, work: 'farmer' }),
+  cemetery: def({ kind: 'cemetery', name: 'Cemetery', size: 2, money: 400, stone: 20, wood: 10, jobs: 1, salary: 10, publicJob: true, upkeep: 2 }),
 };
+
+export const GRAVE_COST = 100;
+export const MAX_GRAVES_PER_CEMETERY = 16;
+
 
 export const QUARRY = {
   /** Stone per day at full staff. */

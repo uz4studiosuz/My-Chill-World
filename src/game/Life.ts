@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BUILDINGS, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BUILDINGS, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, DayReport, Population } from '../people/Population';
@@ -37,7 +37,7 @@ export interface LifeContext {
 
 const TRUCKS_PER_QUARRY = 2;
 const PARK_RADIUS = 6;
-const IMMIGRATION_INTERVAL = 8;
+const IMMIGRATION_INTERVAL = DAY_SECONDS / 3;
 const ROAD_UPKEEP = 0.1;
 const BRIDGE_UPKEEP = 0.5;
 /** Working hours as fractions of the day (8:00–17:30). */
@@ -201,7 +201,28 @@ export class Life {
       const hall = buildings.ofKind('weddinghall')[0];
       if (hall) this.c.effects.hearts(hall.mesh.position.x, hall.mesh.position.z);
     }
-    for (const d of r.deaths.slice(0, 3)) this.events.push(t('{name} died ({cause})', { name: d.name, cause: t(d.cause) }));
+    // Burials in cemetery
+    for (const d of r.deaths) {
+      const f = pop.families.get(d.familyId);
+      const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY);
+      if (cemetery && f && f.money >= GRAVE_COST) {
+        f.money -= GRAVE_COST;
+        eco.money += GRAVE_COST;
+        buildings.addGrave(cemetery, { name: d.name, family: d.surname, age: d.age, day: eco.day });
+        this.events.push(t('{name} was laid to rest at the cemetery (${cost})', { name: `${d.name} ${d.surname}`.trim(), cost: GRAVE_COST }));
+      }
+    }
+
+    // Ranch calf breeding
+    for (const b of buildings.ofKind('ranch')) {
+      if (b.workers > 0 && eco.food > 50 && (b.cattleCount ?? 4) < 4) {
+        b.cattleCount = (b.cattleCount ?? 0) + 1;
+        b.cattleHunger = 0;
+        this.events.push(t('A new calf was born in the ranch!'));
+      }
+    }
+
+    for (const d of r.deaths.slice(0, 3)) this.events.push(t('{name} died ({cause})', { name: `${d.name} ${d.surname}`.trim(), cause: t(d.cause) }));
     if (r.deaths.length > 3) this.events.push(t('{n} people died today', { n: r.deaths.length }));
     if (r.leftTown) this.events.push(t('{n} people left town (debt)', { n: r.leftTown }));
     if (r.carsBought) this.events.push(t('{n} families bought a car', { n: r.carsBought }));
@@ -266,11 +287,29 @@ export class Life {
     let food = 0;
     for (const b of buildings.list) {
       const d = BUILDINGS[b.kind];
+      if (b.kind === 'ranch') {
+        const cattle = b.cattleCount ?? 4;
+        if (cattle > 0) {
+          const feedNeeded = cattle * share * 0.5;
+          if (eco.food >= feedNeeded && eco.food > 5) {
+            eco.food -= feedNeeded;
+            b.cattleHunger = Math.max(0, (b.cattleHunger ?? 0) - dt * 2);
+          } else {
+            b.cattleHunger = (b.cattleHunger ?? 0) + (dt / 15) * 10;
+            if (b.cattleHunger >= 100) {
+              b.cattleHunger = 0;
+              b.cattleCount = Math.max(0, cattle - 1);
+              this.c.effects.puff(b.mesh.position.x, b.mesh.position.z, 0.5, 12, ['#8a5a35', '#2b2622', '#f4f1ea']);
+              this.events.push(t('A cow died in the ranch due to lack of feed (grass/crops)!'));
+            }
+          }
+        }
+      }
       if (!d.food || !d.jobs) continue;
       let f = d.food * Math.min(1, b.workers / d.jobs);
       if (b.kind === 'farm') f *= growingSeason(month) ? (b.irrigated ? 1 : 0.15) : 0;
       if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : 0.2;
-      if (b.kind === 'ranch') f *= seasonOf(month) === 'winter' ? 0.7 : 1;
+      if (b.kind === 'ranch') f *= (seasonOf(month) === 'winter' ? 0.7 : 1) * ((b.cattleCount ?? 4) / 4);
       food += f * share;
     }
     eco.food += food;
@@ -328,6 +367,13 @@ export class Life {
       walkers.dismiss(w);
       const f = pop.families.get(c.family);
       this.events.push(t('{name} died ({cause})', { name: `${c.name} ${f?.surname ?? ''}`, cause: t('lightning') }));
+      const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY);
+      if (cemetery && f && f.money >= GRAVE_COST) {
+        f.money -= GRAVE_COST;
+        this.c.eco.money += GRAVE_COST;
+        buildings.addGrave(cemetery, { name: c.name, family: f?.surname ?? '', age: Math.floor(c.age), day: this.c.eco.day });
+        this.events.push(t('{name} was laid to rest at the cemetery (${cost})', { name: `${c.name} ${f?.surname ?? ''}`.trim(), cost: GRAVE_COST }));
+      }
       pop.removeCitizen(c);
       killed++;
     }

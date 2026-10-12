@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import { Tile, clampTile, inBounds, lPath } from '../world/grid';
+import { Tile, clampTile, diagPath, inBounds, lPath } from '../world/grid';
+
 import { Preview } from './Preview';
 import { t as tr } from '../i18n/i18n';
 
 export type PlaceKind =
   | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower' | 'quarry'
-  | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'roundabout';
+  | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout';
+
 export type LineKind = 'road' | 'path' | 'canal';
 /** God powers are brushes: they act on every tile the pointer passes. */
 export type GodKind = 'rain' | 'lightning' | 'raise' | 'lower';
@@ -122,7 +124,7 @@ export class BuildTool {
       this.host.showHint(r.ok ? cost(r) : r.reason ?? null);
       return;
     }
-    this.path = lPath(this.start!, cur);
+    this.path = tool === 'path' ? diagPath(this.start!, cur) : lPath(this.start!, cur);
     if (isLine(tool)) {
       const r = this.host.checkLine(tool, this.path);
       this.preview.show(this.path, r.ok ? OK : BAD);

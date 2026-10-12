@@ -2,14 +2,23 @@ import * as THREE from 'three';
 import { N, Tile, idx, inBounds, tileToWorld, worldToTile } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { RoadNetwork, ROAD_RING } from '../roads/RoadNetwork';
-import { BUILDINGS, BuildingKind } from './BuildingTypes';
+import { BUILDINGS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './BuildingTypes';
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
+  cemeteryGeometry, headstoneGeometry, GRAVE_OFFSETS,
 } from '../models/buildings';
+import { cowGeometry } from '../models/animals';
 import { hash2 } from '../utils/voxel';
 
 export interface Point { x: number; z: number }
+
+export interface GraveRecord {
+  name: string;
+  family: string;
+  age: number;
+  day: number;
+}
 
 export interface Building {
   id: number;
@@ -38,7 +47,15 @@ export interface Building {
   powered: boolean;
   /** Seconds of fire left (lightning); the building burns down when it runs out. */
   fire: number;
+  /** Cemetery: buried records. */
+  graves?: GraveRecord[];
+  gravesGroup?: THREE.Group;
+  /** Ranch: number of living cattle and hunger level (0..100). */
+  cattleCount?: number;
+  cattleHunger?: number;
+  cattleMeshes?: THREE.Mesh[];
 }
+
 
 export interface PlaceCheck { ok: boolean; reason?: string }
 
@@ -73,6 +90,7 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'ranch': return ranchGeometry();
     case 'weddinghall': return weddingHallGeometry();
     case 'watertower': return waterTowerGeometry();
+    case 'cemetery': return cemeteryGeometry();
     default: return townHallGeometry();
   }
 }
@@ -86,6 +104,10 @@ export class Buildings {
   private geoCache = new Map<string, THREE.BufferGeometry>();
   private mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private cropGeo = cropGeometry();
+  private headstoneGeo = headstoneGeometry();
+  private cowGeo = cowGeometry();
+  private cowMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private animTime = 0;
   private dying: { mesh: THREE.Object3D; t: number }[] = [];
 
   constructor(private map: WorldMap, private roads: RoadNetwork, private ctx: BuildingContext) {}
@@ -137,6 +159,31 @@ export class Buildings {
       mesh.add(b.crop);
       this.updateCrop(b);
     }
+    if (kind === 'cemetery') {
+      b.graves = [];
+      const gGroup = new THREE.Group();
+      b.gravesGroup = gGroup;
+      mesh.add(gGroup);
+    }
+    if (kind === 'ranch') {
+      b.cattleCount = 4;
+      b.cattleHunger = 0;
+      b.cattleMeshes = [];
+      const cattlePositions = [
+        [-0.3, 0.2, 0.1],
+        [0.4, -0.2, -0.5],
+        [0.1, 0.7, 1.2],
+        [-0.4, -0.4, 2.3],
+      ];
+      for (let i = 0; i < 4; i++) {
+        const cow = new THREE.Mesh(this.cowGeo, this.cowMat);
+        cow.castShadow = true;
+        cow.position.set(cattlePositions[i][0], 0.02, cattlePositions[i][1]);
+        cow.rotation.y = cattlePositions[i][2];
+        mesh.add(cow);
+        b.cattleMeshes.push(cow);
+      }
+    }
     if (b.grow < 1) mesh.scale.set(0.6, 0.01, 0.6);
     for (const t of this.footprint(kind, x, z)) this.occ[idx(t.x, t.z)] = b.id;
     this.list.push(b);
@@ -144,6 +191,27 @@ export class Buildings {
     this.group.add(mesh);
     return b;
   }
+
+  addGrave(b: Building, g: GraveRecord): boolean {
+    if (b.kind !== 'cemetery') return false;
+    if (!b.graves) b.graves = [];
+    if (b.graves.length >= MAX_GRAVES_PER_CEMETERY) return false;
+    const idx = b.graves.length;
+    b.graves.push(g);
+    if (idx < GRAVE_OFFSETS.length) {
+      const [gx, gz] = GRAVE_OFFSETS[idx];
+      const m = new THREE.Mesh(this.headstoneGeo, this.mat);
+      m.position.set(gx, 0.02, gz);
+      m.castShadow = true;
+      if (!b.gravesGroup) {
+        b.gravesGroup = new THREE.Group();
+        b.mesh.add(b.gravesGroup);
+      }
+      b.gravesGroup.add(m);
+    }
+    return true;
+  }
+
 
   remove(b: Building) {
     for (const t of this.footprint(b.kind, b.x, b.z)) this.occ[idx(t.x, t.z)] = -1;
@@ -155,12 +223,25 @@ export class Buildings {
 
   /** Grow / shrink animations and crop growth (only in the growing season, with farmers and water). */
   update(dt: number, simDt: number, dayLength: number, growing: boolean) {
+    this.animTime += dt;
     for (const b of this.list) {
       if (b.grow < 1) {
         b.grow = Math.min(1, b.grow + dt * 2.2);
         const y = easeOutBack(b.grow);
         const xz = 0.6 + 0.4 * Math.min(1, b.grow * 1.6);
         b.mesh.scale.set(xz, Math.max(0.01, y), xz);
+      }
+      if (b.kind === 'ranch' && b.cattleMeshes) {
+        const count = b.cattleCount ?? 4;
+        for (let i = 0; i < b.cattleMeshes.length; i++) {
+          const cow = b.cattleMeshes[i];
+          cow.visible = i < count;
+          if (cow.visible) {
+            const t = this.animTime * 1.5 + i * 2.1;
+            cow.position.y = 0.02 + Math.abs(Math.sin(t)) * 0.005;
+            cow.rotation.y += Math.sin(t * 0.4) * 0.002;
+          }
+        }
       }
       if (b.crop && simDt > 0) {
         if (!growing) b.cropT = Math.max(0, b.cropT - simDt / dayLength);

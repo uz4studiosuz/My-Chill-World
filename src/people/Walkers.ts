@@ -67,7 +67,7 @@ export class Walkers {
   walk(variant: number, scale: number, route: WalkRoute, carry: Carry = 'none', onArrive?: (w: Walker) => void): Walker {
     const w: Walker = {
       id: this.nextId++, variant, scale, carry, pts: [], cum: [], len: 0, s: 0, seg: 0,
-      speed: 2.6 * (scale < 0.9 ? 0.85 : 1), x: route.points[0].x, z: route.points[0].z, hx: 0, hz: 1,
+      speed: 0.8 * (scale < 0.9 ? 0.85 : 1), x: route.points[0].x, z: route.points[0].z, hx: 0, hz: 1,
       fade: 0, leaving: false, hold: 0, anim: 'none', phase: Math.random() * 10, onArrive,
     };
     this.setRoute(w, route);

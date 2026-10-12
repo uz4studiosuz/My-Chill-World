@@ -38,7 +38,9 @@ const ITEMS: ToolItem[] = [
   b('weddinghall', 'buildings', 'Weddings', 'Young couples can only marry and start families if the town has one.', 'heart'),
   b('office', 'buildings', '24 jobs', 'Workplace with parking spaces in front.', 'office'),
   b('parking', 'buildings', '8 spaces', 'Commuters park here when their workplace is nearby.', 'parking'),
+  b('cemetery', 'buildings', '16 graves', 'Resting place for deceased citizens. Families buy graves.', 'cemetery'),
   b('woodcutter', 'production', '3 jobs · wood', 'Near a forest. Workers fell trees bit by bit and carry logs to the power plant.', 'woodcutter'),
+
   b('powerplant', 'production', '+90 energy/day', 'Burns wood. Power reaches only buildings connected to it by road.', 'powerplant'),
   b('farm', 'production', '+90 food/day', 'Crop field (3×3). Needs water from a canal or rain. Grows March–October.', 'farm'),
   b('orchard', 'production', '+30 food/day', 'Fruit trees — best harvest in summer and autumn.', 'orchard'),
@@ -77,7 +79,10 @@ export interface HudHandlers {
   openStats: () => void;
 }
 
+export const SPEEDS = [0, 1, 2, 3, 10];
+
 export class Hud {
+
   readonly root: HTMLDivElement;
   private tool: ToolId = 'pan';
   private speedBtns: HTMLButtonElement[] = [];
@@ -131,7 +136,7 @@ export class Hud {
 
     const corner = el('div', 'corner');
     const speeds = el('div', 'speeds');
-    [0, 1, 2, 3].forEach((s) => {
+    SPEEDS.forEach((s) => {
       const btn = el('button', 'sbtn');
       btn.innerHTML = s === 0 ? icon('pause') : `${s}×`;
       btn.setAttribute('aria-label', s === 0 ? t('Pause') : t('Speed {n}', { n: s }));
@@ -265,7 +270,7 @@ export class Hud {
   }
 
   setSpeed(s: number) {
-    this.speedBtns.forEach((btn, i) => btn.classList.toggle('active', i === s));
+    this.speedBtns.forEach((btn, i) => btn.classList.toggle('active', SPEEDS[i] === s));
   }
 
   setUndoEnabled(on: boolean) {

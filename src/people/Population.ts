@@ -56,6 +56,14 @@ export interface Family {
   debtDays: number;
 }
 
+export interface DeathReport {
+  name: string;
+  surname: string;
+  cause: DeathCause;
+  familyId: number;
+  age: number;
+}
+
 export interface DayReport {
   incomeTax: number;
   publicWages: number;
@@ -63,11 +71,12 @@ export interface DayReport {
   foodSales: number;
   propertyTax: number;
   births: number;
-  deaths: { name: string; cause: DeathCause }[];
+  deaths: DeathReport[];
   weddings: [string, string][];
   leftTown: number;
   carsBought: number;
 }
+
 
 export const CAR_COLORS = ['#d9443b', '#3a6fd1', '#f2f2ee', '#f1c232', '#4c9a52', '#8a8f98', '#2d3138', '#e07b2e', '#6fc3d8'];
 
@@ -239,7 +248,7 @@ export class Population {
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
       const f = this.families.get(c.family);
-      r.deaths.push({ name: `${c.name} ${f?.surname ?? ''}`.trim(), cause });
+      r.deaths.push({ name: c.name, surname: f?.surname ?? '', cause, familyId: c.family, age: Math.floor(c.age) });
       this.removeCitizen(c);
     };
 

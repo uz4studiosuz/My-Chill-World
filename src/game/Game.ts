@@ -9,7 +9,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building } from '../buildings/Buildings';
-import { BUILDINGS, BuildingKind, QUARRY } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -56,6 +56,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
   parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
   woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
+  cemetery: ['🪦', '#4a4f57'],
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -778,8 +779,31 @@ export class Game implements ToolHost {
       rows.push([t('Trucks'), `${b.trucks}/2`]);
     }
     if (def.slots.length && b.kind !== 'house') rows.push([t('Parking'), `${this.life.spotsUsed(b)}/${def.slots.length}`]);
+    if (b.kind === 'cemetery') {
+      const count = b.graves?.length ?? 0;
+      bars.push({ label: t('Graves'), value: count / MAX_GRAVES_PER_CEMETERY, color: '#8c8a87', text: `${count}/${MAX_GRAVES_PER_CEMETERY}` });
+      rows.push([t('Grave plot price'), `$${GRAVE_COST}`]);
+    }
+    if (b.kind === 'ranch') {
+      const cattle = b.cattleCount ?? 4;
+      const hunger = b.cattleHunger ?? 0;
+      bars.push({ label: t('Cattle'), value: cattle / 4, color: cattle > 2 ? '#7be08f' : cattle > 0 ? '#f2b33d' : '#ff6b5e', text: `${cattle}/4 ${t('cows')}` });
+      rows.push([t('Livestock health'), hunger > 50 ? t('Starving — needs farm crops/feed!') : t('Fed and healthy'), hunger > 50 ? 'bad' : 'good']);
+      rows.push([t('Feed source'), t('Farm crops (grain/corn)'), this.eco.food > 10 ? 'good' : 'bad']);
+    }
     let people = staff;
     let listTitle = t('Workers');
+    if (b.kind === 'cemetery' && b.graves && b.graves.length > 0) {
+      listTitle = t('Buried citizens');
+      people = b.graves.map((g, i) => ({
+        id: -1000 - i,
+        icon: '🪦',
+        name: `${g.name} ${g.family}`.trim(),
+        detail: `${t('{n} years', { n: g.age })} · ${t('Day {n}', { n: g.day })}`,
+        warn: false,
+      })) as any;
+    }
+
     if (b.kind === 'school') {
       people = [...this.pop.citizens.values()].filter((c) => c.school === b.id);
       bars.push({ label: t('Pupils'), value: people.length / def.students, color: '#7be08f', text: `${people.length}/${def.students}` });
@@ -953,6 +977,8 @@ export class Game implements ToolHost {
     for (const b of s.buildings) {
       const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id });
       if (b.cropT !== undefined) nb.cropT = b.cropT;
+      if (b.graves) for (const g of b.graves) this.buildings.addGrave(nb, g);
+      if (b.cattleCount !== undefined) nb.cattleCount = b.cattleCount;
     }
     this.pop.deserialize(s.population);
     this.eco.load(s.eco);
@@ -982,6 +1008,7 @@ export class Game implements ToolHost {
       buildings: this.buildings.list.map((b) => ({
         id: b.id, kind: b.kind, x: b.x, z: b.z, cropT: b.cropT,
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
+        graves: b.graves, cattleCount: b.cattleCount,
       })),
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },

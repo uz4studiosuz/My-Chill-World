@@ -6,7 +6,14 @@ const EDGE = new THREE.Color('#b99a46');
 const Y = 0.012;
 const HALF = 0.11;
 
-/** Free walking paths for pedestrians: a narrow, continuous yellow track joining neighbouring paths and roads. */
+const DIAGS = [
+  { dx: 1, dz: 1 },
+  { dx: -1, dz: 1 },
+  { dx: 1, dz: -1 },
+  { dx: -1, dz: -1 },
+] as const;
+
+/** Free walking paths for pedestrians: a narrow, continuous yellow track joining neighbouring paths. */
 export class Footpaths {
   readonly tiles = new Uint8Array(N * N);
   readonly mesh: THREE.Mesh;
@@ -39,8 +46,8 @@ export class Footpaths {
     return n;
   }
 
-  /** `linked(k)` — neighbour tile a path should visually join (a road, a building door…). */
-  rebuild(linked: (k: number) => boolean = () => false) {
+  /** Rebuild footpath mesh with cardinal and diagonal connections. */
+  rebuild(_linked: (k: number) => boolean = () => false) {
     const b = new FlatBuilder();
     for (let z = 0; z < N; z++) {
       for (let x = 0; x < N; x++) {
@@ -52,9 +59,23 @@ export class Footpaths {
             const nx = x + d.dx, nz = z + d.dz;
             if (!inBounds(nx, nz)) continue;
             const nk = idx(nx, nz);
-            if (!this.tiles[nk] && !linked(nk)) continue;
+            if (!this.tiles[nk]) continue;
             if (d.dx) b.rect(cx + d.dx * h, cz - h, cx + d.dx * 0.5, cz + h, y, c);
             else b.rect(cx - h, cz + d.dz * h, cx + h, cz + d.dz * 0.5, y, c);
+          }
+          for (const d of DIAGS) {
+            const nx = x + d.dx, nz = z + d.dz;
+            if (!inBounds(nx, nz)) continue;
+            if (!this.tiles[idx(nx, nz)]) continue;
+            const px = -d.dz * 0.7071 * h, pz = d.dx * 0.7071 * h;
+            const mx = cx + d.dx * 0.5, mz = cz + d.dz * 0.5;
+            b.quad(
+              cx - px, cz - pz,
+              cx + px, cz + pz,
+              mx + px, mz + pz,
+              mx - px, mz - pz,
+              y, c,
+            );
           }
         }
       }
@@ -76,7 +97,7 @@ export class Footpaths {
   }
 }
 
-/** Upward-facing rectangles with vertex colours; corners may be given in any order. */
+/** Upward-facing rectangles and quads with vertex colours. */
 export class FlatBuilder {
   private pos: number[] = [];
   private col: number[] = [];
@@ -87,6 +108,12 @@ export class FlatBuilder {
     this.pos.push(x0, y, z0, x0, y, z1, x1, y, z1, x0, y, z0, x1, y, z1, x1, y, z0);
     for (let i = 0; i < 6; i++) this.col.push(c.r, c.g, c.b);
   }
+
+  quad(x0: number, z0: number, x1: number, z1: number, x2: number, z2: number, x3: number, z3: number, y: number, c: THREE.Color) {
+    this.pos.push(x0, y, z0, x1, y, z1, x2, y, z2, x0, y, z0, x2, y, z2, x3, y, z3);
+    for (let i = 0; i < 6; i++) this.col.push(c.r, c.g, c.b);
+  }
+
 
   geometry() {
     const geo = new THREE.BufferGeometry();

@@ -56,7 +56,9 @@ const ICONS = {
   follow: '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  cemetery: '<path d="M6 21V10a6 6 0 0 1 12 0v11zM12 9v6M9 12h6M4 21h16"/>',
 };
+
 
 export type IconName = keyof typeof ICONS;
 export const icon = (name: IconName) => svg(ICONS[name]);

@@ -44,3 +44,22 @@ export function lPath(a: Tile, b: Tile): Tile[] {
   }
   return out;
 }
+
+/** Direct Bresenham path (allows straight diagonal / angled lines). */
+export function diagPath(a: Tile, b: Tile): Tile[] {
+  const out: Tile[] = [];
+  let x0 = a.x, z0 = a.z;
+  const x1 = b.x, z1 = b.z;
+  const dx = Math.abs(x1 - x0), dz = Math.abs(z1 - z0);
+  const sx = x0 < x1 ? 1 : -1, sz = z0 < z1 ? 1 : -1;
+  let err = dx - dz;
+  while (true) {
+    out.push({ x: x0, z: z0 });
+    if (x0 === x1 && z0 === z1) break;
+    const e2 = 2 * err;
+    if (e2 > -dz) { err -= dz; x0 += sx; }
+    if (e2 < dx) { err += dx; z0 += sz; }
+  }
+  return out;
+}
+
