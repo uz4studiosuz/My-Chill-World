@@ -9,7 +9,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building } from '../buildings/Buildings';
-import { BUILDINGS, BuildingKind, CITY_MIN_DISTANCE, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -57,7 +57,18 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
   parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
   woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
-  cemetery: ['🪦', '#4a4f57'],
+  cemetery: ['🪦', '#4a4f57'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
+  market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
+  factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
+};
+
+const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
+  townhall: ['Civil servant'], office: ['Clerk', 'Manager'], school: ['School staff', 'Teacher'], university: ['University staff', 'Professor'],
+  hospital: ['Nurse', 'Doctor'], market: ['Seller'], carmarket: ['Car salesman'], bank: ['Cashier', 'Banker'], gasstation: ['Pump attendant'],
+  factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
+  farm: ['Farmer'], orchard: ['Fruit grower'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'], quarry: ['Quarryman'],
+  powerplant: ['Power operator', 'Power engineer'], watertower: ['Water technician'], weddinghall: ['Registrar'], park: ['Gardener'],
+  cemetery: ['Gravedigger'], parking: ['Parking attendant'],
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -92,6 +103,9 @@ export class Game implements ToolHost {
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
   private marker: THREE.Mesh;
+  private ring: THREE.Mesh;
+  private beam: THREE.Mesh;
+  private beamT = 0;
 
   private tool?: BuildTool;
   private input?: InputController;
@@ -159,6 +173,27 @@ export class Game implements ToolHost {
     this.grid.visible = false;
     this.marker = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 4).rotateX(Math.PI), new THREE.MeshBasicMaterial({ color: '#ffd166' }));
     this.marker.visible = false;
+    this.ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.62, 0.74, 48).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: '#ffd166', transparent: true, opacity: 0.9, depthWrite: false }),
+    );
+    this.ring.position.y = 0.08;
+    this.ring.renderOrder = 11;
+    this.ring.visible = false;
+    this.beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.28, 3.2, 16, 1, true),
+      new THREE.MeshBasicMaterial({ color: '#ffe08a', transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.beam.visible = false;
+    this.footpaths.attach = (k) => this.buildings.occ[k] !== -1 || this.net.type[k] !== 0;
+    this.canals.attach = (k) => this.buildings.at(k)?.kind === 'farm';
+    this.buildings.onBuilt = (b) => {
+      this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.6, 16, ['#f2e6c4', '#ffffff', '#c9b88a']);
+      this.pop.assign(this.buildings);
+      this.life.rebuildGrid();
+      this.footpaths.rebuild((k) => this.net.type[k] !== 0);
+      this.life.events.push(t('{name} is finished', { name: t(BUILDINGS[b.kind].name) }));
+    };
     this.cam = new CameraRig(canvas);
 
     if (opts.save) this.loadSave(opts.save);
@@ -167,7 +202,7 @@ export class Game implements ToolHost {
     this.animals = new Animals(this.map, (k) => this.map.isLand(k) && !this.net.type[k] && !this.net.isIsland(k) && this.buildings.occ[k] === -1);
     this.scene.add(
       this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
-      this.walkers.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker,
+      this.walkers.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker, this.ring, this.beam,
     );
     this.pop.assign(this.buildings);
     this.networkChanged(false);
@@ -208,6 +243,8 @@ export class Game implements ToolHost {
       openMenu: () => this.onMenu(),
       openStats: () => this.stats?.toggle(),
       cycleCity: () => this.cycleCity(),
+      confirmBuild: () => this.tool?.confirm(),
+      cancelBuild: () => this.tool?.cancel(),
     }, this.thumbs);
     this.inspector = new Inspector(this.hud.root, () => this.select(null), (id) => this.select({ type: 'person', id }));
     this.stats = new StatsPanel(this.hud.root, () => this.snapshot());
@@ -242,7 +279,7 @@ export class Game implements ToolHost {
     this.traffic.setParked(this.life.parkedCars());
     this.traffic.update(sdt);
     this.walkers.update(sdt);
-    this.buildings.update(dt, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)));
+    this.buildings.update(dt, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)), (city) => this.buildSpeed(city));
     this.effects.update(dt);
     this.weather.update(dt, sdt, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
     this.seasonT -= dt;
@@ -306,11 +343,12 @@ export class Game implements ToolHost {
       for (const tl of path) {
         const k = idx(tl.x, tl.z);
         if (this.net.type[k]) continue; // passes under/over roads
+        if (canal && this.buildings.at(k)?.kind === 'farm') continue; // canals end at the field
         if (!this.map.isLand(k)) return canal && this.map.water[k] ? { ok: false, reason: t('Start the canal next to the water, not on it') } : { ok: false, reason: t('Needs dry, flat land') };
         if (this.buildings.occ[k] !== -1 || this.net.isIsland(k)) return { ok: false, reason: t('Something is in the way') };
       }
       if (!canal) return { ok: true, money: 0, stone: 0 };
-      const money = path.filter((tl) => !this.canals.tiles[idx(tl.x, tl.z)]).length * CANAL_COST;
+      const money = path.filter((tl) => !this.canals.tiles[idx(tl.x, tl.z)] && this.buildings.occ[idx(tl.x, tl.z)] === -1).length * CANAL_COST;
       if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }) };
       return { ok: true, money };
     }
@@ -348,7 +386,7 @@ export class Game implements ToolHost {
     if (kind === 'path' || kind === 'canal') {
       this.eco.spend(r.money ?? 0, 0);
       if (kind === 'path') { this.canals.remove(free); this.footpaths.add(free); }
-      else { this.footpaths.remove(free); this.canals.add(path.filter((tl) => this.map.isLand(idx(tl.x, tl.z)))); }
+      else { this.footpaths.remove(free); this.canals.add(path.filter((tl) => this.map.isLand(idx(tl.x, tl.z)) && this.buildings.occ[idx(tl.x, tl.z)] === -1)); }
       this.terrain.clearTiles(free.map((tl) => idx(tl.x, tl.z)));
       this.effects.pave(path);
       this.networkChanged();
@@ -501,6 +539,17 @@ export class Game implements ToolHost {
     this.hud?.setHint(text);
   }
 
+  pending(info: { text: string; ok: boolean } | null) {
+    this.hud?.setPending(info);
+  }
+
+  /** Construction speed of a city: a construction company with workers makes builders faster. */
+  private buildSpeed(city: number) {
+    let crew = 0;
+    for (const b of this.buildings.list) if (b.kind === 'construction' && b.city === city && b.built >= 1) crew += b.workers;
+    return 0.6 + 0.2 * Math.min(8, crew);
+  }
+
   // ---------- internals ----------
 
   private destroyBuilding(b: Building, refund: boolean) {
@@ -649,6 +698,22 @@ export class Game implements ToolHost {
 
   private updateMarker(dt: number) {
     const s = this.selection;
+    const sb = s?.type === 'building' ? this.buildings.get(s.id) : undefined;
+    this.ring.visible = !!sb;
+    if (sb) {
+      const size = BUILDINGS[sb.kind].size;
+      const pulse = 1 + Math.sin(this.time * 5 + performance.now() * 0.004) * 0.05;
+      this.ring.position.set(sb.mesh.position.x, 0.08, sb.mesh.position.z);
+      this.ring.scale.setScalar(size * 1.38 * pulse);
+      (this.ring.material as THREE.MeshBasicMaterial).opacity = 0.65 + 0.3 * Math.sin(performance.now() * 0.006);
+    }
+    this.beamT = Math.max(0, this.beamT - dt);
+    this.beam.visible = !!sb && this.beamT > 0;
+    if (this.beam.visible && sb) {
+      this.beam.position.set(sb.mesh.position.x, 1.6, sb.mesh.position.z);
+      this.beam.scale.set(BUILDINGS[sb.kind].size, 1, BUILDINGS[sb.kind].size);
+      (this.beam.material as THREE.MeshBasicMaterial).opacity = Math.min(0.4, this.beamT * 0.25);
+    }
     if (s?.type !== 'person') { this.marker.visible = false; return; }
     const c = this.pop.citizens.get(s.id);
     const p = c && this.personPos(c);
@@ -675,7 +740,7 @@ export class Game implements ToolHost {
     const b = c.job >= 0 ? this.buildings.get(c.job) : undefined;
     if (c.age < 3) return t('Baby');
     if (b) return t('Works at {place}', { place: t(BUILDINGS[b.kind].name) });
-    if (c.school >= 0) return t('Pupil');
+    if (c.school >= 0) return this.buildings.get(c.school)?.kind === 'university' ? t('Student') : t('Pupil');
     if (c.age < 6) return t('Small child');
     if (c.age < 18) return t('Child (no school place)');
     if (c.age >= 65) return t('Retired');
@@ -696,6 +761,29 @@ export class Game implements ToolHost {
     this.inspector.show(b.kind === 'house' ? this.houseView(b) : b.kind === 'townhall' ? this.cityView(b) : this.buildingView(b));
   }
 
+  private professionOf(c: Citizen) {
+    const b = c.job >= 0 ? this.buildings.get(c.job) : undefined;
+    const p = b && PROFESSIONS[b.kind];
+    if (p) return t(c.skill === 2 && p[1] ? p[1] : p[0]);
+    if (c.school >= 0) return this.buildings.get(c.school)?.kind === 'university' ? t('Student') : t('Pupil');
+    if (c.age >= 18 && c.skill === 2) return t('Graduate');
+    if (c.age >= 18 && c.skill === 1) return t('Tradesman');
+    return '—';
+  }
+
+  private upgradeCemetery(b: Building) {
+    const city = this.cityOf(b);
+    const u = CEMETERY_UPGRADE;
+    if (b.level >= u.maxLevel || b.built < 1) return;
+    const m = u.money * b.level, s = u.stone * b.level, w = u.wood * b.level;
+    if (city.money < m || city.stone < s || city.wood < w) return this.hud?.toast(t('Needs {cost}', { cost: costText(m, s, w) }));
+    city.money -= m; city.stone -= s; city.wood -= w;
+    this.buildings.setLevel(b, b.level + 1);
+    this.effects.puff(b.mesh.position.x, b.mesh.position.z, 1, 16, ['#bdb7aa', '#8c8a87', '#4f8a3a']);
+    this.hud?.toast(t('Cemetery upgraded — it now holds {n} graves', { n: MAX_GRAVES_PER_CEMETERY * b.level }));
+    this.refreshInspector();
+  }
+
   private personView(c: Citizen): InspectorView {
     const f = this.pop.families.get(c.family);
     const home = f && this.buildings.get(f.home);
@@ -704,6 +792,8 @@ export class Game implements ToolHost {
     if (c.hunger < 25) tags.push({ text: t('Hungry'), tone: 'bad' });
     if (c.health < 50) tags.push({ text: t('Sick'), tone: 'bad' });
     if (c.edu >= 0.99 && age >= 18) tags.push({ text: t('Educated'), tone: 'good' });
+    if (c.skill === 2) tags.push({ text: t('Degree'), tone: 'good' });
+    else if (c.skill === 1 && age >= 18) tags.push({ text: t('Skilled trade'), tone: 'info' });
     if (f?.car && age >= 18) tags.push({ text: t('Family car'), tone: 'info' });
     const job = c.job >= 0 ? this.buildings.get(c.job) : c.school >= 0 ? this.buildings.get(c.school) : undefined;
     return {
@@ -720,6 +810,7 @@ export class Game implements ToolHost {
       ],
       rows: [
         [t('Doing'), t(c.activity)],
+        [t('Profession'), this.professionOf(c)],
         [t('Home'), f ? t('{name} family', { name: f.surname }) : '—'],
         [t('City'), home ? this.cityOf(home).name : '—'],
         [c.school >= 0 ? t('School') : t('Workplace'), job ? t(BUILDINGS[job.kind].name) : '—'],
@@ -727,7 +818,7 @@ export class Game implements ToolHost {
       ],
       actions: [
         { label: this.following ? t('Stop following') : t('Follow'), icon: 'follow', active: this.following, onClick: () => { this.following = !this.following; this.refreshInspector(); } },
-        ...(home ? [{ label: t('Show home'), icon: 'house' as const, onClick: () => { this.cam.setState(home.mesh.position.x, home.mesh.position.z, this.cam.yaw, this.cam.viewHalf); this.select({ type: 'building', id: home.id }); } }] : []),
+        ...(home ? [{ label: t('Show home'), icon: 'house' as const, onClick: () => { this.cam.setState(home.mesh.position.x, home.mesh.position.z, this.cam.yaw, this.cam.viewHalf); this.select({ type: 'building', id: home.id }); this.beamT = 4; } }] : []),
       ],
     };
   }
@@ -777,6 +868,11 @@ export class Game implements ToolHost {
     const rows: InspectorView['rows'] = [];
     const bars: InspectorView['bars'] = [];
     rows.push([t('City'), city.name]);
+    const actions: NonNullable<InspectorView['actions']> = [];
+    if (b.built < 1) {
+      tags.push({ text: t('Under construction'), tone: 'info' });
+      bars.push({ label: t('Construction'), value: b.built, color: '#f2b33d' });
+    }
     if (b.fire > 0) tags.push({ text: t('On fire!'), tone: 'bad' });
     if (def.energy) tags.push(b.powered ? { text: t('Powered'), tone: 'good' } : { text: t('No power'), tone: 'bad' });
     if (def.needsRoad && b.access < 0) tags.push({ text: t('No road access'), tone: 'bad' });
@@ -806,8 +902,13 @@ export class Game implements ToolHost {
     if (def.slots.length && b.kind !== 'house') rows.push([t('Parking'), `${this.life.spotsUsed(b)}/${def.slots.length}`]);
     if (b.kind === 'cemetery') {
       const count = b.graves?.length ?? 0;
-      bars.push({ label: t('Graves'), value: count / MAX_GRAVES_PER_CEMETERY, color: '#8c8a87', text: `${count}/${MAX_GRAVES_PER_CEMETERY}` });
-      rows.push([t('Grave plot price'), `$${GRAVE_COST}`]);
+      const cap = MAX_GRAVES_PER_CEMETERY * b.level;
+      bars.push({ label: t('Graves'), value: count / cap, color: '#8c8a87', text: `${count}/${cap}` });
+      rows.push([t('Grave plot price'), `$${GRAVE_COST}`], [t('Level'), `${b.level}/${CEMETERY_UPGRADE.maxLevel}`]);
+      if (b.level < CEMETERY_UPGRADE.maxLevel && b.built >= 1) {
+        const m = CEMETERY_UPGRADE.money * b.level;
+        actions.push({ label: `${t('Expand')} · $${m}`, icon: 'up', onClick: () => this.upgradeCemetery(b) });
+      }
     }
     if (b.kind === 'ranch') {
       const cattle = b.cattleCount ?? 4;
@@ -829,7 +930,7 @@ export class Game implements ToolHost {
       })) as any;
     }
 
-    if (b.kind === 'school') {
+    if (b.kind === 'school' || b.kind === 'university') {
       people = [...this.pop.citizens.values()].filter((c) => c.school === b.id);
       bars.push({ label: t('Pupils'), value: people.length / def.students, color: '#7be08f', text: `${people.length}/${def.students}` });
       listTitle = t('Pupils');
@@ -840,7 +941,7 @@ export class Game implements ToolHost {
       badgeColor: KIND_BADGE[b.kind][1],
       title: t(def.name),
       subtitle,
-      tags, bars, rows, listTitle,
+      tags, bars, rows, listTitle, actions,
       people: people.map((c) => {
         const f = this.pop.families.get(c.family);
         return { id: c.id, icon: this.personIcon(c), name: `${c.name} ${f?.surname ?? ''}`, detail: `${t('{n} years', { n: Math.floor(c.age) })} · ${t(c.activity)}`, warn: c.hunger < 25 || c.health < 50 };
@@ -997,6 +1098,8 @@ export class Game implements ToolHost {
             [t('Income tax (25%)'), signed(bal.incomeTax), 'good'],
             [t('Food sales'), signed(bal.foodSales), 'good'],
             [t('Property tax'), signed(bal.propertyTax), 'good'],
+            [t('Business tax'), signed(bal.businessTax), 'good'],
+            [t('Utility bills'), signed(bal.utilities), 'good'],
             [t('Public wages'), signed(-bal.publicWages), bal.publicWages ? 'bad' : undefined],
             [t('Upkeep'), signed(-bal.upkeep), bal.upkeep ? 'bad' : undefined],
           ],
@@ -1133,7 +1236,7 @@ export class Game implements ToolHost {
     this.terrain.clearTiles(s.cleared);
     this.terrain.loadStumps(s.stumps);
     for (const b of s.buildings) {
-      const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city });
+      const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.built, level: b.level });
       if (b.cropT !== undefined) nb.cropT = b.cropT;
       if (b.graves) for (const g of b.graves) this.buildings.addGrave(nb, g);
       if (b.cattleCount !== undefined) nb.cattleCount = b.cattleCount;
@@ -1167,6 +1270,7 @@ export class Game implements ToolHost {
         id: b.id, kind: b.kind, city: b.city, x: b.x, z: b.z, cropT: b.cropT,
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
         graves: b.graves, cattleCount: b.cattleCount,
+        built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, level: b.level > 1 ? b.level : undefined,
       })),
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },

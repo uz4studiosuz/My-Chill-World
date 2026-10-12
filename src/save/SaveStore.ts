@@ -32,7 +32,7 @@ export interface WorldSave {
   sandbox?: boolean;
   cleared: number[];
   stumps?: [number, number][];
-  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number }[];
+  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number; built?: number; level?: number }[];
   population: PopulationSave;
   cam: { x: number; z: number; yaw: number; view: number };
   time?: number;

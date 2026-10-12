@@ -352,3 +352,213 @@ export function headstoneGeometry(): THREE.BufferGeometry {
   ]);
 }
 
+
+// ---------- services & businesses ----------
+
+const tree = (x: number, z: number, s = 1): THREE.BufferGeometry[] => [
+  box(0.06 * s, 0.22 * s, 0.06 * s, x, 0.11 * s, z, '#6b4a2e'),
+  box(0.3 * s, 0.26 * s, 0.3 * s, x, 0.33 * s, z, '#4f8a3a'),
+  box(0.2 * s, 0.2 * s, 0.2 * s, x, 0.55 * s, z, '#6faa45'),
+];
+
+export function parkGeometry(): THREE.BufferGeometry {
+  const parts = [
+    box(1.9, 0.02, 1.9, 0, 0.01, 0, '#76b04f'),
+    box(0.22, 0.012, 1.9, 0, 0.026, 0.0, '#d9cfae'),
+    box(1.9, 0.012, 0.22, 0, 0.027, 0.2, '#d9cfae'),
+    box(0.62, 0.03, 0.46, -0.55, 0.035, -0.5, '#4fa3d1'),
+    box(0.68, 0.02, 0.52, -0.55, 0.03, -0.5, '#9a8f7a'),
+    box(0.3, 0.07, 0.1, 0.55, 0.06, 0.55, '#8a5a35'),
+    box(0.3, 0.14, 0.04, 0.55, 0.13, 0.5, '#8a5a35'),
+    box(0.3, 0.07, 0.1, -0.5, 0.06, 0.6, '#8a5a35'),
+    ...tree(0.6, -0.55, 1.3), ...tree(0.75, -0.2, 1), ...tree(-0.75, 0.15, 1.2), ...tree(0.1, -0.75, 1),
+    box(0.06, 0.06, 0.06, 0.35, 0.06, 0.25, '#e85a7a'),
+    box(0.06, 0.06, 0.06, 0.3, 0.06, 0.32, '#f2c230'),
+    box(0.06, 0.06, 0.06, -0.3, 0.06, 0.3, '#e85a7a'),
+  ];
+  return merge(parts);
+}
+
+export function hospitalGeometry(): THREE.BufferGeometry {
+  const wall = '#f2f4f6', trim = '#cfd6dc', red = '#d9443b', glass = '#a8d0e6';
+  const parts = [
+    box(1.9, 0.02, 1.9, 0, 0.01, 0, '#bcb8ae'),
+    box(1.5, 0.9, 0.9, 0, 0.45, -0.3, wall),
+    box(1.56, 0.06, 0.96, 0, 0.93, -0.3, trim),
+    box(0.7, 1.2, 0.8, 0.55, 0.6, -0.3, wall),
+    box(0.76, 0.06, 0.86, 0.55, 1.23, -0.3, trim),
+    box(0.34, 0.1, 0.02, 0.55, 1.0, 0.115, red),
+    box(0.1, 0.34, 0.02, 0.55, 1.0, 0.115, red),
+    box(0.6, 0.04, 0.34, -0.3, 0.4, 0.3, red),
+    box(0.4, 0.3, 0.02, -0.3, 0.15, 0.16, '#5a7f9c'),
+    box(0.4, 0.12, 0.2, 0.0, 0.07, 0.62, '#e9edf0'),
+    box(0.32, 0.06, 0.2, -0.55, 0.08, 0.65, '#e9edf0'),
+  ];
+  for (const x of [-0.6, -0.3, 0, 0.3]) for (const y of [0.3, 0.62]) parts.push(box(0.16, 0.14, 0.02, x, y, 0.16, glass));
+  return merge(parts);
+}
+
+export function marketGeometry(): THREE.BufferGeometry {
+  const colors = ['#d9443b', '#3a6fd1', '#f1c232', '#4c9a52'];
+  const parts: THREE.BufferGeometry[] = [box(1.9, 0.02, 1.9, 0, 0.01, 0, '#c9bf9d')];
+  [-0.6, 0.0, 0.6].forEach((x, i) => {
+    parts.push(box(0.5, 0.2, 0.34, x, 0.1, -0.4, '#8a5a35'));
+    parts.push(box(0.58, 0.05, 0.5, x, 0.5, -0.36, colors[i]));
+    parts.push(box(0.04, 0.5, 0.04, x - 0.26, 0.25, -0.18, '#cfc8b6'));
+    parts.push(box(0.04, 0.5, 0.04, x + 0.26, 0.25, -0.18, '#cfc8b6'));
+    parts.push(box(0.1, 0.07, 0.1, x - 0.12, 0.24, -0.4, '#e85a3a'));
+    parts.push(box(0.1, 0.07, 0.1, x + 0.1, 0.24, -0.4, '#7cc24a'));
+  });
+  [-0.45, 0.45].forEach((x, i) => {
+    parts.push(box(0.5, 0.2, 0.34, x, 0.1, 0.45, '#8a5a35'));
+    parts.push(box(0.58, 0.05, 0.5, x, 0.5, 0.49, colors[(i + 2) % 4]));
+    parts.push(box(0.04, 0.5, 0.04, x - 0.26, 0.25, 0.67, '#cfc8b6'));
+    parts.push(box(0.04, 0.5, 0.04, x + 0.26, 0.25, 0.67, '#cfc8b6'));
+  });
+  parts.push(box(0.5, 0.16, 0.5, 0.0, 0.08, 0.1, '#e0d3a8'));
+  return merge(parts);
+}
+
+export function bankGeometry(): THREE.BufferGeometry {
+  const stone = '#e8e4da', gold = '#d4af37';
+  const parts = [
+    box(0.98, 0.02, 0.98, 0, 0.01, 0, '#bdb7aa'),
+    box(0.8, 0.5, 0.56, 0, 0.27, -0.1, stone),
+    box(0.9, 0.08, 0.66, 0, 0.56, -0.1, '#6d6a62'),
+    box(0.7, 0.08, 0.5, 0, 0.64, -0.1, '#6d6a62'),
+    box(0.12, 0.12, 0.02, 0, 0.5, 0.2, gold),
+    box(0.2, 0.28, 0.02, 0, 0.16, 0.19, '#5c3a21'),
+  ];
+  for (const x of [-0.3, -0.1, 0.1, 0.3]) parts.push(box(0.07, 0.44, 0.07, x, 0.24, 0.26, '#f4f1ea'));
+  parts.push(box(0.84, 0.05, 0.12, 0, 0.5, 0.26, stone));
+  return merge(parts);
+}
+
+export function gasStationGeometry(): THREE.BufferGeometry {
+  const parts = [
+    box(0.98, 0.02, 0.98, 0, 0.01, 0, '#8d8f93'),
+    box(0.9, 0.05, 0.5, 0, 0.5, 0.2, '#d9443b'),
+    box(0.9, 0.03, 0.5, 0, 0.46, 0.2, '#f2f4f6'),
+    box(0.05, 0.46, 0.05, -0.38, 0.23, 0.0, '#cfd6dc'),
+    box(0.05, 0.46, 0.05, 0.38, 0.23, 0.0, '#cfd6dc'),
+    box(0.1, 0.22, 0.08, -0.15, 0.13, 0.2, '#3a6fd1'),
+    box(0.1, 0.22, 0.08, 0.15, 0.13, 0.2, '#4c9a52'),
+    box(0.42, 0.28, 0.26, 0.0, 0.15, -0.34, '#f1e4c4'),
+    box(0.46, 0.05, 0.3, 0.0, 0.31, -0.34, '#3a6fd1'),
+  ];
+  return merge(parts);
+}
+
+export function factoryGeometry(): THREE.BufferGeometry {
+  const wall = '#9aa3ab', roof = '#6f7880', brick = '#a65e43';
+  const parts = [
+    box(2.9, 0.02, 2.9, 0, 0.01, 0, '#a9a69d'),
+    box(1.9, 0.8, 1.3, -0.3, 0.4, -0.55, wall),
+    box(2.0, 0.08, 1.4, -0.3, 0.84, -0.55, roof),
+    box(1.0, 0.55, 0.9, 0.9, 0.28, 0.45, '#b7bdc3'),
+    box(1.06, 0.06, 0.96, 0.9, 0.58, 0.45, roof),
+    box(0.24, 1.6, 0.24, 1.05, 0.8, -0.8, brick),
+    box(0.3, 0.08, 0.3, 1.05, 1.62, -0.8, '#3a3532'),
+    box(0.2, 1.3, 0.2, 0.7, 0.65, -0.8, brick),
+    box(0.26, 0.08, 0.26, 0.7, 1.32, -0.8, '#3a3532'),
+    box(0.7, 0.45, 0.04, -0.3, 0.23, 0.12, '#4a525a'),
+    box(0.5, 0.3, 0.5, -1.0, 0.15, 0.6, '#c98a3a'),
+    box(0.5, 0.3, 0.5, -0.5, 0.15, 0.9, '#3a6fd1'),
+  ];
+  for (const x of [-0.9, -0.5, -0.1, 0.3]) parts.push(box(0.2, 0.14, 0.02, x, 0.5, -0.19, '#a8d0e6'));
+  return merge(parts);
+}
+
+export function carFactoryGeometry(): THREE.BufferGeometry {
+  const parts = [
+    box(2.9, 0.02, 2.9, 0, 0.01, 0, '#a9a69d'),
+    box(2.2, 0.7, 1.5, -0.2, 0.35, -0.55, '#e9edf0'),
+    box(0.4, 0.2, 1.5, -1.1, 0.8, -0.55, '#5f9fd0'),
+    box(0.4, 0.34, 1.5, -0.7, 0.87, -0.55, '#e9edf0'),
+    box(0.4, 0.2, 1.5, -0.3, 0.8, -0.55, '#5f9fd0'),
+    box(0.4, 0.34, 1.5, 0.1, 0.87, -0.55, '#e9edf0'),
+    box(0.4, 0.2, 1.5, 0.5, 0.8, -0.55, '#5f9fd0'),
+    box(0.9, 0.5, 0.8, 1.0, 0.25, 0.5, '#cfd6dc'),
+    box(0.5, 0.4, 0.04, -0.2, 0.2, 0.2, '#4a525a'),
+    // showroom car
+    box(0.5, 0.12, 0.26, -0.7, 0.08, 0.9, '#d9443b'),
+    box(0.28, 0.1, 0.22, -0.7, 0.18, 0.9, '#a8d0e6'),
+    box(0.5, 0.12, 0.26, 0.0, 0.08, 1.0, '#3a6fd1'),
+    box(0.28, 0.1, 0.22, 0.0, 0.18, 1.0, '#a8d0e6'),
+    box(0.8, 0.05, 0.14, -0.3, 0.9, 0.22, '#d9443b'),
+  ];
+  return merge(parts);
+}
+
+export function universityGeometry(): THREE.BufferGeometry {
+  const wall = '#e7d9bd', roof = '#7d4a3a', trim = '#f4efe2';
+  const parts = [
+    box(2.9, 0.02, 2.9, 0, 0.01, 0, '#9ea58f'),
+    box(2.4, 0.9, 1.0, 0, 0.45, -0.6, wall),
+    box(2.5, 0.08, 1.1, 0, 0.94, -0.6, roof),
+    box(0.8, 1.4, 0.8, 0, 0.7, -0.6, wall),
+    box(0.9, 0.08, 0.9, 0, 1.44, -0.6, roof),
+    box(0.5, 0.2, 0.5, 0, 1.58, -0.6, trim),
+    box(0.4, 0.14, 0.4, 0, 1.75, -0.6, roof),
+    box(0.04, 0.2, 0.04, 0, 1.92, -0.6, '#cccccc'),
+    box(0.8, 0.12, 0.5, 0, 0.06, 0.1, '#c9c3b2'),
+    box(0.6, 0.5, 0.04, 0, 0.25, -0.06, '#5a7f9c'),
+    box(0.9, 0.03, 0.6, 0.9, 0.04, 0.8, '#7ea65b'),
+    box(0.9, 0.03, 0.6, -0.9, 0.04, 0.8, '#7ea65b'),
+  ];
+  for (let row = 0; row < 3; row++) for (let col = -4; col <= 4; col++) {
+    if (Math.abs(col) < 2 && row < 2) continue;
+    parts.push(box(0.16, 0.14, 0.02, col * 0.26, 0.25 + row * 0.26, -0.09, '#a8d0e6'));
+  }
+  for (const x of [-0.3, -0.1, 0.1, 0.3]) parts.push(box(0.06, 0.5, 0.06, x, 0.3, 0.0, trim));
+  return merge(parts);
+}
+
+export function constructionGeometry(): THREE.BufferGeometry {
+  const parts = [
+    box(1.9, 0.02, 1.9, 0, 0.01, 0, '#b5a47f'),
+    box(0.9, 0.34, 0.5, -0.45, 0.19, -0.5, '#e8a33a'),
+    box(0.94, 0.04, 0.54, -0.45, 0.38, -0.5, '#6f7880'),
+    box(0.5, 0.2, 0.3, 0.5, 0.1, 0.5, '#3a6fd1'),
+    box(0.36, 0.14, 0.2, -0.5, 0.07, 0.55, '#c4553d'),
+    box(0.3, 0.1, 0.18, -0.5, 0.19, 0.55, '#c4553d'),
+    // crane
+    box(0.1, 1.5, 0.1, 0.65, 0.75, -0.55, '#f2b33d'),
+    box(1.3, 0.08, 0.1, 0.1, 1.5, -0.55, '#f2b33d'),
+    box(0.04, 0.4, 0.04, -0.3, 1.28, -0.55, '#444444'),
+    box(0.14, 0.1, 0.14, -0.3, 1.05, -0.55, '#d9443b'),
+    box(0.24, 0.18, 0.2, 0.65, 1.6, -0.55, '#f2b33d'),
+  ];
+  return merge(parts);
+}
+
+const GRAVES_L2: [number, number][] = [];
+for (const z of [-0.35, -0.05, 0.25, 0.55]) for (const x of [-0.78, -0.49, 0.49, 0.78]) GRAVES_L2.push([x, z]);
+const GRAVES_L3: [number, number][] = [];
+for (const z of [-0.35, -0.05, 0.25, 0.55, 0.85]) for (const x of [-0.2, 0.2]) GRAVES_L3.push([x, z]);
+for (const x of [-0.78, -0.62, -0.49, -0.35, 0.35, 0.49, 0.62, 0.78]) GRAVES_L3.push([x, 0.85]);
+
+/** Headstone position for the i-th grave: the first 16 fill the base plot, upgrades add denser rows. */
+export function graveOffset(i: number): [number, number] {
+  if (i < GRAVE_OFFSETS.length) return GRAVE_OFFSETS[i];
+  if (i < GRAVE_OFFSETS.length + GRAVES_L2.length) return GRAVES_L2[i - GRAVE_OFFSETS.length];
+  return GRAVES_L3[Math.min(GRAVES_L3.length - 1, i - GRAVE_OFFSETS.length - GRAVES_L2.length)];
+}
+
+export function carMarketGeometry(): THREE.BufferGeometry {
+  const parts = [
+    box(1.9, 0.02, 1.9, 0, 0.01, 0, '#8d8f93'),
+    box(1.5, 0.55, 0.8, 0, 0.28, -0.6, '#f2f4f6'),
+    box(1.56, 0.06, 0.86, 0, 0.58, -0.6, '#3a6fd1'),
+    box(1.2, 0.3, 0.02, 0, 0.2, -0.19, '#a8d0e6'),
+    box(0.04, 0.5, 0.04, 0.8, 0.25, 0.6, '#cccccc'),
+    box(0.36, 0.2, 0.02, 0.8, 0.62, 0.6, '#d9443b'),
+  ];
+  const cols = ['#d9443b', '#3a6fd1', '#f1c232', '#4c9a52', '#f2f2ee', '#e07b2e'];
+  cols.forEach((c, i) => {
+    const x = -0.65 + (i % 3) * 0.6, z = 0.25 + Math.floor(i / 3) * 0.55;
+    parts.push(box(0.4, 0.1, 0.22, x, 0.07, z, c));
+    parts.push(box(0.22, 0.09, 0.18, x, 0.16, z, '#a8d0e6'));
+  });
+  return merge(parts);
+}

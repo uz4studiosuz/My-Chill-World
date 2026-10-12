@@ -101,6 +101,17 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'orchard', name: 'Fruit Orchard', group: 'Buildings', desc: 'Apple trees — a small, cheap food source.', make: () => mesh(buildingGeometry('orchard')) },
   { id: 'ranch', name: 'Cattle Ranch', group: 'Buildings', desc: 'Fenced pasture with a barn and a water trough.', make: () => group(mesh(buildingGeometry('ranch')), ...[[-0.3, 0.2, 0.4], [0.5, 0.3, -1.2], [0.1, -0.5, 2.2], [-0.8, 0.6, 3.5]].map(([x, z, r]) => at(mesh(cowGeometry()), x, 0.02, z, r))) },
   { id: 'quarry', name: 'Stone Quarry', group: 'Buildings', desc: 'Mines stone next to mountains. Trucks deliver it.', make: () => mesh(buildingGeometry('quarry')) },
+  { id: 'cemetery', name: 'Cemetery', group: 'Buildings', desc: 'Resting place for the dead. Can be expanded twice.', make: () => mesh(buildingGeometry('cemetery')) },
+  { id: 'park', name: 'Park', group: 'Buildings', desc: 'Green space with a pond and benches.', make: () => mesh(buildingGeometry('park')) },
+  { id: 'hospital', name: 'Hospital', group: 'Buildings', desc: 'Doctors and nurses heal the sick.', make: () => mesh(buildingGeometry('hospital')) },
+  { id: 'university', name: 'University', group: 'Buildings', desc: 'Four years of study for a degree and a better wage.', make: () => mesh(buildingGeometry('university')) },
+  { id: 'market', name: 'Market', group: 'Buildings', desc: 'Bazaar stalls for food, clothes and goods.', make: () => mesh(buildingGeometry('market')) },
+  { id: 'carmarket', name: 'Car Market', group: 'Buildings', desc: 'New cars for families who have saved up.', make: () => mesh(buildingGeometry('carmarket')) },
+  { id: 'bank', name: 'Bank', group: 'Buildings', desc: 'Finance — pays business tax.', make: () => mesh(buildingGeometry('bank')) },
+  { id: 'gasstation', name: 'Gas Station', group: 'Buildings', desc: 'Fuel for the cars of the town.', make: () => mesh(buildingGeometry('gasstation')) },
+  { id: 'factory', name: 'Factory', group: 'Buildings', desc: 'Heavy industry with chimneys and many jobs.', make: () => mesh(buildingGeometry('factory')) },
+  { id: 'carfactory', name: 'Car Factory', group: 'Buildings', desc: 'Assembly halls and a showroom.', make: () => mesh(buildingGeometry('carfactory')) },
+  { id: 'construction', name: 'Construction Company', group: 'Buildings', desc: 'Builders and a crane: faster construction.', make: () => mesh(buildingGeometry('construction')) },
 
   { id: 'road', name: 'Road', group: 'Roads', desc: 'Two lanes with sidewalks. Junctions get traffic lights and zebra crossings.', make: () => roadPiece(3, 3, (n, c) => { line(n, ROAD_TWO_LANE, c - 1, c, c + 1, c); line(n, ROAD_TWO_LANE, c, c - 1, c, c + 1); }) },
   {

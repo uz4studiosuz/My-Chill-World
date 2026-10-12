@@ -22,7 +22,7 @@ export interface StatsSnapshot {
   jobs: number;
   schoolSeats: number;
   freeHomes: number;
-  balance: { incomeTax: number; foodSales: number; propertyTax: number; publicWages: number; upkeep: number; net: number };
+  balance: { incomeTax: number; foodSales: number; propertyTax: number; businessTax: number; utilities: number; publicWages: number; upkeep: number; net: number };
   buildings: Record<string, number>;
   roads: { total: number; bridges: number; roundabouts: number; signals: number; footpaths: number; canals: number };
   traffic: { cars: number; trucks: number; walkers: number; parked: number };

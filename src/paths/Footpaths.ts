@@ -18,6 +18,8 @@ export class Footpaths {
   readonly tiles = new Uint8Array(N * N);
   readonly mesh: THREE.Mesh;
   version = 0;
+  /** Neighbouring tiles that a path should visibly lead into (roads, building entrances). */
+  attach: (k: number) => boolean = () => false;
 
   constructor() {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }));
@@ -59,7 +61,7 @@ export class Footpaths {
             const nx = x + d.dx, nz = z + d.dz;
             if (!inBounds(nx, nz)) continue;
             const nk = idx(nx, nz);
-            if (!this.tiles[nk]) continue;
+            if (!this.tiles[nk] && !this.attach(nk)) continue;
             if (d.dx) b.rect(cx + d.dx * h, cz - h, cx + d.dx * 0.5, cz + h, y, c);
             else b.rect(cx - h, cz + d.dz * h, cx + h, cz + d.dz * 0.5, y, c);
           }

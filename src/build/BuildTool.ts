@@ -6,7 +6,8 @@ import { t as tr } from '../i18n/i18n';
 
 export type PlaceKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower' | 'quarry'
-  | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout';
+  | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout'
+  | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
 
 export type LineKind = 'road' | 'path' | 'canal';
 /** God powers are brushes: they act on every tile the pointer passes. */
@@ -26,6 +27,8 @@ export interface ToolHost {
   brush(kind: GodKind, t: Tile, first: boolean): void;
   brushArea(kind: GodKind, t: Tile): Tile[];
   showHint(text: string | null): void;
+  /** A build is waiting for the player's confirmation (null = nothing pending). */
+  pending(info: { text: string; ok: boolean } | null): void;
 }
 
 const OK = new THREE.Color('#5fe08a');
@@ -42,10 +45,12 @@ export class BuildTool {
   private start: Tile | null = null;
   private current: Tile | null = null;
   private path: Tile[] = [];
+  private waiting: { tool: ToolId; path: Tile[]; cur: Tile } | null = null;
 
   constructor(private host: ToolHost, private preview: Preview) {}
 
   get active() { return this.tool !== 'pan'; }
+  get hasPending() { return this.waiting !== null; }
 
   setTool(t: ToolId) {
     this.cancel();
@@ -55,6 +60,7 @@ export class BuildTool {
   private lastBrush = '';
 
   begin(t: Tile) {
+    if (this.waiting) { this.waiting = null; this.host.pending(null); }
     this.start = clampTile(t);
     if (isGod(this.tool)) {
       this.lastBrush = `${this.start.x},${this.start.z}`;
@@ -81,7 +87,7 @@ export class BuildTool {
   }
 
   hover(t: Tile | null) {
-    if (this.start || !this.active) return;
+    if (this.start || !this.active || this.waiting) return;
     if (!t || !inBounds(t.x, t.z)) {
       this.preview.hide();
       this.host.showHint(null);
@@ -99,14 +105,36 @@ export class BuildTool {
   commit() {
     if (!this.start || !this.current) return;
     const path = this.path, cur = this.current, tool = this.tool;
+    if (isGod(tool)) { this.cancel(); return; }
+    if (tool === 'bulldoze') { this.cancel(); this.host.bulldoze(path); return; }
+    // buildings and lines wait for a confirmation (the preview stays on the map)
+    const r = isLine(tool) ? this.host.checkLine(tool, path) : isPlace(tool) ? this.host.checkPlace(tool, cur) : { ok: false };
+    this.start = null;
+    this.current = null;
+    if (!r.ok) {
+      this.cancel();
+      if (isLine(tool)) this.host.buildLine(tool, path);
+      else if (isPlace(tool)) this.host.place(tool, cur);
+      return;
+    }
+    this.waiting = { tool, path, cur };
+    const tiles = isLine(tool) ? `${tr('{n} tiles', { n: path.length })} · ` : '';
+    this.host.pending({ text: `${tiles}${cost(r)}`, ok: true });
+    this.host.showHint(null);
+  }
+
+  /** Build what is waiting for confirmation. */
+  confirm() {
+    const w = this.waiting;
+    if (!w) return;
     this.cancel();
-    if (isGod(tool)) return;
-    if (isLine(tool)) this.host.buildLine(tool, path);
-    else if (isPlace(tool)) this.host.place(tool, cur);
-    else if (tool === 'bulldoze') this.host.bulldoze(path);
+    if (isLine(w.tool)) this.host.buildLine(w.tool, w.path);
+    else if (isPlace(w.tool)) this.host.place(w.tool, w.cur);
   }
 
   cancel() {
+    if (this.waiting) { this.waiting = null; }
+    this.host.pending(null);
     this.start = null;
     this.current = null;
     this.path = [];

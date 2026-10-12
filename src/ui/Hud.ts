@@ -5,7 +5,7 @@ import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
 
-type Category = 'roads' | 'buildings' | 'production' | 'god';
+type Category = 'roads' | 'buildings' | 'services' | 'business' | 'production' | 'god';
 
 interface ToolItem {
   tool: ToolId;
@@ -35,11 +35,21 @@ const ITEMS: ToolItem[] = [
   b('townhall', 'buildings', 'New city', 'Found a new city with its own Town Hall, treasury and citizens. Select a Town Hall to build for that city.', 'buildings'),
   b('house', 'buildings', 'One family', 'Home for one family (up to 10 people). Needs a road.', 'house'),
   b('watertower', 'buildings', 'Water for 160', 'Clean drinking water. Without it people get sick.', 'watertower'),
-  b('school', 'buildings', '40 pupils', 'Children aged 6–17 study here. Educated adults earn 50% more.', 'school'),
-  b('weddinghall', 'buildings', 'Weddings', 'Young couples can only marry and start families if the town has one.', 'heart'),
-  b('office', 'buildings', '24 jobs', 'Workplace with parking spaces in front.', 'office'),
+  b('park', 'buildings', 'Green space', 'A park with a pond and benches. People recover faster in a green town.', 'orchard'),
   b('parking', 'buildings', '8 spaces', 'Commuters park here when their workplace is nearby.', 'parking'),
-  b('cemetery', 'buildings', '16 graves', 'Resting place for deceased citizens. Families buy graves.', 'cemetery'),
+  b('cemetery', 'buildings', '16 graves', 'Resting place for deceased citizens. Families buy graves. Can be upgraded.', 'cemetery'),
+  b('school', 'services', '40 pupils', 'Children aged 6–17 study here. Educated adults earn 50% more.', 'school'),
+  b('university', 'services', '30 students', 'Young adults with a school diploma study for 4 years and become specialists with a degree.', 'school'),
+  b('hospital', 'services', 'Heals people', 'Doctors and nurses treat the sick. Reduces deaths from illness, fights and accidents.', 'heart'),
+  b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one.', 'heart'),
+  b('market', 'business', 'Shopping', 'Bazaar: families spend money on food, clothes and goods. The town takes 20% business tax.', 'food'),
+  b('carmarket', 'business', 'Sells cars', 'Families buy their cars here once they have saved enough.', 'car'),
+  b('bank', 'business', 'Finance', 'Pays business tax to the town and employs skilled people.', 'coin'),
+  b('gasstation', 'business', 'Fuel', 'Sells fuel to the town\'s drivers and pays business tax.', 'energy'),
+  b('office', 'business', '24 jobs', 'Workplace with parking spaces in front.', 'office'),
+  b('construction', 'business', 'Builders', 'Builders work here. Buildings are completed faster when the city has a construction company.', 'quarry'),
+  b('factory', 'production', 'Industry', 'Many jobs and a high turnover — a big business tax payer. Needs lots of power.', 'production'),
+  b('carfactory', 'production', 'Cars', 'Assembles cars: the best-paying workplace and the largest business tax payer.', 'car'),
   b('woodcutter', 'production', '3 jobs · wood', 'Near a forest. Workers fell trees bit by bit and carry logs to the power plant.', 'woodcutter'),
 
   b('powerplant', 'production', '+90 energy/day', 'Burns wood. Power reaches only buildings connected to it by road.', 'powerplant'),
@@ -56,9 +66,20 @@ const ITEMS: ToolItem[] = [
 const CATS: { id: Category; label: string; icon: IconName }[] = [
   { id: 'roads', label: 'Roads', icon: 'roads' },
   { id: 'buildings', label: 'Town', icon: 'buildings' },
+  { id: 'services', label: 'Services', icon: 'heart' },
+  { id: 'business', label: 'Business', icon: 'coin' },
   { id: 'production', label: 'Production', icon: 'production' },
   { id: 'god', label: 'God', icon: 'energy' },
 ];
+
+const CAT_DESC: Record<Category, string> = {
+  roads: 'Roads, paths and canals connect everything.',
+  buildings: 'Housing and the basics of a town.',
+  services: 'Schools, hospitals and the institutions people need.',
+  business: 'Shops and companies earn money and pay business tax.',
+  production: 'Food, wood, energy, stone and industry.',
+  god: 'Powers of nature — use them wisely.',
+};
 
 const BASE_HINTS: Partial<Record<ToolId, string>> = {
   pan: IS_TOUCH ? 'Drag to move · Pinch to zoom · Tap a person or building' : 'Drag to move · Scroll to zoom · Q/E rotate · Click a person or building',
@@ -80,6 +101,8 @@ export interface HudHandlers {
   openMenu: () => void;
   openStats: () => void;
   cycleCity: () => void;
+  confirmBuild: () => void;
+  cancelBuild: () => void;
 }
 
 export const SPEEDS = [0, 1, 2, 3, 10];
@@ -106,6 +129,9 @@ export class Hud {
   private lastStone = 0;
   private lastWood = 0;
   private modal?: HTMLDivElement;
+  private pendingEl: HTMLDivElement;
+  private pendingText: HTMLSpanElement;
+  private descEl?: HTMLDivElement;
 
   constructor(parent: HTMLElement, private h: HudHandlers, private thumbs: Map<string, string>) {
     this.root = el('div', 'hud');
@@ -183,7 +209,17 @@ export class Hud {
     this.hint = el('div', 'hint');
     this.toastEl = el('div', 'toast');
 
-    this.root.append(top, corner, this.hint, this.toastEl, this.drawer, bar);
+    this.pendingEl = el('div', 'pending');
+    this.pendingText = el('span', 'ptext');
+    const okBtn = el('button', 'pbtn ok');
+    okBtn.innerHTML = icon('check') + `<span>${t('Build')}</span>`;
+    okBtn.addEventListener('click', h.confirmBuild);
+    const noBtn = el('button', 'pbtn no');
+    noBtn.innerHTML = icon('close') + `<span>${t('Cancel')}</span>`;
+    noBtn.addEventListener('click', h.cancelBuild);
+    this.pendingEl.append(this.pendingText, okBtn, noBtn);
+
+    this.root.append(top, corner, this.hint, this.toastEl, this.pendingEl, this.drawer, bar);
     parent.appendChild(this.root);
   }
 
@@ -206,11 +242,14 @@ export class Hud {
     if (this.drawerCat === cat) return this.closeDrawer();
     this.drawerCat = cat;
     this.drawer.replaceChildren();
+    const info = CATS.find((c) => c.id === cat)!;
     const title = el('div', 'drawer-title');
-    title.textContent = t(CATS.find((c) => c.id === cat)!.label);
+    title.innerHTML = icon(info.icon) + `<span>${t(info.label)}</span>`;
     const row = el('div', 'cards');
+    this.descEl = el('div', 'drawer-desc');
+    this.descEl.textContent = t(CAT_DESC[cat]);
     for (const it of ITEMS.filter((i) => i.cat === cat)) row.appendChild(this.card(it));
-    this.drawer.append(title, row);
+    this.drawer.append(title, row, this.descEl);
     this.drawer.classList.add('show');
     this.drawer.classList.toggle('god', cat === 'god');
     this.catBtns.forEach((btn, c) => btn.classList.toggle('open', c === cat));
@@ -240,6 +279,9 @@ export class Hud {
     if (it.wood) parts.push(`${icon('wood')}${it.wood}`);
     cost.innerHTML = parts.length ? parts.join(' ') + (it.perTile ? `<i>/${t('tile')}</i>` : '') : t('Free');
     btn.title = t(it.desc);
+    const showDesc = () => { if (this.descEl) this.descEl.textContent = t(it.desc); };
+    btn.addEventListener('mouseenter', showDesc);
+    btn.addEventListener('focus', showDesc);
     btn.append(img, name, tag, cost);
     btn.addEventListener('click', () => {
       this.h.setTool(it.tool);
@@ -276,6 +318,13 @@ export class Hud {
 
   setSpeed(s: number) {
     this.speedBtns.forEach((btn, i) => btn.classList.toggle('active', SPEEDS[i] === s));
+  }
+
+  /** Show the confirm / cancel bar for a build that is waiting. */
+  setPending(info: { text: string; ok: boolean } | null) {
+    this.pendingEl.classList.toggle('show', !!info);
+    this.hint.style.visibility = info ? 'hidden' : '';
+    if (info) this.pendingText.textContent = info.text;
   }
 
   setUndoEnabled(on: boolean) {

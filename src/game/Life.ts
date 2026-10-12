@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BUILDINGS, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_TAX, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, Family, Population } from '../people/Population';
@@ -54,6 +54,7 @@ export class Life {
   private spots = new Map<string, number>();
   private reservedTrees = new Set<number>();
   private immigrationT = 0;
+  private stormT = 40;
   private presentT = 0;
   private fireT = 0;
   private gridIds = new Set<number>();
@@ -85,6 +86,8 @@ export class Life {
     this.produce(dt);
     this.schedule();
     this.updateFires(dt);
+    this.stormT -= dt;
+    if (this.stormT <= 0) { this.stormT = DAY_SECONDS * (0.02 + Math.random() * 0.04); this.storm(); }
     this.immigrationT += dt;
     if (this.immigrationT > IMMIGRATION_INTERVAL) { this.immigrationT = 0; this.immigrate(); }
   }
@@ -115,7 +118,7 @@ export class Life {
   freeHomes(city?: number) {
     const { buildings, pop } = this.c;
     const taken = new Set([...pop.families.values()].map((f) => f.home));
-    return buildings.ofKind('house').filter((h) => !taken.has(h.id) && (city === undefined || h.city === city));
+    return buildings.ofKind('house').filter((h) => h.built >= 1 && !taken.has(h.id) && (city === undefined || h.city === city));
   }
 
   /** People living in each city. */
@@ -166,7 +169,7 @@ export class Life {
     for (const city of eco.cities.values()) {
       let demand = 0, capacity = 0;
       for (const b of buildings.list) {
-        if (b.city !== city.id) continue;
+        if (b.city !== city.id || b.built < 1) continue;
         const d = BUILDINGS[b.kind];
         if (d.energy && this.gridIds.has(b.id)) demand += d.energy;
         if (d.power && b.access >= 0) {
@@ -212,15 +215,33 @@ export class Life {
         const c = homeCity(f);
         return c === city.id || (i === 0 && (c === undefined || !eco.cities.has(c)));
       };
-      const hasHall = buildings.list.some((b) => b.kind === 'weddinghall' && b.city === city.id);
-      const r = pop.daily(buildings, belongs, city.food, city.water, () => this.freeHomes(city.id), hasHall);
+      const own = buildings.list.filter((b) => b.city === city.id && b.built >= 1);
+      const hasHall = own.some((b) => b.kind === 'weddinghall');
+      const staffed = (kind: string) => own.some((b) => b.kind === kind && b.workers > 0);
+      const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0);
+      const r = pop.daily(buildings, belongs, city.food, city.water, () => this.freeHomes(city.id), hasHall, {
+        heal: Math.min(40, heal), market: staffed('market'), carMarket: staffed('carmarket'),
+      });
       city.food -= r.foodEaten;
       city.foodYesterday = { made: Math.round(city.foodMade), eaten: r.foodEaten };
       city.foodMade = 0;
       const upkeep = Math.round(roadShare + buildings.list.reduce((a, b) => (b.city === city.id ? a + BUILDINGS[b.kind].upkeep : a), 0));
-      const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax - r.publicWages - upkeep);
+      // business tax: turnover of staffed shops, factories, banks… plus market and car dealer sales
+      const cars = [...pop.families.values()].filter((f) => f.car && homeCity(f) === city.id).length;
+      let business = (r.shopping + r.carSales) * BUSINESS_TAX;
+      for (const b of own) {
+        const d = BUILDINGS[b.kind];
+        if (!d.revenue) continue;
+        let turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5);
+        if (b.kind === 'gasstation') turnover += Math.min(150, cars * 3) * (b.workers > 0 ? 1 : 0);
+        business += turnover * BUSINESS_TAX;
+      }
+      const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax + r.utilities + business - r.publicWages - upkeep);
       city.money += net;
-      city.balance = { incomeTax: Math.round(r.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax, publicWages: Math.round(r.publicWages), upkeep, net };
+      city.balance = {
+        incomeTax: Math.round(r.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax, businessTax: Math.round(business),
+        utilities: Math.round(r.utilities), publicWages: Math.round(r.publicWages), upkeep, net,
+      };
       city.deaths = r.deaths.length;
 
       if (r.births) say(r.births === 1 ? t('A baby was born!') : t('{n} babies were born!', { n: r.births }));
@@ -232,7 +253,7 @@ export class Life {
       // burials in the city's cemetery
       for (const d of r.deaths) {
         const f = pop.families.get(d.familyId);
-        const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && b.city === city.id && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY);
+        const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && b.city === city.id && b.built >= 1 && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY * b.level);
         if (cemetery && f && f.money >= GRAVE_COST) {
           f.money -= GRAVE_COST;
           city.money += GRAVE_COST;
@@ -247,6 +268,11 @@ export class Life {
           b.cattleHunger = 0;
           say(t('A new calf was born in the ranch!'));
         }
+      }
+      for (const inc of r.incidents) {
+        if (inc.kind === 'fight') say(t('{a} and {b} got into a fight', { a: inc.a, b: inc.b ?? '' }));
+        else if (inc.kind === 'accident') say(t('{a} was hurt in a car accident', { a: inc.a }));
+        else say(t('{a} was murdered by {b}! The killer was arrested', { a: inc.a, b: inc.b ?? '' }));
       }
       for (const d of r.deaths.slice(0, 3)) say(t('{name} died ({cause})', { name: `${d.name} ${d.surname}`.trim(), cause: t(d.cause) }));
       if (r.deaths.length > 3) say(t('{n} people died today', { n: r.deaths.length }));
@@ -330,7 +356,7 @@ export class Life {
     for (const b of buildings.list) {
       const d = BUILDINGS[b.kind];
       const city = eco.cities.get(b.city);
-      if (!city) continue;
+      if (!city || b.built < 1) continue;
       if (b.kind === 'ranch') {
         const cattle = b.cattleCount ?? 4;
         if (cattle > 0) {
@@ -352,7 +378,7 @@ export class Life {
       if (!d.food || !d.jobs) continue;
       let f = d.food * Math.min(1, b.workers / d.jobs);
       if (b.kind === 'farm') f *= growingSeason(month) ? (b.irrigated ? 1 : 0.15) : 0;
-      if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : 0.2;
+      if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : month === 3 || month === 4 || month === 10 ? 0.4 : 0;
       if (b.kind === 'ranch') f *= (seasonOf(month) === 'winter' ? 0.7 : 1) * ((b.cattleCount ?? 4) / 4);
       city.food += f * share;
       city.foodMade += f * share;
@@ -360,6 +386,7 @@ export class Life {
 
     for (const b of buildings.ofKind('quarry')) {
       const th = buildings.townHall(b.city);
+      if (b.built < 1) continue;
       b.stored = Math.min(QUARRY.maxStored, b.stored + QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share);
       if (!th || b.stored < QUARRY.truckLoad || b.trucks >= TRUCKS_PER_QUARRY || b.access < 0 || th.access < 0) continue;
       const sent = traffic.spawn({
@@ -382,6 +409,21 @@ export class Life {
   }
 
   // ---------- fire & lightning ----------
+
+  /** A thunderstorm now and then strikes on its own during natural rain. */
+  private storm() {
+    const { weather, buildings, effects } = this.c;
+    if (!weather.naturalActive || weather.kind !== 'rain' || Math.random() < 0.45) return;
+    let x = 0, z = 0;
+    if (buildings.list.length) {
+      const b = pick(buildings.list);
+      x = b.mesh.position.x + (Math.random() - 0.5) * 6;
+      z = b.mesh.position.z + (Math.random() - 0.5) * 6;
+    }
+    weather.strike(x, z);
+    effects.puff(x, z, 0.4, 16, ['#fff3b0', '#ffd166', '#3a2a20']);
+    this.lightning(x, z);
+  }
 
   private updateFires(dt: number) {
     const { buildings, effects } = this.c;
@@ -411,7 +453,7 @@ export class Life {
       const f = pop.families.get(c.family);
       this.events.push(t('{name} died ({cause})', { name: `${c.name} ${f?.surname ?? ''}`, cause: t('lightning') }));
       const cid = (f && buildings.get(f.home)?.city) ?? -1;
-      const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && b.city === cid && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY);
+      const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && b.city === cid && b.built >= 1 && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY * b.level);
       if (cemetery && f && f.money >= GRAVE_COST) {
         f.money -= GRAVE_COST;
         const own = this.c.eco.cities.get(cid);
@@ -456,7 +498,7 @@ export class Life {
     if (c.school >= 0) return buildings.get(c.school);
     if (c.errand) {
       const home = buildings.get(this.family(c)?.home ?? -1);
-      const spots = buildings.list.filter((b) => (!home || b.city === home.city) && (b.kind === 'townhall' || b.kind === 'orchard' || b.kind === 'parking' || b.kind === 'weddinghall' || b.kind === 'school'));
+      const spots = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && (b.kind === 'townhall' || b.kind === 'park' || b.kind === 'market' || b.kind === 'bank' || b.kind === 'orchard' || b.kind === 'parking' || b.kind === 'weddinghall' || b.kind === 'school'));
       return spots.length ? pick(spots) : undefined;
     }
     return undefined;

@@ -2,14 +2,15 @@ import * as THREE from 'three';
 import { N, Tile, idx, inBounds, tileToWorld, worldToTile } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { RoadNetwork, ROAD_RING } from '../roads/RoadNetwork';
-import { BUILDINGS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './BuildingTypes';
+import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './BuildingTypes';
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
-  cemeteryGeometry, headstoneGeometry, GRAVE_OFFSETS,
+  cemeteryGeometry, headstoneGeometry, graveOffset, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
+  carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
-import { hash2 } from '../utils/voxel';
+import { box, hash2, merge } from '../utils/voxel';
 
 export interface Point { x: number; z: number }
 
@@ -49,6 +50,11 @@ export interface Building {
   powered: boolean;
   /** Seconds of fire left (lightning); the building burns down when it runs out. */
   fire: number;
+  /** Construction progress 0 → 1 (only finished buildings work). */
+  built: number;
+  /** Cemetery level: each level holds one more row of graves. */
+  level: number;
+  scaffold?: THREE.LineSegments;
   /** Cemetery: buried records. */
   graves?: GraveRecord[];
   gravesGroup?: THREE.Group;
@@ -93,6 +99,16 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'weddinghall': return weddingHallGeometry();
     case 'watertower': return waterTowerGeometry();
     case 'cemetery': return cemeteryGeometry();
+    case 'park': return parkGeometry();
+    case 'hospital': return hospitalGeometry();
+    case 'university': return universityGeometry();
+    case 'market': return marketGeometry();
+    case 'carmarket': return carMarketGeometry();
+    case 'bank': return bankGeometry();
+    case 'gasstation': return gasStationGeometry();
+    case 'factory': return factoryGeometry();
+    case 'carfactory': return carFactoryGeometry();
+    case 'construction': return constructionGeometry();
     default: return townHallGeometry();
   }
 }
@@ -111,6 +127,8 @@ export class Buildings {
   private cowMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private animTime = 0;
   private dying: { mesh: THREE.Object3D; t: number }[] = [];
+  /** Called when a building finishes construction. */
+  onBuilt: (b: Building) => void = () => {};
 
   constructor(private map: WorldMap, private roads: RoadNetwork, private ctx: BuildingContext) {}
 
@@ -138,7 +156,7 @@ export class Buildings {
     return { ok: true };
   }
 
-  place(kind: BuildingKind, x: number, z: number, opts: { stored?: number; animate?: boolean; id?: number; city?: number } = {}): Building {
+  place(kind: BuildingKind, x: number, z: number, opts: { stored?: number; animate?: boolean; id?: number; city?: number; built?: number; level?: number } = {}): Building {
     const { access, rot } = this.findAccess(kind, x, z);
     const s = BUILDINGS[kind].size;
     const mesh = new THREE.Group();
@@ -154,7 +172,18 @@ export class Buildings {
       id, kind, city: opts.city ?? 0, x, z, rot, access, workers: 0, present: 0, stored: opts.stored ?? 0, trucks: 0, removed: false,
       mesh, grow: opts.animate === false ? 1 : 0, cropT: Math.random() * 0.5,
       irrigated: false, powered: true, fire: 0,
+      built: opts.built ?? (opts.animate === false ? 1 : 0), level: opts.level ?? 1,
     };
+    if (b.built < 1) {
+      const h = 0.7 + s * 0.55;
+      const frame = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(s * 0.96, h, s * 0.96)),
+        new THREE.LineBasicMaterial({ color: '#f2b33d' }),
+      );
+      frame.position.y = h / 2;
+      mesh.add(frame);
+      b.scaffold = frame;
+    }
     if (kind === 'farm') {
       b.crop = new THREE.Mesh(this.cropGeo, new THREE.MeshLambertMaterial({ color: CROP_GREEN.clone() }));
       b.crop.castShadow = true;
@@ -191,17 +220,38 @@ export class Buildings {
     this.list.push(b);
     this.byId.set(b.id, b);
     this.group.add(mesh);
+    if (b.level > 1) this.setLevel(b, b.level);
     return b;
+  }
+
+  /** Cemetery upgrades add a monument and cypresses. */
+  setLevel(b: Building, level: number) {
+    b.level = level;
+    const old = b.mesh.getObjectByName('levelDeco') as THREE.Mesh | undefined;
+    if (old) { b.mesh.remove(old); old.geometry.dispose(); }
+    if (b.kind !== 'cemetery' || level < 2) return;
+    const parts = [
+      box(0.2, 0.06, 0.2, 0, 0.05, -0.2, '#9a968f'),
+      box(0.12, 0.34, 0.12, 0, 0.23, -0.2, '#b9b5ac'),
+      box(0.08, 0.14, 0.08, 0, 0.47, -0.2, '#d4af37'),
+    ];
+    if (level >= 3) {
+      for (const sx of [-1, 1]) parts.push(box(0.04, 0.16, 0.04, sx * 0.74, 0.08, 0.74, '#4a3525'), box(0.2, 0.55, 0.2, sx * 0.74, 0.42, 0.74, '#2d4a25'), box(0.12, 0.2, 0.12, sx * 0.74, 0.78, 0.74, '#2d4a25'));
+    }
+    const m = new THREE.Mesh(merge(parts), this.mat);
+    m.name = 'levelDeco';
+    m.castShadow = true;
+    b.mesh.add(m);
   }
 
   addGrave(b: Building, g: GraveRecord): boolean {
     if (b.kind !== 'cemetery') return false;
     if (!b.graves) b.graves = [];
-    if (b.graves.length >= MAX_GRAVES_PER_CEMETERY) return false;
+    if (b.graves.length >= MAX_GRAVES_PER_CEMETERY * (b.level || 1)) return false;
     const idx = b.graves.length;
     b.graves.push(g);
-    if (idx < GRAVE_OFFSETS.length) {
-      const [gx, gz] = GRAVE_OFFSETS[idx];
+    {
+      const [gx, gz] = graveOffset(idx);
       const m = new THREE.Mesh(this.headstoneGeo, this.mat);
       m.position.set(gx, 0.02, gz);
       m.castShadow = true;
@@ -224,14 +274,25 @@ export class Buildings {
   }
 
   /** Grow / shrink animations and crop growth (only in the growing season, with farmers and water). */
-  update(dt: number, simDt: number, dayLength: number, growing: boolean) {
+  update(dt: number, simDt: number, dayLength: number, growing: boolean, buildSpeed: (city: number) => number = () => 1) {
     this.animTime += dt;
     for (const b of this.list) {
-      if (b.grow < 1) {
-        b.grow = Math.min(1, b.grow + dt * 2.2);
-        const y = easeOutBack(b.grow);
-        const xz = 0.6 + 0.4 * Math.min(1, b.grow * 1.6);
-        b.mesh.scale.set(xz, Math.max(0.01, y), xz);
+      if (b.built < 1 && simDt > 0) {
+        b.built = Math.min(1, b.built + (simDt / (dayLength * BUILD_DAYS[BUILDINGS[b.kind].size])) * buildSpeed(b.city));
+        if (b.built >= 1) this.onBuilt(b);
+      }
+      if (b.grow < 1) b.grow = Math.min(1, b.grow + dt * 2.2);
+      const building = b.built < 1;
+      if (b.grow < 1 || building || b.scaffold?.visible) {
+        const y = b.grow < 1 ? easeOutBack(b.grow) : 1;
+        const xz = b.grow < 1 ? 0.6 + 0.4 * Math.min(1, b.grow * 1.6) : 1;
+        const bs = building ? 0.12 + 0.88 * b.built : 1;
+        const sy = Math.max(0.01, y * bs);
+        b.mesh.scale.set(xz, sy, xz);
+        if (b.scaffold) {
+          b.scaffold.visible = building;
+          b.scaffold.scale.set(1 / xz, 1 / sy, 1 / xz);
+        }
       }
       if (b.kind === 'ranch' && b.cattleMeshes) {
         const count = b.cattleCount ?? 4;
@@ -245,7 +306,7 @@ export class Buildings {
           }
         }
       }
-      if (b.crop && simDt > 0) {
+      if (b.crop && simDt > 0 && b.built >= 1) {
         if (!growing) b.cropT = Math.max(0, b.cropT - simDt / dayLength);
         else if (b.workers > 0 && b.irrigated) {
           // a crop ripens in ~1.5 months with all farmers working
@@ -269,7 +330,7 @@ export class Buildings {
 
   private updateCrop(b: Building) {
     const t = b.cropT;
-    b.crop!.visible = t > 0.02;
+    b.crop!.visible = t > 0.02 && b.built >= 1;
     b.crop!.scale.set(1, 0.15 + t * 1.6, 1);
     (b.crop!.material as THREE.MeshLambertMaterial).color.copy(CROP_GREEN).lerp(CROP_GOLD, Math.max(0, (t - 0.5) * 2));
   }

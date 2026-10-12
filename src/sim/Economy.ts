@@ -1,7 +1,7 @@
 import { DAY_SECONDS } from '../config';
 import { ENERGY_PER_WOOD } from '../buildings/BuildingTypes';
 
-export interface Balance { incomeTax: number; foodSales: number; propertyTax: number; publicWages: number; upkeep: number; net: number }
+export interface Balance { incomeTax: number; foodSales: number; propertyTax: number; businessTax: number; utilities: number; publicWages: number; upkeep: number; net: number }
 
 /** One city: owned by a Town Hall. Buildings, families and resources all belong to a city. */
 export interface City {
@@ -38,7 +38,7 @@ export const START_GRANT: Grant = { money: 5000, stone: 120, wood: 120, food: 40
 /** What a freshly founded city starts with (the founding cost is paid by the active city). */
 export const NEW_CITY_GRANT: Grant = { money: 1800, stone: 50, wood: 50, food: 200 };
 
-const blankBalance = (): Balance => ({ incomeTax: 0, foodSales: 0, propertyTax: 0, publicWages: 0, upkeep: 0, net: 0 });
+const blankBalance = (): Balance => ({ incomeTax: 0, foodSales: 0, propertyTax: 0, businessTax: 0, utilities: 0, publicWages: 0, upkeep: 0, net: 0 });
 
 function blankCity(id: number, name: string, founded: number, g: Grant = { money: 0, stone: 0, wood: 0, food: 0 }): City {
   return {

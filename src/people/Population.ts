@@ -6,7 +6,7 @@ import { clanName, firstName } from './names';
 
 export type Sex = 'm' | 'f';
 export type Role = 'parent' | 'child' | 'elder';
-export type DeathCause = 'old age' | 'starvation' | 'thirst' | 'lightning';
+export type DeathCause = 'old age' | 'starvation' | 'thirst' | 'lightning' | 'accident' | 'murder';
 
 export interface Citizen {
   id: number;
@@ -21,6 +21,8 @@ export interface Citizen {
   school: number;
   /** School progress 0..1 — educated adults earn more. */
   edu: number;
+  /** 0 = unskilled, 1 = learnt a trade, 2 = university degree. */
+  skill: 0 | 1 | 2;
   /** 100 = full, 0 = starving. */
   hunger: number;
   /** 100 = healthy, 0 = dead. */
@@ -64,7 +66,21 @@ export interface DeathReport {
   age: number;
 }
 
+export interface Incident { kind: 'fight' | 'accident' | 'murder'; a: string; b?: string }
+
+export interface DailyOptions {
+  /** Extra daily health recovery from hospitals and parks. */
+  heal: number;
+  /** The city has a working market / car dealer. */
+  market: boolean;
+  carMarket: boolean;
+}
+
 export interface DayReport {
+  utilities: number;
+  shopping: number;
+  carSales: number;
+  incidents: Incident[];
   incomeTax: number;
   publicWages: number;
   foodEaten: number;
@@ -87,6 +103,9 @@ const PROPERTY_TAX = 4;
 const FOOD_PRICE = 1;
 const RETIRE_AGE = 65;
 const ADULT_AGE = 18;
+const UNI_END = 22;
+const UTILITY_PER_PERSON = 1.5;
+const SHOP_PER_PERSON = 0.6;
 const PER_YEAR = 1 / DAYS_PER_YEAR;
 
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
@@ -117,7 +136,7 @@ export class Population {
   }
 
   canWork(c: Citizen) {
-    return c.age >= ADULT_AGE && c.age < RETIRE_AGE && !this.onLeave(c);
+    return c.age >= ADULT_AGE && c.age < RETIRE_AGE && !this.onLeave(c) && !(c.school >= 0 && c.age < UNI_END);
   }
 
   createFamily(home: number, opts: { size?: number; carChance?: number; money?: number } = {}): Family {
@@ -145,6 +164,7 @@ export class Population {
     const c: Citizen = {
       id: this.nextCitizen++, name: firstName(sex), sex, age: age + Math.random() * 0.9, family: f.id, role,
       job: -1, school: -1, edu: age >= ADULT_AGE ? (Math.random() < 0.5 ? 1 : 0) : 0,
+      skill: age >= 20 ? (Math.random() < 0.25 ? 2 : 1) : 0,
       hunger: 85 + Math.random() * 15, health: 90 + Math.random() * 10,
       state: 'home', at: f.home, leaveAt: 2, returnAt: 2, errand: false, drove: false,
       variant: (sex === 'm' ? 0 : 4) + Math.floor(Math.random() * 4), activity: 'At home',
@@ -165,31 +185,38 @@ export class Population {
     this.families.delete(f.id);
   }
 
-  /** (Re)assign jobs and school places. Nearest free workplace wins. */
+  /** (Re)assign jobs and school / university places. Nearest free one in the same city wins. */
   assign(buildings: Buildings) {
     const free = new Map<number, number>();
     const seats = new Map<number, number>();
     for (const b of buildings.list) {
+      if (b.built < 1) continue;
       const d = BUILDINGS[b.kind];
       if (d.jobs) free.set(b.id, d.jobs);
       if (d.students) seats.set(b.id, d.students);
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
+    const pupil = (c: Citizen) => c.age >= 6 && c.age < ADULT_AGE;
+    const student = (c: Citizen) => c.age >= ADULT_AGE && c.age < UNI_END && c.edu >= 0.9 && c.skill < 2;
     for (const c of this.citizens.values()) {
       const hb = homeOf(c);
       if (c.job >= 0 && hb && buildings.get(c.job)?.city !== hb.city) c.job = -1;
       if (c.school >= 0 && hb && buildings.get(c.school)?.city !== hb.city) c.school = -1;
+      if (c.school >= 0) {
+        const kind = buildings.get(c.school)?.kind;
+        const ok = seats.has(c.school) && seats.get(c.school)! > 0 && ((kind === 'school' && pupil(c)) || (kind === 'university' && student(c)));
+        if (!ok) c.school = -1;
+        else seats.set(c.school, seats.get(c.school)! - 1);
+      }
       if (c.job >= 0 && (!free.has(c.job) || !this.canWork(c) || free.get(c.job)! <= 0)) c.job = -1;
       if (c.job >= 0) free.set(c.job, free.get(c.job)! - 1);
-      const pupil = c.age >= 6 && c.age < ADULT_AGE;
-      if (c.school >= 0 && (!seats.has(c.school) || !pupil || seats.get(c.school)! <= 0)) c.school = -1;
-      if (c.school >= 0) seats.set(c.school, seats.get(c.school)! - 1);
     }
-    const nearest = (pool: Map<number, number>, from: Building | undefined) => {
+    const nearest = (pool: Map<number, number>, from: Building | undefined, kind?: string) => {
       let best = -1, bd = Infinity;
       for (const [id, n] of pool) {
         if (n <= 0) continue;
         const b = buildings.get(id)!;
+        if (kind && b.kind !== kind) continue;
         if (from && b.city !== from.city) continue;
         const d = from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0;
         if (d < bd) { bd = d; best = id; }
@@ -197,13 +224,13 @@ export class Population {
       return best;
     };
     for (const c of this.citizens.values()) {
+      if (c.school < 0 && (pupil(c) || student(c))) {
+        const id = nearest(seats, homeOf(c), pupil(c) ? 'school' : 'university');
+        if (id >= 0) { c.school = id; seats.set(id, seats.get(id)! - 1); }
+      }
       if (c.job < 0 && this.canWork(c)) {
         const id = nearest(free, homeOf(c));
         if (id >= 0) { c.job = id; free.set(id, free.get(id)! - 1); }
-      }
-      if (c.school < 0 && c.age >= 6 && c.age < ADULT_AGE) {
-        const id = nearest(seats, homeOf(c));
-        if (id >= 0) { c.school = id; seats.set(id, seats.get(id)! - 1); }
       }
     }
     for (const b of buildings.list) b.workers = 0;
@@ -238,7 +265,8 @@ export class Population {
     if (!b) return 0;
     const d = BUILDINGS[b.kind];
     const power = d.energy > 0 && !b.powered ? 0.5 : 1;
-    return d.salary * (1 + 0.5 * c.edu) * power;
+    const skill = c.skill === 2 ? 0.4 : c.skill === 1 ? 0.15 : 0;
+    return d.salary * (1 + 0.5 * c.edu + skill) * power;
   }
 
   /** Hunger drops through the day; it's restored at the evening meal. */
@@ -247,8 +275,8 @@ export class Population {
   }
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
-  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean): DayReport {
-    const r: DayReport = { incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
+  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, market: false, carMarket: false }): DayReport {
+    const r: DayReport = { utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
       const f = this.families.get(c.family);
@@ -280,14 +308,24 @@ export class Population {
       }
       earned -= PROPERTY_TAX;
       r.propertyTax += PROPERTY_TAX;
+      // utilities (power, water) and, where there is a market, everyday shopping
+      const bills = people.length * UTILITY_PER_PERSON;
+      earned -= bills;
+      r.utilities += bills;
+      if (opts.market) {
+        const spend = Math.min(Math.max(0, f.money + earned), people.length * SHOP_PER_PERSON);
+        earned -= spend;
+        r.shopping += spend;
+      }
       if (f.car) earned -= CAR_UPKEEP;
       f.money += earned;
       f.income = Math.round(earned);
       f.debtDays = f.money < 0 ? f.debtDays + 1 : 0;
-      if (!f.car && f.money > CAR_PRICE + 500) {
+      if (!f.car && opts.carMarket && f.money > CAR_PRICE + 500) {
         f.money -= CAR_PRICE;
         f.car = { color: pick(CAR_COLORS), at: 'home' };
         r.carsBought++;
+        r.carSales += CAR_PRICE;
       }
     }
 
@@ -298,13 +336,55 @@ export class Population {
       let cause: DeathCause = 'old age';
       if (c.hunger < 25) { c.health -= 30; cause = 'starvation'; }
       if (Math.random() > water) { c.health -= 22; cause = c.hunger < 25 ? cause : 'thirst'; }
-      if (c.age > 60) c.health -= (c.age - 60) * 0.35;
-      else if (c.hunger >= 25) c.health = Math.min(100, c.health + 12);
+      if (c.age > 60) c.health -= Math.max(0, (c.age - 60) * 0.35 - opts.heal * 0.04);
+      else if (c.hunger >= 25) c.health = Math.min(100, c.health + 12 + opts.heal);
       c.age += PER_YEAR;
       if (c.school >= 0) c.edu = Math.min(1, c.edu + 0.1 * PER_YEAR);
-      if (c.age >= ADULT_AGE && c.role === 'child' && c.school >= 0) c.school = -1;
+      const sb = c.school >= 0 ? buildings.get(c.school) : undefined;
+      if (c.age >= ADULT_AGE && sb?.kind === 'school') c.school = -1;
+      if (sb?.kind === 'university' && c.age >= UNI_END) { c.skill = 2; c.school = -1; }
+      if (c.age >= 20 && c.skill === 0 && c.school < 0) c.skill = 1;
       if (c.role === 'parent' && c.age >= 70) c.role = 'elder';
       if (c.health <= 0) die(c, cause);
+    }
+
+    // everyday trouble: fights, car accidents and, rarely, a murder
+    const adults = [...this.citizens.values()].filter((c) => {
+      const cf = this.families.get(c.family);
+      return !!cf && belongs(cf) && c.age >= 16;
+    });
+    if (adults.length >= 8) {
+      const n = adults.length;
+      const cars = [...this.families.values()].filter((f) => belongs(f) && f.car).length;
+      const two = (): [Citizen, Citizen] | null => {
+        const a = pick(adults);
+        let b = pick(adults);
+        for (let i = 0; i < 8 && (b === a || b.family === a.family); i++) b = pick(adults);
+        return b === a ? null : [a, b];
+      };
+      if (Math.random() < Math.min(0.3, n * 0.0012)) {
+        const pair = two();
+        if (pair && this.citizens.has(pair[0].id) && this.citizens.has(pair[1].id)) {
+          for (const c of pair) c.health = Math.max(5, c.health - rand(10, 25));
+          r.incidents.push({ kind: 'fight', a: pair[0].name, b: pair[1].name });
+        }
+      }
+      if (Math.random() < Math.min(0.25, 0.02 + cars * 0.0015)) {
+        const v = pick(adults);
+        if (this.citizens.has(v.id)) {
+          v.health -= rand(25, 55);
+          r.incidents.push({ kind: 'accident', a: v.name });
+          if (v.health <= 0) die(v, 'accident');
+        }
+      }
+      if (Math.random() < Math.min(0.05, n * 0.0002)) {
+        const pair = two();
+        if (pair && this.citizens.has(pair[0].id) && this.citizens.has(pair[1].id)) {
+          r.incidents.push({ kind: 'murder', a: pair[0].name, b: pair[1].name });
+          die(pair[0], 'murder');
+          this.removeCitizen(pair[1]);
+        }
+      }
     }
 
     // births (couples aged 20–42, about one child every three years)
@@ -382,7 +462,7 @@ export class Population {
       car: f.car ? { color: f.car.color } : null, debtDays: f.debtDays,
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
-        edu: c.edu, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
+        edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
       })),
     }));
   }
@@ -395,7 +475,7 @@ export class Population {
       this.families.set(f.id, f);
       this.nextFamily = Math.max(this.nextFamily, f.id + 1);
       for (const m of fd.members) {
-        const c: Citizen = { ...m, family: f.id, state: 'home', at: f.home, leaveAt: 2, returnAt: 2, errand: false, drove: false, activity: 'At home' };
+        const c: Citizen = { ...m, skill: m.skill ?? (m.age >= 20 ? 1 : 0), family: f.id, state: 'home', at: f.home, leaveAt: 2, returnAt: 2, errand: false, drove: false, activity: 'At home' };
         this.citizens.set(c.id, c);
         f.members.push(c.id);
         this.nextCitizen = Math.max(this.nextCitizen, c.id + 1);

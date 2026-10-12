@@ -17,6 +17,8 @@ export class Canals {
   /** Canal tiles that currently carry water (connected to natural water). */
   readonly flowing = new Uint8Array(N * N);
   readonly mesh: THREE.Mesh;
+  /** Tiles a canal visibly flows into (crop fields). */
+  attach: (k: number) => boolean = () => false;
 
   constructor(private map: WorldMap) {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }));
@@ -93,7 +95,7 @@ export class Canals {
         const flow = this.flowing[k] === 1;
         const join = (d: { dx: number; dz: number }) => {
           const nx = x + d.dx, nz = z + d.dz;
-          return inBounds(nx, nz) && (this.tiles[idx(nx, nz)] || this.map.water[idx(nx, nz)]);
+          return inBounds(nx, nz) && (this.tiles[idx(nx, nz)] || this.map.water[idx(nx, nz)] || this.attach(idx(nx, nz)));
         };
         const layers: [number, number, THREE.Color][] = [[0.2, 0.008, BANK], [0.14, 0.01, flow ? WET : DRY]];
         if (flow) layers.push([0.09, 0.013, WATER]);
