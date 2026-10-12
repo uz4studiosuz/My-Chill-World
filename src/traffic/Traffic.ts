@@ -18,6 +18,13 @@ export interface Trip {
   toPos?: Point;
   loaded?: boolean;
   color?: THREE.Color;
+  driverId?: number;
+  driverName?: string;
+  purpose?: string;
+  fromName?: string;
+  destName?: string;
+  destBuildingId?: number;
+  homeBuildingId?: number;
   onArrive?: (color: THREE.Color) => void;
   /** The vehicle gave up (route destroyed or hopelessly stuck). */
   onFail?: () => void;
@@ -25,7 +32,7 @@ export interface Trip {
 
 export interface ParkedCar { x: number; z: number; rot: number; color: THREE.Color }
 
-interface Vehicle {
+export interface Vehicle {
   id: number;
   trip: Trip;
   color: THREE.Color;
@@ -129,6 +136,41 @@ export class Traffic {
 
   setParked(list: ParkedCar[]) {
     this.parked = list.slice(0, MAX_PARKED);
+  }
+
+  getVehicle(id: number): Vehicle | undefined {
+    return this.vehicles.find((v) => v.id === id);
+  }
+
+  vehicleNear(x: number, z: number, radius = 0.55): Vehicle | undefined {
+    let best: Vehicle | undefined;
+    let bd = radius;
+    for (const v of this.vehicles) {
+      if (v.leaving) continue;
+      const d = Math.hypot(v.x - x, v.z - z);
+      if (d < bd) {
+        bd = d;
+        best = v;
+      }
+    }
+    return best;
+  }
+
+  parkedNear(x: number, z: number, radius = 0.45): ParkedCar | undefined {
+    let best: ParkedCar | undefined;
+    let bd = radius;
+    for (const p of this.parked) {
+      const d = Math.hypot(p.x - x, p.z - z);
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  vehicleForDriver(citizenId: number): Vehicle | undefined {
+    return this.vehicles.find((v) => !v.leaving && v.trip.driverId === citizenId);
   }
 
   /** Can this trip be driven at all? */

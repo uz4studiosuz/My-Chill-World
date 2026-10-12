@@ -38,7 +38,7 @@ export interface LifeContext {
 }
 
 const TRUCKS_PER_QUARRY = 2;
-const PARK_RADIUS = 6;
+const PARK_RADIUS = 20;
 const IMMIGRATION_INTERVAL = DAY_SECONDS / 3;
 const ROAD_UPKEEP = 0.1;
 const BRIDGE_UPKEEP = 0.5;
@@ -651,6 +651,7 @@ export class Life {
       const sent = traffic.spawn({
         kind: 'truck', from: b.access, to: th.access, loaded: true,
         fromPos: buildings.door(b), toPos: buildings.door(th), color: new THREE.Color('#ffffff'),
+        purpose: 'Delivering stone', driverName: 'Truck driver', fromName: 'Stone Quarry', destName: 'Town Hall',
         onArrive: () => { const own = eco.cities.get(b.city); if (own) own.stone += QUARRY.truckLoad; this.truckBack(b); },
         onFail: () => { b.stored += QUARRY.truckLoad; b.trucks = Math.max(0, b.trucks - 1); },
       });
@@ -702,10 +703,14 @@ export class Life {
     const ok = traffic.spawn({
       kind: 'truck', loaded: true, from: factory.access, to: market.access, color: new THREE.Color('#3a6fd1'),
       fromPos: buildings.door(factory), toPos: buildings.door(market),
+      purpose: 'Delivering cars', driverName: 'Auto carrier', fromName: 'Car Factory', destName: 'Car Market',
       onArrive: () => {
         market.stored += CARS.truckLoad;
         factory.trucks = 0;
-        traffic.spawn({ kind: 'truck', from: market.access, to: factory.access, fromPos: buildings.door(market), toPos: buildings.door(factory) });
+        traffic.spawn({
+          kind: 'truck', from: market.access, to: factory.access, fromPos: buildings.door(market), toPos: buildings.door(factory),
+          purpose: 'Returning to factory', driverName: 'Auto carrier', fromName: 'Car Market', destName: 'Car Factory',
+        });
       },
       onFail: () => { factory.stored += CARS.truckLoad; factory.trucks = 0; },
     });
@@ -717,7 +722,11 @@ export class Life {
     const th = buildings.townHall(b.city);
     const done = () => { b.trucks = Math.max(0, b.trucks - 1); };
     if (b.removed || !th || b.access < 0) return done();
-    const ok = traffic.spawn({ kind: 'truck', from: th.access, to: b.access, fromPos: buildings.door(th), toPos: buildings.door(b), onArrive: done, onFail: done });
+    const ok = traffic.spawn({
+      kind: 'truck', from: th.access, to: b.access, fromPos: buildings.door(th), toPos: buildings.door(b),
+      purpose: 'Returning to quarry', driverName: 'Truck driver', fromName: 'Town Hall', destName: 'Stone Quarry',
+      onArrive: done, onFail: done,
+    });
     if (!ok) done();
   }
 
@@ -998,10 +1007,14 @@ export class Life {
     if (police) {
       traffic.spawn({
         kind: 'car', from: police.access, to: k, color: new THREE.Color('#1f3f86'), fromPos: buildings.door(police),
+        purpose: 'Police patrol', driverName: 'Police officer', destName: 'Accident site', homeBuildingId: police.id,
         onArrive: () => {
           effects.clearWreck(wreck);
           this.events.push(t('The traffic police cleared the crash'));
-          traffic.spawn({ kind: 'car', from: k, to: police.access, color: new THREE.Color('#1f3f86'), toPos: buildings.door(police) });
+          traffic.spawn({
+            kind: 'car', from: k, to: police.access, color: new THREE.Color('#1f3f86'), toPos: buildings.door(police),
+            purpose: 'Returning to station', driverName: 'Police officer', destName: 'Police station', homeBuildingId: police.id,
+          });
         },
       });
     }
@@ -1009,7 +1022,13 @@ export class Life {
     if (hospital) {
       traffic.spawn({
         kind: 'car', from: hospital.access, to: k, color: new THREE.Color('#ffffff'), fromPos: buildings.door(hospital),
-        onArrive: () => { traffic.spawn({ kind: 'car', from: k, to: hospital.access, color: new THREE.Color('#ffffff'), toPos: buildings.door(hospital) }); },
+        purpose: 'Emergency response', driverName: 'Paramedic', destName: 'Accident site', homeBuildingId: hospital.id,
+        onArrive: () => {
+          traffic.spawn({
+            kind: 'car', from: k, to: hospital.access, color: new THREE.Color('#ffffff'), toPos: buildings.door(hospital),
+            purpose: 'Returning to hospital', driverName: 'Paramedic', destName: 'Hospital', homeBuildingId: hospital.id,
+          });
+        },
       });
     }
   }
@@ -1108,6 +1127,13 @@ export class Life {
         const ok = traffic.spawn({
           kind: 'car', from: home.access, to: spot.lot.access, color: colorOf(car.color),
           fromPos: buildings.slot(home, 0), toPos: slotPos,
+          driverId: c.id,
+          driverName: `${c.name} ${f.surname}`,
+          purpose: purpose === 'work' ? 'Driving to work' : purpose === 'school' ? 'Driving to school' : 'Driving',
+          fromName: BUILDINGS[home.kind].name,
+          destName: BUILDINGS[dest.kind].name,
+          destBuildingId: dest.id,
+          homeBuildingId: home.id,
           onArrive: () => {
             car.at = 'away'; car.lot = spot.lot.id; car.slot = spot.slot;
             if (!this.alive(c)) return;
@@ -1181,12 +1207,26 @@ export class Life {
           const driveHome = (fromAccess: number, fromPos: Point) => traffic.spawn({
             kind: 'car', from: fromAccess, to: home.access, color: colorOf(car.color),
             fromPos, toPos: buildings.slot(home, 0),
+            driverId: c.id,
+            driverName: `${c.name} ${f.surname}`,
+            purpose: 'Driving home',
+            fromName: lot ? BUILDINGS[lot.kind].name : 'Parking',
+            destName: BUILDINGS[home.kind].name,
+            destBuildingId: home.id,
+            homeBuildingId: home.id,
             onArrive: () => { car.at = 'home'; done(); },
             onFail: () => { car.at = 'home'; done(); },
           });
           const ok = station
             ? traffic.spawn({
               kind: 'car', from: lot.access, to: station.access, color: colorOf(car.color), fromPos: slotPos, toPos: buildings.door(station),
+              driverId: c.id,
+              driverName: `${c.name} ${f.surname}`,
+              purpose: 'Refuelling',
+              fromName: lot ? BUILDINGS[lot.kind].name : 'Parking',
+              destName: BUILDINGS[station.kind].name,
+              destBuildingId: station.id,
+              homeBuildingId: home.id,
               onArrive: () => {
                 const cost = (100 - car.fuel) * FUEL.price;
                 f.money -= cost;
@@ -1317,6 +1357,11 @@ export class Life {
       kind: bus ? 'bus' : 'car', from: at, to, color: bus ? undefined : new THREE.Color('#1f3f86'),
       fromPos: at === home.access ? buildings.door(home) : undefined,
       toPos: hops <= 0 ? buildings.door(home) : undefined,
+      purpose: bus ? 'City bus transit' : 'Police patrol route',
+      driverName: bus ? 'Bus driver' : 'Police officer',
+      fromName: BUILDINGS[home.kind].name,
+      destName: hops <= 0 ? BUILDINGS[home.kind].name : 'City street',
+      homeBuildingId: home.id,
       onArrive: () => { if (hops <= 0) finish(); else this.serviceRun(home, to, stops, hops - 1); },
       onFail: finish,
     });
@@ -1330,6 +1375,12 @@ export class Life {
     if (!buildings.list.some((b) => b.kind === 'busdepot' && b.city === from.city && b.built >= 1 && b.workers > 0)) return false;
     const ok = traffic.spawn({
       kind: 'bus', from: from.access, to: to.access, fromPos: buildings.door(from), toPos: buildings.door(to),
+      purpose: 'Public bus transit',
+      driverName: 'Bus driver',
+      fromName: BUILDINGS[from.kind].name,
+      destName: BUILDINGS[to.kind].name,
+      destBuildingId: to.id,
+      homeBuildingId: from.id,
       onArrive: () => done(),
       onFail: () => { if (this.alive(c)) this.walk(c, buildings.door(from), buildings.frontTile(from), to, done); },
     });
@@ -1513,7 +1564,27 @@ export class Life {
         if (!this.spots.has(`${lot.id}:${i}`)) return { lot, slot: i };
       }
     }
+    const fallback = buildings.list
+      .filter((b) => b.kind !== 'house' && b.access >= 0 && BUILDINGS[b.kind].slots.length && dist(b, dest) <= PARK_RADIUS)
+      .sort((a, b) => dist(a, dest) - dist(b, dest));
+    for (const lot of fallback) {
+      for (let i = 0; i < BUILDINGS[lot.kind].slots.length; i++) {
+        if (!this.spots.has(`${lot.id}:${i}`)) return { lot, slot: i };
+      }
+    }
     return null;
+  }
+
+  familyForParked(x: number, z: number): number | undefined {
+    const { buildings } = this.c;
+    for (const [key, famId] of this.spots) {
+      const [lotId, slot] = key.split(':').map(Number);
+      const lot = buildings.get(lotId);
+      if (!lot) continue;
+      const slotPos = buildings.slot(lot, slot);
+      if (Math.hypot(slotPos.x - x, slotPos.z - z) < 0.4) return famId;
+    }
+    return undefined;
   }
 
   spotsUsed(b: Building) {

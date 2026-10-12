@@ -25,7 +25,7 @@ import { StreetLights } from '../roads/StreetLights';
 import { Railway, Station } from '../rail/Railway';
 import { Newspaper } from '../ui/Newspaper';
 import { Walkers } from '../people/Walkers';
-import { Traffic } from '../traffic/Traffic';
+import { Traffic, Vehicle } from '../traffic/Traffic';
 import { Animals } from '../animals/Animals';
 import { Effects } from '../fx/Effects';
 import { Weather } from '../fx/Weather';
@@ -48,7 +48,7 @@ export interface GameOptions {
   thumbs?: Map<string, string>;
 }
 
-type Selection = { type: 'building'; id: number } | { type: 'person'; id: number } | null;
+type Selection = { type: 'building'; id: number } | { type: 'person'; id: number } | { type: 'vehicle'; id: number } | null;
 
 const DEMO_SEED = 424242;
 const AUTOSAVE_SECONDS = 20;
@@ -763,6 +763,20 @@ export class Game implements ToolHost {
 
   private tap(tile: Tile | null, p?: { x: number; z: number }) {
     if (p) {
+      const veh = this.traffic.vehicleNear(p.x, p.z, 0.55);
+      if (veh) return this.select({ type: 'vehicle', id: veh.id });
+
+      const parked = this.traffic.parkedNear(p.x, p.z, 0.45);
+      if (parked) {
+        const famId = this.life.familyForParked(parked.x, parked.z);
+        if (famId) {
+          const fam = this.pop.families.get(famId);
+          const members = fam ? this.pop.members(fam) : [];
+          const adult = members.find((m) => m.age >= 18);
+          if (adult) return this.select({ type: 'person', id: adult.id });
+        }
+      }
+
       let best: Citizen | null = null, bd = 0.35;
       for (const c of this.pop.citizens.values()) {
         const w = c.walker;
@@ -773,7 +787,10 @@ export class Game implements ToolHost {
       if (best) return this.select({ type: 'person', id: best.id });
     }
     const b = tile ? this.buildings.at(idx(tile.x, tile.z)) : undefined;
-    if (b?.kind === 'townhall') this.eco.active = b.city;
+    if (b?.kind === 'townhall') {
+      this.eco.active = b.city;
+      this.refreshHud();
+    }
     this.select(b ? { type: 'building', id: b.id } : null);
   }
 
@@ -785,6 +802,8 @@ export class Game implements ToolHost {
   }
 
   private personPos(c: Citizen) {
+    const v = this.traffic.vehicleForDriver(c.id);
+    if (v && !v.leaving) return { x: v.x, z: v.z, y: 0.3 };
     if (c.walker && !c.walker.leaving) return { x: c.walker.x, z: c.walker.z, y: 0.3 * c.walker.scale };
     const b = this.buildings.get(c.at);
     if (!b) return null;
@@ -808,6 +827,21 @@ export class Game implements ToolHost {
       this.beam.position.set(sb.mesh.position.x, 1.6, sb.mesh.position.z);
       this.beam.scale.set(BUILDINGS[sb.kind].size, 1, BUILDINGS[sb.kind].size);
       (this.beam.material as THREE.MeshBasicMaterial).opacity = Math.min(0.4, this.beamT * 0.25);
+    }
+    if (s?.type === 'vehicle') {
+      this.ring.visible = false;
+      const v = this.traffic.getVehicle(s.id);
+      if (!v || v.leaving) { this.marker.visible = false; return; }
+      this.marker.visible = true;
+      this.marker.position.set(v.x, 0.42 + Math.sin(this.time * 6) * 0.03, v.z);
+      this.marker.rotation.y += dt * 3;
+      if (this.following) {
+        const tg = this.cam.target;
+        tg.x += (v.x - tg.x) * Math.min(1, dt * 6);
+        tg.z += (v.z - tg.z) * Math.min(1, dt * 6);
+        this.cam.apply();
+      }
+      return;
     }
     if (s?.type !== 'person') { this.marker.visible = false; return; }
     const c = this.pop.citizens.get(s.id);
@@ -846,6 +880,11 @@ export class Game implements ToolHost {
   private refreshInspector(): void {
     const s = this.selection;
     if (!this.inspector || !s) return;
+    if (s.type === 'vehicle') {
+      const v = this.traffic.getVehicle(s.id);
+      if (!v || v.leaving) { this.hud?.toast(t('The vehicle has departed')); return this.select(null); }
+      return this.inspector.show(this.vehicleView(v));
+    }
     if (s.type === 'person') {
       const c = this.pop.citizens.get(s.id);
       if (!c) { this.hud?.toast(t('This person is no longer with us')); return this.select(null); }
@@ -857,6 +896,89 @@ export class Game implements ToolHost {
     const view = b.kind === 'apartment' ? this.apartmentView(b) : b.kind === 'house' ? this.houseView(b) : b.kind === 'townhall' ? this.cityView(b) : this.buildingView(b);
     view.actions = [...(view.actions ?? []), ...this.buildingActions(b)];
     this.inspector.show(view);
+  }
+
+  private vehicleView(v: Vehicle): InspectorView {
+    const driver = v.trip.driverId ? this.pop.citizens.get(v.trip.driverId) : undefined;
+    const f = driver ? this.pop.families.get(driver.family) : undefined;
+    const home = driver && f ? this.buildings.get(f.home) : v.trip.homeBuildingId ? this.buildings.get(v.trip.homeBuildingId) : undefined;
+    const dest = v.trip.destBuildingId ? this.buildings.get(v.trip.destBuildingId) : undefined;
+    const isTruck = v.trip.kind === 'truck';
+    const isBus = v.trip.kind === 'bus';
+
+    const tags: InspectorView['tags'] = [];
+    if (driver) tags.push({ text: t(driver.activity), tone: 'good' });
+    else if (v.trip.purpose) tags.push({ text: t(v.trip.purpose), tone: 'info' });
+    if (v.trip.destName) tags.push({ text: `→ ${t(v.trip.destName)}`, tone: 'info' });
+    if (v.trip.loaded) tags.push({ text: t('Loaded with goods'), tone: 'good' });
+
+    const rows: InspectorView['rows'] = [];
+    const driverName = driver ? `${driver.name} ${f?.surname ?? ''}`.trim() : v.trip.driverName ?? t('City driver');
+    rows.push([t('Driver'), driverName]);
+    if (driver) {
+      rows.push([t('Age'), `${Math.floor(driver.age)} ${t('years')}`]);
+      rows.push([t('Profession'), this.professionOf(driver)]);
+      rows.push([t('Trip purpose'), t(v.trip.purpose ?? driver.activity)]);
+      rows.push([t('Fuel'), `${Math.round(f?.car?.fuel ?? 100)}%`]);
+    } else {
+      if (v.trip.purpose) rows.push([t('Mission'), t(v.trip.purpose)]);
+    }
+    if (v.trip.fromName) rows.push([t('Origin'), t(v.trip.fromName)]);
+    if (v.trip.destName) rows.push([t('Destination'), t(v.trip.destName)]);
+    if (home) rows.push([t('Home'), t(BUILDINGS[home.kind].name)]);
+    if (dest) rows.push([t('Target building'), t(BUILDINGS[dest.kind].name)]);
+
+    const actions: NonNullable<InspectorView['actions']> = [
+      {
+        label: this.following ? t('Stop following') : t('Follow vehicle'),
+        icon: 'follow',
+        active: this.following,
+        onClick: () => { this.following = !this.following; this.refreshInspector(); },
+      },
+    ];
+    if (driver) {
+      actions.unshift({
+        label: t('Show driver details'),
+        icon: 'people',
+        onClick: () => this.select({ type: 'person', id: driver.id }),
+      });
+    }
+    if (dest) {
+      actions.push({
+        label: t('Show destination'),
+        icon: 'roads',
+        onClick: () => {
+          this.cam.setState(dest.mesh.position.x, dest.mesh.position.z, this.cam.yaw, this.cam.viewHalf);
+          this.select({ type: 'building', id: dest.id });
+        },
+      });
+    }
+    if (home) {
+      actions.push({
+        label: t('Show home'),
+        icon: 'house',
+        onClick: () => {
+          this.cam.setState(home.mesh.position.x, home.mesh.position.z, this.cam.yaw, this.cam.viewHalf);
+          this.select({ type: 'building', id: home.id });
+        },
+      });
+    }
+
+    const badge = isTruck ? '🚚' : isBus ? '🚌' : '🚗';
+    const badgeColor = isTruck ? '#4a7fb5' : isBus ? '#d9a92a' : '#3a6fd1';
+    const title = driver ? `${driver.name} ${f?.surname ?? ''}`.trim() : (v.trip.purpose ?? t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : 'Bus'));
+    const speedKmh = Math.max(1, Math.round(v.speed * 20));
+
+    return {
+      key: `v${v.id}`,
+      badge,
+      badgeColor,
+      title,
+      subtitle: `${t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : 'Bus')} · ${speedKmh} km/h`,
+      tags,
+      rows,
+      actions,
+    };
   }
 
   private professionOf(c: Citizen) {
@@ -939,6 +1061,8 @@ export class Game implements ToolHost {
     if (c.skill === 2) tags.push({ text: t('Degree'), tone: 'good' });
     else if (c.skill === 1 && age >= 18) tags.push({ text: t('Skilled trade'), tone: 'info' });
     if (f?.car && age >= 18) tags.push({ text: t('Family car'), tone: 'info' });
+    const veh = this.traffic.vehicleForDriver(c.id);
+    if (veh) tags.push({ text: t('Driving a car'), tone: 'good' });
     const job = c.job >= 0 ? this.buildings.get(c.job) : c.school >= 0 ? this.buildings.get(c.school) : undefined;
     return {
       key: `p${c.id}`,
@@ -962,6 +1086,7 @@ export class Game implements ToolHost {
       ],
       actions: [
         { label: this.following ? t('Stop following') : t('Follow'), icon: 'follow', active: this.following, onClick: () => { this.following = !this.following; this.refreshInspector(); } },
+        ...(veh ? [{ label: t('Show car on road'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: veh.id }); this.following = true; } }] : []),
         ...(home ? [{ label: t('Show home'), icon: 'house' as const, onClick: () => { this.cam.setState(home.mesh.position.x, home.mesh.position.z, this.cam.yaw, this.cam.viewHalf); this.select({ type: 'building', id: home.id }); this.beamT = 4; } }] : []),
       ],
     };
@@ -1437,7 +1562,7 @@ export class Game implements ToolHost {
     const signed = (n: number) => `${n >= 0 ? '+' : '−'}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`;
 
     const tags: InspectorView['tags'] = [];
-    tags.push(city.id === this.eco.active ? { text: t('Building for this city'), tone: 'good' } : { text: t('Select to build for this city'), tone: 'info' });
+    tags.push(city.id === this.eco.active ? { text: `✓ ${t('Active City (all building costs from here)')}`, tone: 'good' } : { text: t('Click to build for this city'), tone: 'info' });
     if (city.money < 0) tags.push({ text: t('In debt'), tone: 'bad' });
     if (city.smart) tags.push({ text: t('Smart City'), tone: 'good' });
     if (city.railLink) tags.push({ text: t('Railway link'), tone: 'good' });
@@ -1517,6 +1642,17 @@ export class Game implements ToolHost {
         return { id: c.id, icon: this.personIcon(c), name: `${c.name} ${f?.surname ?? ''}`, detail: `${t('{n} years', { n: Math.floor(c.age) })} · ${t(c.activity)}`, warn: c.hunger < 25 || c.health < 50 };
       }),
       actions: [
+        {
+          label: city.id === this.eco.active ? `✓ ${t('Active City (building from this city)')}` : t('Set as active city (build from here)'),
+          icon: 'buildings' as const,
+          active: city.id === this.eco.active,
+          onClick: () => {
+            this.eco.active = city.id;
+            this.refreshInspector();
+            this.refreshHud();
+            this.hud?.toast(t('Now building for {name}', { name: city.name }));
+          },
+        },
         ...(mayor ? [{ label: t('Show the mayor'), icon: 'people' as const, onClick: () => this.select({ type: 'person', id: mayor.id }) }] : []),
         {
           label: `${t('Buy {n} stone', { n: MERCHANT.stone.amount })} · $${MERCHANT.stone.price}`, icon: 'stone' as const,
