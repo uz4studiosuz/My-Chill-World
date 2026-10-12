@@ -14,6 +14,8 @@ export interface InspectorView {
   subtitle: string;
   bars?: InspectorBar[];
   rows?: [string, string, ('good' | 'bad')?][];
+  /** Extra titled blocks of rows (city overview). */
+  sections?: { title: string; rows: [string, string, ('good' | 'bad')?][] }[];
   tags?: { text: string; tone: 'good' | 'bad' | 'info' }[];
   listTitle?: string;
   people?: InspectorPerson[];
@@ -82,9 +84,15 @@ export class Inspector {
       this.root.appendChild(bars);
     }
 
-    if (v.rows?.length) {
+    const blocks = [...(v.rows?.length ? [{ title: '', rows: v.rows }] : []), ...(v.sections ?? [])];
+    for (const sec of blocks) {
+      if (sec.title) {
+        const st = el('div', 'ins-section');
+        st.textContent = sec.title;
+        this.root.appendChild(st);
+      }
       const grid = el('div', 'ins-grid');
-      for (const [k, val, tone] of v.rows) {
+      for (const [k, val, tone] of sec.rows) {
         const a = el('span', 'k');
         a.textContent = k;
         const b = el('span', `v ${tone ?? ''}`);

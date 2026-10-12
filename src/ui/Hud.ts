@@ -32,6 +32,7 @@ const ITEMS: ToolItem[] = [
   { tool: 'roundabout', cat: 'roads', name: 'Roundabout', desc: 'Place it on a junction — roads connect to the middle of each side.', ...ROUNDABOUT_COST, wood: 0, tag: '3×3 · no lights', icon: 'roundabout' },
   { tool: 'path', cat: 'roads', name: 'Footpath', desc: 'Free walking path. People walk faster on paths than on grass.', money: 0, stone: 0, wood: 0, perTile: true, tag: 'Free · pedestrians', icon: 'path' },
   { tool: 'canal', cat: 'roads', name: 'Irrigation Canal', desc: 'Dig from a river or lake to a crop farm — farms need water to grow.', money: 8, stone: 0, wood: 0, perTile: true, tag: 'Water for farms', icon: 'canal' },
+  b('townhall', 'buildings', 'New city', 'Found a new city with its own Town Hall, treasury and citizens. Select a Town Hall to build for that city.', 'buildings'),
   b('house', 'buildings', 'One family', 'Home for one family (up to 10 people). Needs a road.', 'house'),
   b('watertower', 'buildings', 'Water for 160', 'Clean drinking water. Without it people get sick.', 'watertower'),
   b('school', 'buildings', '40 pupils', 'Children aged 6–17 study here. Educated adults earn 50% more.', 'school'),
@@ -68,6 +69,7 @@ export interface HudStats {
   money: number; daily: number; stone: number; wood: number; food: number; foodDaily: number;
   powered: number; water: number; population: number; workers: number; workforce: number;
   dateText: string; seasonIcon: string; timeOfDay: number; broke: boolean;
+  cityName: string; cities: number;
 }
 
 export interface HudHandlers {
@@ -77,6 +79,7 @@ export interface HudHandlers {
   setSpeed: (s: number) => void;
   openMenu: () => void;
   openStats: () => void;
+  cycleCity: () => void;
 }
 
 export const SPEEDS = [0, 1, 2, 3, 10];
@@ -111,6 +114,7 @@ export class Hud {
     top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats));
     const chips = el('div', 'chips');
     for (const [key, ic, title] of [
+      ['city', 'buildings', 'City you are building for (click to switch)'],
       ['money', 'coin', 'Town money (balance per day)'],
       ['stone', 'stone', 'Stone'],
       ['wood', 'wood', 'Wood (building material and fuel)'],
@@ -124,7 +128,8 @@ export class Hud {
       const chip = el('button', 'chip');
       chip.title = t(title);
       chip.innerHTML = icon(ic);
-      chip.addEventListener('click', h.openStats);
+      chip.addEventListener('click', key === 'city' ? h.cycleCity : h.openStats);
+      if (key === 'city') chip.classList.add('city');
       const v = el('span', 'v');
       chip.appendChild(v);
       this.stat[key] = v;
@@ -286,6 +291,7 @@ export class Hud {
   setStats(s: HudStats) {
     const sign = s.daily >= 0 ? '+' : '';
     this.stat.money.innerHTML = `$${fmt(s.money)} <small class="${s.daily >= 0 ? 'pos' : 'neg'}">${sign}${fmt(s.daily)}</small>`;
+    this.stat.city.textContent = s.cities > 1 ? `${s.cityName} ▾` : s.cityName;
     this.stat.stone.textContent = fmt(s.stone);
     this.stat.wood.textContent = fmt(s.wood);
     this.stat.food.innerHTML = `${fmt(s.food)} <small class="${s.foodDaily >= 0 ? 'pos' : 'neg'}">${s.foodDaily >= 0 ? '+' : ''}${fmt(s.foodDaily)}</small>`;

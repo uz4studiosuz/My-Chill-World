@@ -4,8 +4,8 @@ import { BuildingKind } from '../buildings/BuildingTypes';
 import { Sample } from '../sim/History';
 import { PopulationSave } from '../people/Population';
 
-/** v4 = needs, seasons, canals, reshaped terrain. Older worlds are hidden (incompatible). */
-export const SAVE_VERSION = 4;
+/** v5 = multiple cities (one per Town Hall) on a 192×192 map. Older worlds are hidden (incompatible). */
+export const SAVE_VERSION = 5;
 const INDEX_KEY = 'mcw_index';
 const worldKey = (id: string) => `mcw_w_${id}`;
 
@@ -32,7 +32,7 @@ export interface WorldSave {
   sandbox?: boolean;
   cleared: number[];
   stumps?: [number, number][];
-  buildings: { id: number; kind: BuildingKind; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number }[];
+  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number }[];
   population: PopulationSave;
   cam: { x: number; z: number; yaw: number; view: number };
   time?: number;

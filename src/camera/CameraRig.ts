@@ -9,7 +9,7 @@ export class CameraRig {
   readonly target = new THREE.Vector3();
   readonly pitch = THREE.MathUtils.degToRad(50);
   readonly minView = 3.5;
-  readonly maxView = 36;
+  readonly maxView = 48;
   yaw = Math.PI / 4;
   viewHalf = 11;
   aspect = 1;

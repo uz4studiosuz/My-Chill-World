@@ -4,6 +4,8 @@ import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
 
 export interface StatsSnapshot {
+  cityName: string;
+  cities: number;
   money: number;
   stone: number;
   wood: number;
@@ -49,11 +51,13 @@ export class StatsPanel {
   private tabBtns = new Map<Tab, HTMLButtonElement>();
   private tab: Tab = 'overview';
   visible = false;
+  private title!: HTMLElement;
 
   constructor(parent: HTMLElement, private get: () => StatsSnapshot) {
     this.root = el('div', 'stats');
     const head = el('div', 'stats-head');
     const title = el('b', '');
+    this.title = title;
     title.textContent = t('Statistics');
     const close = el('button', 'info-x');
     close.innerHTML = icon('close');
@@ -93,6 +97,7 @@ export class StatsPanel {
     if (!this.visible) return;
     this.tabBtns.forEach((b, id) => b.classList.toggle('active', id === this.tab));
     const s = this.get();
+    this.title.textContent = `${t('Statistics')} · ${s.cityName}`;
     const scroll = this.body.scrollTop;
     this.body.replaceChildren();
     const charts: [HTMLCanvasElement, Series[], (n: number) => string][] = [];

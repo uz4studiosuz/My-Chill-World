@@ -10,7 +10,7 @@ import { Building, Buildings, Point } from '../buildings/Buildings';
 import { BUILDINGS, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
-import { Citizen, DayReport, Population } from '../people/Population';
+import { Citizen, Family, Population } from '../people/Population';
 import { Carry, Walkers } from '../people/Walkers';
 import { PedGraph, pedPath } from '../people/PedGraph';
 import { Traffic } from '../traffic/Traffic';
@@ -58,11 +58,6 @@ export class Life {
   private fireT = 0;
   private gridIds = new Set<number>();
   private rained = new Set<number>();
-  private foodMade = 0;
-  foodYesterday = { made: 0, eaten: 0 };
-  waterSupply = 1;
-  lastReport: DayReport | null = null;
-  lastBalance = { incomeTax: 0, foodSales: 0, propertyTax: 0, publicWages: 0, upkeep: 0, net: 0 };
   events: string[] = [];
 
   constructor(private c: LifeContext) {
@@ -116,10 +111,22 @@ export class Life {
     return (c.total - c.bridges) * ROAD_UPKEEP + c.bridges * BRIDGE_UPKEEP;
   }
 
-  freeHomes() {
+  /** Empty houses (of one city, or all). */
+  freeHomes(city?: number) {
     const { buildings, pop } = this.c;
     const taken = new Set([...pop.families.values()].map((f) => f.home));
-    return buildings.ofKind('house').filter((h) => !taken.has(h.id));
+    return buildings.ofKind('house').filter((h) => !taken.has(h.id) && (city === undefined || h.city === city));
+  }
+
+  /** People living in each city. */
+  populationByCity() {
+    const { buildings, pop } = this.c;
+    const out = new Map<number, number>();
+    for (const f of pop.families.values()) {
+      const h = buildings.get(f.home);
+      if (h) out.set(h.city, (out.get(h.city) ?? 0) + f.members.length);
+    }
+    return out;
   }
 
   // ---------- power grid & water ----------
@@ -154,37 +161,99 @@ export class Life {
 
   private updateEnergy(dt: number) {
     const { buildings, eco } = this.c;
-    let demand = 0, capacity = 0;
-    for (const b of buildings.list) {
-      const d = BUILDINGS[b.kind];
-      if (d.energy && this.gridIds.has(b.id)) demand += d.energy;
-      if (d.power && b.access >= 0) capacity += d.power * Math.min(1, b.workers / d.jobs);
+    const plants: { city: (typeof eco.city); power: number }[] = [];
+    let total = 0;
+    for (const city of eco.cities.values()) {
+      let demand = 0, capacity = 0;
+      for (const b of buildings.list) {
+        if (b.city !== city.id) continue;
+        const d = BUILDINGS[b.kind];
+        if (d.energy && this.gridIds.has(b.id)) demand += d.energy;
+        if (d.power && b.access >= 0) {
+          const p = d.power * Math.min(1, b.workers / d.jobs);
+          capacity += p;
+          if (p > 0) plants.push({ city, power: p });
+        }
+      }
+      city.energyDemand = demand;
+      city.energyCapacity = capacity;
+      total += demand;
     }
-    eco.updateEnergy(dt, demand, capacity);
+    eco.updateEnergy(dt, total, plants);
     for (const b of buildings.list) {
       if (!BUILDINGS[b.kind].energy) { b.powered = true; continue; }
-      b.powered = this.gridIds.has(b.id) && eco.powered > 0.35;
+      const city = eco.cities.get(b.city);
+      b.powered = this.gridIds.has(b.id) && !!city && city.powered > 0.35;
     }
-    let water = 0;
-    for (const w of buildings.ofKind('watertower')) {
-      water += BUILDINGS.watertower.water * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3);
+    const people = this.populationByCity();
+    for (const city of eco.cities.values()) {
+      let water = 0;
+      for (const w of buildings.ofKind('watertower')) {
+        if (w.city !== city.id) continue;
+        water += BUILDINGS.watertower.water * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3);
+      }
+      const n = people.get(city.id) ?? 0;
+      city.water = n ? Math.min(1, water / n) : 1;
     }
-    this.waterSupply = this.c.pop.size ? Math.min(1, water / this.c.pop.size) : 1;
   }
 
   // ---------- day settlement ----------
 
   private newDay() {
     const { pop, eco, buildings, terrain, weather } = this.c;
-    const r = pop.daily(buildings, eco.food, this.waterSupply, () => this.freeHomes(), buildings.ofKind('weddinghall').length > 0);
-    eco.food -= r.foodEaten;
-    this.foodYesterday = { made: Math.round(this.foodMade), eaten: r.foodEaten };
-    this.foodMade = 0;
-    const upkeep = Math.round(this.roadUpkeep() + buildings.list.reduce((a, b) => a + BUILDINGS[b.kind].upkeep, 0));
-    const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax - r.publicWages - upkeep);
-    eco.money += net;
-    this.lastBalance = { incomeTax: Math.round(r.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax, publicWages: Math.round(r.publicWages), upkeep, net };
-    this.lastReport = r;
+    const cities = [...eco.cities.values()];
+    const roadShare = this.roadUpkeep() / Math.max(1, cities.length);
+    const homeCity = (f: Family) => buildings.get(f.home)?.city;
+
+    cities.forEach((city, i) => {
+      const say = (msg: string) => this.events.push(cities.length > 1 ? `${city.name}: ${msg}` : msg);
+      // the first city also adopts families whose house is gone
+      const belongs = (f: Family) => {
+        const c = homeCity(f);
+        return c === city.id || (i === 0 && (c === undefined || !eco.cities.has(c)));
+      };
+      const hasHall = buildings.list.some((b) => b.kind === 'weddinghall' && b.city === city.id);
+      const r = pop.daily(buildings, belongs, city.food, city.water, () => this.freeHomes(city.id), hasHall);
+      city.food -= r.foodEaten;
+      city.foodYesterday = { made: Math.round(city.foodMade), eaten: r.foodEaten };
+      city.foodMade = 0;
+      const upkeep = Math.round(roadShare + buildings.list.reduce((a, b) => (b.city === city.id ? a + BUILDINGS[b.kind].upkeep : a), 0));
+      const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax - r.publicWages - upkeep);
+      city.money += net;
+      city.balance = { incomeTax: Math.round(r.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax, publicWages: Math.round(r.publicWages), upkeep, net };
+      city.deaths = r.deaths.length;
+
+      if (r.births) say(r.births === 1 ? t('A baby was born!') : t('{n} babies were born!', { n: r.births }));
+      for (const [a, b] of r.weddings) {
+        say(t('{a} and {b} got married!', { a, b }));
+        const hall = buildings.list.find((x) => x.kind === 'weddinghall' && x.city === city.id);
+        if (hall) this.c.effects.hearts(hall.mesh.position.x, hall.mesh.position.z);
+      }
+      // burials in the city's cemetery
+      for (const d of r.deaths) {
+        const f = pop.families.get(d.familyId);
+        const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && b.city === city.id && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY);
+        if (cemetery && f && f.money >= GRAVE_COST) {
+          f.money -= GRAVE_COST;
+          city.money += GRAVE_COST;
+          buildings.addGrave(cemetery, { name: d.name, family: d.surname, age: d.age, day: eco.day });
+          say(t('{name} was laid to rest at the cemetery (${cost})', { name: `${d.name} ${d.surname}`.trim(), cost: GRAVE_COST }));
+        }
+      }
+      // ranch calf breeding
+      for (const b of buildings.ofKind('ranch')) {
+        if (b.city === city.id && b.workers > 0 && city.food > 50 && (b.cattleCount ?? 4) < 4) {
+          b.cattleCount = (b.cattleCount ?? 0) + 1;
+          b.cattleHunger = 0;
+          say(t('A new calf was born in the ranch!'));
+        }
+      }
+      for (const d of r.deaths.slice(0, 3)) say(t('{name} died ({cause})', { name: `${d.name} ${d.surname}`.trim(), cause: t(d.cause) }));
+      if (r.deaths.length > 3) say(t('{n} people died today', { n: r.deaths.length }));
+      if (r.leftTown) say(t('{n} people left town (debt)', { n: r.leftTown }));
+      if (r.carsBought) say(t('{n} families bought a car', { n: r.carsBought }));
+    });
+
     for (const c of pop.citizens.values()) if (c.state !== 'home') this.teleportHome(c);
     for (const w of [...this.c.walkers.list]) if (!w.leaving) this.c.walkers.dismiss(w);
     this.cleanupSpots();
@@ -194,38 +263,6 @@ export class Life {
     pop.assign(buildings);
     this.rebuildGrid();
     pop.planDay();
-
-    if (r.births) this.events.push(r.births === 1 ? t('A baby was born!') : t('{n} babies were born!', { n: r.births }));
-    for (const [a, b] of r.weddings) {
-      this.events.push(t('{a} and {b} got married!', { a, b }));
-      const hall = buildings.ofKind('weddinghall')[0];
-      if (hall) this.c.effects.hearts(hall.mesh.position.x, hall.mesh.position.z);
-    }
-    // Burials in cemetery
-    for (const d of r.deaths) {
-      const f = pop.families.get(d.familyId);
-      const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY);
-      if (cemetery && f && f.money >= GRAVE_COST) {
-        f.money -= GRAVE_COST;
-        eco.money += GRAVE_COST;
-        buildings.addGrave(cemetery, { name: d.name, family: d.surname, age: d.age, day: eco.day });
-        this.events.push(t('{name} was laid to rest at the cemetery (${cost})', { name: `${d.name} ${d.surname}`.trim(), cost: GRAVE_COST }));
-      }
-    }
-
-    // Ranch calf breeding
-    for (const b of buildings.ofKind('ranch')) {
-      if (b.workers > 0 && eco.food > 50 && (b.cattleCount ?? 4) < 4) {
-        b.cattleCount = (b.cattleCount ?? 0) + 1;
-        b.cattleHunger = 0;
-        this.events.push(t('A new calf was born in the ranch!'));
-      }
-    }
-
-    for (const d of r.deaths.slice(0, 3)) this.events.push(t('{name} died ({cause})', { name: `${d.name} ${d.surname}`.trim(), cause: t(d.cause) }));
-    if (r.deaths.length > 3) this.events.push(t('{n} people died today', { n: r.deaths.length }));
-    if (r.leftTown) this.events.push(t('{n} people left town (debt)', { n: r.leftTown }));
-    if (r.carsBought) this.events.push(t('{n} families bought a car', { n: r.carsBought }));
   }
 
   private cleanupSpots() {
@@ -241,14 +278,20 @@ export class Life {
 
   private immigrate() {
     const { pop, eco, buildings } = this.c;
-    const homes = this.freeHomes();
-    if (!homes.length) return;
-    const open = buildings.list.reduce((a, b) => a + BUILDINGS[b.kind].jobs, 0) - [...pop.citizens.values()].filter((c) => c.job >= 0).length;
-    if (open < 2 || eco.food < pop.size * 2 || eco.powered < 0.6 || this.waterSupply < 0.8) return;
-    pop.createFamily(pick(homes).id, { carChance: 0.3 });
-    pop.assign(buildings);
-    pop.planDay();
-    this.events.push(t('A new family moved in'));
+    const people = this.populationByCity();
+    for (const city of eco.cities.values()) {
+      const homes = this.freeHomes(city.id);
+      if (!homes.length) continue;
+      let jobs = 0, staffed = 0;
+      for (const b of buildings.list) if (b.city === city.id) { jobs += BUILDINGS[b.kind].jobs; staffed += b.workers; }
+      const n = people.get(city.id) ?? 0;
+      if (!buildings.list.some((b) => b.kind === 'watertower' && b.city === city.id)) continue;
+      if (jobs - staffed < 2 || city.food < n * 2 || city.powered < 0.6 || city.water < 0.8) continue;
+      pop.createFamily(pick(homes).id, { carChance: 0.3 });
+      pop.assign(buildings);
+      pop.planDay();
+      this.events.push(eco.cities.size > 1 ? `${city.name}: ${t('A new family moved in')}` : t('A new family moved in'));
+    }
   }
 
   // ---------- production ----------
@@ -284,15 +327,16 @@ export class Life {
     if (tod < WORK_FROM || tod > WORK_TO) return;
     const share = dt / (DAY_SECONDS * (WORK_TO - WORK_FROM));
     const month = monthOf(eco.day);
-    let food = 0;
     for (const b of buildings.list) {
       const d = BUILDINGS[b.kind];
+      const city = eco.cities.get(b.city);
+      if (!city) continue;
       if (b.kind === 'ranch') {
         const cattle = b.cattleCount ?? 4;
         if (cattle > 0) {
           const feedNeeded = cattle * share * 0.5;
-          if (eco.food >= feedNeeded && eco.food > 5) {
-            eco.food -= feedNeeded;
+          if (city.food >= feedNeeded && city.food > 5) {
+            city.food -= feedNeeded;
             b.cattleHunger = Math.max(0, (b.cattleHunger ?? 0) - dt * 2);
           } else {
             b.cattleHunger = (b.cattleHunger ?? 0) + (dt / 15) * 10;
@@ -310,19 +354,18 @@ export class Life {
       if (b.kind === 'farm') f *= growingSeason(month) ? (b.irrigated ? 1 : 0.15) : 0;
       if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : 0.2;
       if (b.kind === 'ranch') f *= (seasonOf(month) === 'winter' ? 0.7 : 1) * ((b.cattleCount ?? 4) / 4);
-      food += f * share;
+      city.food += f * share;
+      city.foodMade += f * share;
     }
-    eco.food += food;
-    this.foodMade += food;
 
-    const th = buildings.townHall();
     for (const b of buildings.ofKind('quarry')) {
+      const th = buildings.townHall(b.city);
       b.stored = Math.min(QUARRY.maxStored, b.stored + QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share);
       if (!th || b.stored < QUARRY.truckLoad || b.trucks >= TRUCKS_PER_QUARRY || b.access < 0 || th.access < 0) continue;
       const sent = traffic.spawn({
         kind: 'truck', from: b.access, to: th.access, loaded: true,
         fromPos: buildings.door(b), toPos: buildings.door(th), color: new THREE.Color('#ffffff'),
-        onArrive: () => { eco.stone += QUARRY.truckLoad; this.truckBack(b); },
+        onArrive: () => { const own = eco.cities.get(b.city); if (own) own.stone += QUARRY.truckLoad; this.truckBack(b); },
         onFail: () => { b.stored += QUARRY.truckLoad; b.trucks = Math.max(0, b.trucks - 1); },
       });
       if (sent) { b.stored -= QUARRY.truckLoad; b.trucks++; }
@@ -331,7 +374,7 @@ export class Life {
 
   private truckBack(b: Building) {
     const { buildings, traffic } = this.c;
-    const th = buildings.townHall();
+    const th = buildings.townHall(b.city);
     const done = () => { b.trucks = Math.max(0, b.trucks - 1); };
     if (b.removed || !th || b.access < 0) return done();
     const ok = traffic.spawn({ kind: 'truck', from: th.access, to: b.access, fromPos: buildings.door(th), toPos: buildings.door(b), onArrive: done, onFail: done });
@@ -367,10 +410,12 @@ export class Life {
       walkers.dismiss(w);
       const f = pop.families.get(c.family);
       this.events.push(t('{name} died ({cause})', { name: `${c.name} ${f?.surname ?? ''}`, cause: t('lightning') }));
-      const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY);
+      const cid = (f && buildings.get(f.home)?.city) ?? -1;
+      const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && b.city === cid && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY);
       if (cemetery && f && f.money >= GRAVE_COST) {
         f.money -= GRAVE_COST;
-        this.c.eco.money += GRAVE_COST;
+        const own = this.c.eco.cities.get(cid);
+        if (own) own.money += GRAVE_COST;
         buildings.addGrave(cemetery, { name: c.name, family: f?.surname ?? '', age: Math.floor(c.age), day: this.c.eco.day });
         this.events.push(t('{name} was laid to rest at the cemetery (${cost})', { name: `${c.name} ${f?.surname ?? ''}`.trim(), cost: GRAVE_COST }));
       }
@@ -410,7 +455,8 @@ export class Life {
     if (c.job >= 0) return buildings.get(c.job);
     if (c.school >= 0) return buildings.get(c.school);
     if (c.errand) {
-      const spots = buildings.list.filter((b) => b.kind === 'townhall' || b.kind === 'orchard' || b.kind === 'parking' || b.kind === 'weddinghall' || b.kind === 'school');
+      const home = buildings.get(this.family(c)?.home ?? -1);
+      const spots = buildings.list.filter((b) => (!home || b.city === home.city) && (b.kind === 'townhall' || b.kind === 'orchard' || b.kind === 'parking' || b.kind === 'weddinghall' || b.kind === 'school'));
       return spots.length ? pick(spots) : undefined;
     }
     return undefined;
@@ -589,11 +635,12 @@ export class Life {
         const down = terrain.chopPart(tree);
         this.reservedTrees.delete(tree);
         effects.puff(treeCenter.x, treeCenter.z, 0.25, down ? 10 : 5, ['#8a5a35', '#6faa45', '#c9a36b']);
-        const plants = buildings.ofKind('powerplant');
+        const plants = buildings.ofKind('powerplant').filter((p) => p.city === hut.city);
         const drop = plants.length ? plants.reduce((a, b) => (dist(a, hut) < dist(b, hut) ? a : b)) : hut;
         c.activity = 'Carrying a log';
         this.walk(c, { x: w.x, z: w.z }, tileAt(w), drop, () => {
-          eco.wood += WOOD_PER_LOG;
+          const own = eco.cities.get(hut.city);
+          if (own) own.wood += WOOD_PER_LOG;
           if (c.walker) c.walker.carry = 'none';
           if (!atWork()) return;
           if (c.walker) c.walker.leaving = false;
@@ -660,7 +707,7 @@ export class Life {
     if (b.kind === 'house') {
       const f = pop.familyAt(b.id);
       if (f) {
-        const other = this.freeHomes()[0];
+        const other = this.freeHomes(b.city)[0];
         if (other) f.home = other.id;
         else {
           for (const m of pop.members(f)) if (m.walker) this.c.walkers.dismiss(m.walker);

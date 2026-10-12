@@ -51,7 +51,7 @@ export const PARKING_LOT_SLOTS: Slot[] = [
 ];
 
 export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
-  townhall: def({ kind: 'townhall', name: 'Town Hall', size: 2, jobs: 8, salary: 16, publicJob: true, energy: 4, slots: [[-0.8, 0.68, 0], [-0.52, 0.68, 0], [0.45, 0.68, 0]], buildable: false }),
+  townhall: def({ kind: 'townhall', name: 'Town Hall', size: 2, money: 2500, stone: 60, wood: 40, jobs: 8, salary: 16, publicJob: true, energy: 4, slots: [[-0.8, 0.68, 0], [-0.52, 0.68, 0], [0.45, 0.68, 0]] }),
   house: def({ kind: 'house', name: 'House', size: 1, money: 300, stone: 10, wood: 15, housing: 10, energy: 1, slots: [[0.2, 0.35, 0]] }),
   office: def({ kind: 'office', name: 'Office', size: 2, money: 1500, stone: 40, wood: 10, jobs: 24, salary: 20, upkeep: 4, energy: 6, slots: [[-0.42, 0.72, 0], [-0.06, 0.72, 0], [0.3, 0.72, 0]] }),
   school: def({ kind: 'school', name: 'School', size: 2, money: 1200, stone: 30, wood: 20, jobs: 4, salary: 16, publicJob: true, upkeep: 6, energy: 3, students: 40, slots: [[0.45, 0.72, 0], [0.78, 0.72, 0]] }),
@@ -67,6 +67,8 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   cemetery: def({ kind: 'cemetery', name: 'Cemetery', size: 2, money: 400, stone: 20, wood: 10, jobs: 1, salary: 10, publicJob: true, upkeep: 2 }),
 };
 
+/** A new Town Hall must be at least this many tiles from every other one. */
+export const CITY_MIN_DISTANCE = 18;
 export const GRAVE_COST = 100;
 export const MAX_GRAVES_PER_CEMETERY = 16;
 

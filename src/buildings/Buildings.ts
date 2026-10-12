@@ -23,6 +23,8 @@ export interface GraveRecord {
 export interface Building {
   id: number;
   kind: BuildingKind;
+  /** City (Town Hall) this building belongs to. */
+  city: number;
   x: number;
   z: number;
   rot: number;
@@ -136,7 +138,7 @@ export class Buildings {
     return { ok: true };
   }
 
-  place(kind: BuildingKind, x: number, z: number, opts: { stored?: number; animate?: boolean; id?: number } = {}): Building {
+  place(kind: BuildingKind, x: number, z: number, opts: { stored?: number; animate?: boolean; id?: number; city?: number } = {}): Building {
     const { access, rot } = this.findAccess(kind, x, z);
     const s = BUILDINGS[kind].size;
     const mesh = new THREE.Group();
@@ -149,7 +151,7 @@ export class Buildings {
     const id = opts.id ?? this.nextId;
     this.nextId = Math.max(this.nextId, id + 1);
     const b: Building = {
-      id, kind, x, z, rot, access, workers: 0, present: 0, stored: opts.stored ?? 0, trucks: 0, removed: false,
+      id, kind, city: opts.city ?? 0, x, z, rot, access, workers: 0, present: 0, stored: opts.stored ?? 0, trucks: 0, removed: false,
       mesh, grow: opts.animate === false ? 1 : 0, cropT: Math.random() * 0.5,
       irrigated: false, powered: true, fire: 0,
     };
@@ -277,8 +279,13 @@ export class Buildings {
     return id === -1 ? undefined : this.byId.get(id);
   }
 
-  townHall() {
-    return this.list.find((b) => b.kind === 'townhall');
+  /** The Town Hall of a city (or the first one). */
+  townHall(city?: number) {
+    return this.list.find((b) => b.kind === 'townhall' && (city === undefined || b.city === city));
+  }
+
+  halls() {
+    return this.list.filter((b) => b.kind === 'townhall');
   }
 
   ofKind(kind: BuildingKind) {

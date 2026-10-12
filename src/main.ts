@@ -9,7 +9,7 @@ import { SaveStore } from './save/SaveStore';
 import { renderThumbnails } from './models/catalog';
 import { getLang, setLang, t } from './i18n/i18n';
 
-const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry'];
+const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry', 'townhall'];
 
 async function boot() {
   setLang(getLang());

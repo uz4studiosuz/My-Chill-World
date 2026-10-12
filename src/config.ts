@@ -1,4 +1,4 @@
-export const MAP_SIZE = 128;
+export const MAP_SIZE = 192;
 export const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
 
 /** Height of one mountain step. */

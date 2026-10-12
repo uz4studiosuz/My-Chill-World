@@ -20,3 +20,11 @@ export function clanName() {
   while (b.toLowerCase() === a.toLowerCase()) b = pick(CLAN_B);
   return a + b;
 }
+
+const TOWN_A = ['Oak', 'Stone', 'River', 'Iron', 'Silver', 'Amber', 'Frost', 'Green', 'Sun', 'Raven', 'Wolf', 'Gold', 'Ash', 'High', 'Fair', 'North', 'Bright', 'Mill', 'Lake', 'Red', 'Elder', 'Swan'];
+const TOWN_B = ['haven', 'ford', 'bridge', 'burg', 'field', 'port', 'vale', 'ton', 'stead', 'wick', 'mouth', 'gate', 'hollow', 'crest', 'wood', 'shire', 'hold', 'brook', 'meadow'];
+
+/** A random town name such as "Oakhaven" or "Silverford". */
+export function townName() {
+  return pick(TOWN_A) + pick(TOWN_B);
+}

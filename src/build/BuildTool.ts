@@ -5,7 +5,7 @@ import { Preview } from './Preview';
 import { t as tr } from '../i18n/i18n';
 
 export type PlaceKind =
-  | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower' | 'quarry'
+  | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower' | 'quarry'
   | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout';
 
 export type LineKind = 'road' | 'path' | 'canal';

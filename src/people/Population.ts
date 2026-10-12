@@ -176,6 +176,9 @@ export class Population {
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
     for (const c of this.citizens.values()) {
+      const hb = homeOf(c);
+      if (c.job >= 0 && hb && buildings.get(c.job)?.city !== hb.city) c.job = -1;
+      if (c.school >= 0 && hb && buildings.get(c.school)?.city !== hb.city) c.school = -1;
       if (c.job >= 0 && (!free.has(c.job) || !this.canWork(c) || free.get(c.job)! <= 0)) c.job = -1;
       if (c.job >= 0) free.set(c.job, free.get(c.job)! - 1);
       const pupil = c.age >= 6 && c.age < ADULT_AGE;
@@ -187,6 +190,7 @@ export class Population {
       for (const [id, n] of pool) {
         if (n <= 0) continue;
         const b = buildings.get(id)!;
+        if (from && b.city !== from.city) continue;
         const d = from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0;
         if (d < bd) { bd = d; best = id; }
       }
@@ -243,7 +247,7 @@ export class Population {
   }
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
-  daily(buildings: Buildings, food: number, water: number, freeHomes: () => Building[], hasHall: boolean): DayReport {
+  daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean): DayReport {
     const r: DayReport = { incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
@@ -253,6 +257,7 @@ export class Population {
     };
 
     for (const f of [...this.families.values()]) {
+      if (!belongs(f)) continue;
       const people = this.members(f);
       let earned = 0;
       for (const c of people) {
@@ -288,6 +293,8 @@ export class Population {
 
     // health, ageing, school progress, deaths
     for (const c of [...this.citizens.values()]) {
+      const cf = this.families.get(c.family);
+      if (!cf || !belongs(cf)) continue;
       let cause: DeathCause = 'old age';
       if (c.hunger < 25) { c.health -= 30; cause = 'starvation'; }
       if (Math.random() > water) { c.health -= 22; cause = c.hunger < 25 ? cause : 'thirst'; }
@@ -302,6 +309,7 @@ export class Population {
 
     // births (couples aged 20–42, about one child every three years)
     for (const f of this.families.values()) {
+      if (!belongs(f)) continue;
       const people = this.members(f);
       const dad = people.find((c) => c.role === 'parent' && c.sex === 'm' && c.age < 55);
       const mom = people.find((c) => c.role === 'parent' && c.sex === 'f' && c.age >= 20 && c.age <= 42);
@@ -313,6 +321,7 @@ export class Population {
 
     // grown-up children start their own household; with a Wedding Hall they can marry
     for (const f of [...this.families.values()]) {
+      if (!belongs(f)) continue;
       const grown = this.members(f).filter((c) => c.role === 'child' && c.age >= 20);
       for (const c of grown) {
         const home = freeHomes()[0];
@@ -326,7 +335,7 @@ export class Population {
         f.money -= 100;
         nf.money += 100;
         if (!hasHall) continue;
-        const partner = [...this.citizens.values()].find((p) => p.role === 'child' && p.age >= 20 && p.sex !== c.sex && p.family !== f.id);
+        const partner = [...this.citizens.values()].find((p) => p.role === 'child' && p.age >= 20 && p.sex !== c.sex && p.family !== f.id && belongs(this.families.get(p.family) ?? f));
         if (partner && Math.random() < 0.7) {
           const pf = this.families.get(partner.family)!;
           pf.members = pf.members.filter((id) => id !== partner.id);
@@ -341,6 +350,7 @@ export class Population {
     // broke families leave; empty families disappear
     for (const f of [...this.families.values()]) {
       if (!f.members.length) { this.families.delete(f.id); continue; }
+      if (!belongs(f)) continue;
       if (f.debtDays >= 6) {
         r.leftTown += f.members.length;
         this.removeFamily(f);
@@ -349,9 +359,10 @@ export class Population {
     return r;
   }
 
-  counts() {
+  counts(filter?: (c: Citizen) => boolean) {
     const out = { men: 0, women: 0, boys: 0, girls: 0, babies: 0, elders: 0, students: 0, workers: 0, workforce: 0, hungry: 0, sick: 0 };
     for (const c of this.citizens.values()) {
+      if (filter && !filter(c)) continue;
       if (c.age < 3) out.babies++;
       else if (c.age < ADULT_AGE) c.sex === 'm' ? out.boys++ : out.girls++;
       else if (c.age >= RETIRE_AGE) out.elders++;
