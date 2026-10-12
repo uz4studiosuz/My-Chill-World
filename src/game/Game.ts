@@ -66,7 +66,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
   parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
   woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
-  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
+  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], busstop: ['🚏', '#3a6fd1'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
 };
@@ -802,7 +802,7 @@ export class Game implements ToolHost {
   }
 
   private personPos(c: Citizen) {
-    const v = this.traffic.vehicleForDriver(c.id);
+    const v = this.traffic.vehicleForDriver(c.id) ?? this.traffic.vehicleForPassenger(c.id);
     if (v && !v.leaving) return { x: v.x, z: v.z, y: 0.3 };
     if (c.walker && !c.walker.leaving) return { x: c.walker.x, z: c.walker.z, y: 0.3 * c.walker.scale };
     const b = this.buildings.get(c.at);
@@ -905,12 +905,17 @@ export class Game implements ToolHost {
     const dest = v.trip.destBuildingId ? this.buildings.get(v.trip.destBuildingId) : undefined;
     const isTruck = v.trip.kind === 'truck';
     const isBus = v.trip.kind === 'bus';
+    const busPassengers = isBus ? this.life.busPassengersForVehicle(v.id) : [];
 
     const tags: InspectorView['tags'] = [];
     if (driver) tags.push({ text: t(driver.activity), tone: 'good' });
     else if (v.trip.purpose) tags.push({ text: t(v.trip.purpose), tone: 'info' });
     if (v.trip.destName) tags.push({ text: `→ ${t(v.trip.destName)}`, tone: 'info' });
     if (v.trip.loaded) tags.push({ text: t('Loaded with goods'), tone: 'good' });
+    if (isBus) {
+      tags.push({ text: t('{n} passengers', { n: busPassengers.length }), tone: busPassengers.length > 0 ? 'good' : 'info' });
+      if (v.trip.routeName) tags.push({ text: v.trip.routeName, tone: 'good' });
+    }
 
     const rows: InspectorView['rows'] = [];
     const driverName = driver ? `${driver.name} ${f?.surname ?? ''}`.trim() : v.trip.driverName ?? t('City driver');
@@ -922,6 +927,18 @@ export class Game implements ToolHost {
       rows.push([t('Fuel'), `${Math.round(f?.car?.fuel ?? 100)}%`]);
     } else {
       if (v.trip.purpose) rows.push([t('Mission'), t(v.trip.purpose)]);
+    }
+    if (isBus) {
+      if (v.trip.routeName) rows.push([t('Route'), v.trip.routeName]);
+      rows.push([t('Passengers on board'), `${busPassengers.length} ${t('people')}`]);
+      for (const p of busPassengers.slice(0, 5)) {
+        const passC = this.pop.citizens.get(p.citizenId);
+        const ds = this.buildings.get(p.dropStopId);
+        const dsName = ds ? BUILDINGS[ds.kind].name : 'Stop';
+        if (passC) {
+          rows.push([passC.name, `→ ${t(dsName)} ${t('gets off')}`]);
+        }
+      }
     }
     if (v.trip.fromName) rows.push([t('Origin'), t(v.trip.fromName)]);
     if (v.trip.destName) rows.push([t('Destination'), t(v.trip.destName)]);
@@ -936,6 +953,13 @@ export class Game implements ToolHost {
         onClick: () => { this.following = !this.following; this.refreshInspector(); },
       },
     ];
+    if (isBus && busPassengers.length > 0) {
+      actions.unshift({
+        label: t('Show passenger'),
+        icon: 'people',
+        onClick: () => this.select({ type: 'person', id: busPassengers[0].citizenId }),
+      });
+    }
     if (driver) {
       actions.unshift({
         label: t('Show driver details'),
@@ -966,7 +990,7 @@ export class Game implements ToolHost {
 
     const badge = isTruck ? '🚚' : isBus ? '🚌' : '🚗';
     const badgeColor = isTruck ? '#4a7fb5' : isBus ? '#d9a92a' : '#3a6fd1';
-    const title = driver ? `${driver.name} ${f?.surname ?? ''}`.trim() : (v.trip.purpose ?? t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : 'Bus'));
+    const title = isBus ? (v.trip.routeName ?? t('Bus')) : driver ? `${driver.name} ${f?.surname ?? ''}`.trim() : (v.trip.purpose ?? t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : 'Bus'));
     const speedKmh = Math.max(1, Math.round(v.speed * 20));
 
     return {
@@ -1063,6 +1087,10 @@ export class Game implements ToolHost {
     if (f?.car && age >= 18) tags.push({ text: t('Family car'), tone: 'info' });
     const veh = this.traffic.vehicleForDriver(c.id);
     if (veh) tags.push({ text: t('Driving a car'), tone: 'good' });
+    const busVeh = this.traffic.vehicleForPassenger(c.id);
+    if (busVeh) tags.push({ text: t('Riding the bus'), tone: 'good' });
+    const waiter = this.life.passengerWaiter(c.id);
+    if (waiter) tags.push({ text: t('Waiting for bus'), tone: 'info' });
     const job = c.job >= 0 ? this.buildings.get(c.job) : c.school >= 0 ? this.buildings.get(c.school) : undefined;
     return {
       key: `p${c.id}`,
@@ -1087,6 +1115,14 @@ export class Game implements ToolHost {
       actions: [
         { label: this.following ? t('Stop following') : t('Follow'), icon: 'follow', active: this.following, onClick: () => { this.following = !this.following; this.refreshInspector(); } },
         ...(veh ? [{ label: t('Show car on road'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: veh.id }); this.following = true; } }] : []),
+        ...(busVeh ? [{ label: t('Show bus'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: busVeh.id }); this.following = true; } }] : []),
+        ...(waiter ? [{ label: t('Show bus stop'), icon: 'roads' as const, onClick: () => {
+          const stop = this.buildings.get(waiter.pickupStopId);
+          if (stop) {
+            this.cam.setState(stop.mesh.position.x, stop.mesh.position.z, this.cam.yaw, this.cam.viewHalf);
+            this.select({ type: 'building', id: stop.id });
+          }
+        } }] : []),
         ...(home ? [{ label: t('Show home'), icon: 'house' as const, onClick: () => { this.cam.setState(home.mesh.position.x, home.mesh.position.z, this.cam.yaw, this.cam.viewHalf); this.select({ type: 'building', id: home.id }); this.beamT = 4; } }] : []),
       ],
     };
@@ -1223,8 +1259,26 @@ export class Game implements ToolHost {
       rows.push([t('Livestock health'), hunger > 50 ? t('Starving — needs farm crops/feed!') : t('Fed and healthy'), hunger > 50 ? 'bad' : 'good']);
       rows.push([t('Feed source'), t('Farm crops (grain/corn)'), city.food > 10 ? 'good' : 'bad']);
     }
+    if (b.kind === 'busstop') {
+      const waiters = this.life.busWaitersAtStop(b.id);
+      bars.push({ label: t('Waiting passengers'), value: Math.min(1, waiters.length / 8), color: '#d9a92a', text: `${waiters.length} ${t('people')}` });
+      rows.push([t('Public transport'), t('Active bus stop')]);
+    }
+    if (b.kind === 'busdepot') {
+      const routeStops = this.life.getRouteStops(b);
+      const activeBuses = this.traffic.vehicles.filter((v) => !v.leaving && v.trip.homeBuildingId === b.id).length;
+      bars.push({ label: t('Active buses'), value: activeBuses / Math.max(1, Math.min(3, b.workers)), color: '#d9a92a', text: `${activeBuses}/${Math.min(3, b.workers)}` });
+      rows.push([t('Route stops'), `${routeStops.length} ${t('stops')}`]);
+    }
     let people = staff;
     let listTitle = t('Workers');
+    if (b.kind === 'busstop') {
+      const waiters = this.life.busWaitersAtStop(b.id);
+      if (waiters.length > 0) {
+        listTitle = t('Waiting passengers');
+        people = waiters.map((w) => this.pop.citizens.get(w.citizenId)).filter(Boolean) as Citizen[];
+      }
+    }
     if (b.kind === 'cemetery' && b.graves && b.graves.length > 0) {
       listTitle = t('Buried citizens');
       people = b.graves.map((g, i) => ({

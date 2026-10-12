@@ -25,6 +25,11 @@ export interface Trip {
   destName?: string;
   destBuildingId?: number;
   homeBuildingId?: number;
+  routeId?: number;
+  routeName?: string;
+  routeStops?: string[];
+  stopIndex?: number;
+  passengers?: number[];
   onArrive?: (color: THREE.Color) => void;
   /** The vehicle gave up (route destroyed or hopelessly stuck). */
   onFail?: () => void;
@@ -173,16 +178,39 @@ export class Traffic {
     return this.vehicles.find((v) => !v.leaving && v.trip.driverId === citizenId);
   }
 
+  vehicleForPassenger(citizenId: number): Vehicle | undefined {
+    return this.vehicles.find((v) => !v.leaving && v.trip.passengers?.includes(citizenId));
+  }
+
+  addPassenger(vehicleId: number, citizenId: number): boolean {
+    const v = this.getVehicle(vehicleId);
+    if (!v || v.leaving) return false;
+    if (!v.trip.passengers) v.trip.passengers = [];
+    if (!v.trip.passengers.includes(citizenId)) v.trip.passengers.push(citizenId);
+    return true;
+  }
+
+  removePassenger(vehicleId: number, citizenId: number): boolean {
+    const v = this.getVehicle(vehicleId);
+    if (!v || !v.trip.passengers) return false;
+    const idx = v.trip.passengers.indexOf(citizenId);
+    if (idx >= 0) {
+      v.trip.passengers.splice(idx, 1);
+      return true;
+    }
+    return false;
+  }
+
   /** Can this trip be driven at all? */
   canRoute(from: number, to: number) {
     const p = findPath(this.net, from, to);
     return !!p && p.length >= 2;
   }
 
-  spawn(trip: Trip): boolean {
-    if (this.count(trip.kind) >= (trip.kind === 'car' ? MAX_CARS : trip.kind === 'bus' ? MAX_BUSES : MAX_TRUCKS)) return false;
+  spawnVehicle(trip: Trip): Vehicle | null {
+    if (this.count(trip.kind) >= (trip.kind === 'car' ? MAX_CARS : trip.kind === 'bus' ? MAX_BUSES : MAX_TRUCKS)) return null;
     const tiles = findPath(this.net, trip.from, trip.to);
-    if (!tiles || tiles.length < 2) return false;
+    if (!tiles || tiles.length < 2) return null;
     const r = this.buildRoute(tiles, trip.fromPos, trip.toPos);
     const truck = trip.kind === 'truck';
     const v: Vehicle = {
@@ -194,7 +222,11 @@ export class Traffic {
     };
     this.place(v);
     this.vehicles.push(v);
-    return true;
+    return v;
+  }
+
+  spawn(trip: Trip): boolean {
+    return this.spawnVehicle(trip) !== null;
   }
 
   /** Road network changed: rebuild signals, reroute vehicles whose route broke. */

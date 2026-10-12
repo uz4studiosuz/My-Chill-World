@@ -37,6 +37,30 @@ export interface LifeContext {
   burnDown: (b: Building) => void;
 }
 
+export interface BusPassenger {
+  citizenId: number;
+  pickupStopId: number;
+  dropStopId: number;
+  finalDestId: number;
+}
+
+export interface BusWaiter {
+  citizenId: number;
+  pickupStopId: number;
+  dropStopId: number;
+  finalDestId: number;
+  waitTimer: number;
+}
+
+export interface ActiveBusState {
+  vehicleId: number;
+  depotId: number;
+  routeNum: number;
+  stops: number[];
+  currentIdx: number;
+  passengers: BusPassenger[];
+}
+
 const TRUCKS_PER_QUARRY = 2;
 const PARK_RADIUS = 20;
 const IMMIGRATION_INTERVAL = DAY_SECONDS / 3;
@@ -71,6 +95,10 @@ export class Life {
   private serviceT = 5;
   /** Buses / patrol cars on the road per depot or station. */
   private fleet = new Map<number, number>();
+  /** Active buses running transit routes (vehicleId -> state). */
+  private busFleet = new Map<number, ActiveBusState>();
+  /** Passengers waiting at bus stops (stopBuildingId -> waiters). */
+  private busWaiters = new Map<number, BusWaiter[]>();
   /** Street lamp energy per city (set by the game when roads change). */
   lampDemand: [number, number][] = [];
   lampsLit = true;
@@ -118,6 +146,7 @@ export class Life {
     this.presentT -= dt;
     this.serviceT -= dt;
     if (this.serviceT <= 0) { this.serviceT = 3; this.dispatchServices(); }
+    this.updateBusWaiters(dt);
     if (this.presentT <= 0) { this.presentT = 0.5; this.people = this.populationByCity(); this.countPresent(); this.checkRain(); this.dispatchBuilders(); }
     this.produce(dt);
     this.schedule();
@@ -1155,7 +1184,18 @@ export class Life {
         car.at = 'home';
       }
     }
-    if (this.rideBus(c, home, dest, arrive)) return;
+    const transit = this.findTransitTrip(home, dest);
+    if (transit) {
+      c.activity = 'Walking to bus stop';
+      this.walk(c, buildings.door(home), buildings.frontTile(home), transit.pickup, () => {
+        if (!this.alive(c)) return;
+        c.state = 'away';
+        c.at = transit.pickup.id;
+        c.activity = 'Waiting for bus';
+        this.addWaiter({ citizenId: c.id, pickupStopId: transit.pickup.id, dropStopId: transit.dropoff.id, finalDestId: dest.id, waitTimer: 0 });
+      });
+      return;
+    }
     c.activity = purpose === 'work' ? 'Walking to work' : purpose === 'school' ? 'Walking to school' : 'Out for a walk';
     this.walk(c, buildings.door(home), buildings.frontTile(home), dest, arrive, this.carryFor(c));
   }
@@ -1268,7 +1308,21 @@ export class Life {
         return;
       }
     }
-    if (!outside && at && this.rideBus(c, at, home, done)) return;
+    const atBuilding = !outside && at ? at : null;
+    if (atBuilding) {
+      const transit = this.findTransitTrip(atBuilding, home);
+      if (transit) {
+        c.activity = 'Walking to bus stop';
+        this.walk(c, buildings.door(atBuilding), buildings.frontTile(atBuilding), transit.pickup, () => {
+          if (!this.alive(c)) return;
+          c.state = 'away';
+          c.at = transit.pickup.id;
+          c.activity = 'Waiting for bus';
+          this.addWaiter({ citizenId: c.id, pickupStopId: transit.pickup.id, dropStopId: transit.dropoff.id, finalDestId: home.id, waitTimer: 0 });
+        });
+        return;
+      }
+    }
     this.walk(c, from, fromTile, home, done, this.carryFor(c));
   }
 
@@ -1310,27 +1364,25 @@ export class Life {
     if (!factory) for (const m of markets) if (m.stored < 3 && Math.random() < 0.5) m.stored += 1;
   }
 
-  /** Buses run their routes; police cars patrol their district. */
+  /** Buses run their transit routes; police cars patrol their district. */
   private dispatchServices() {
     const { buildings, net } = this.c;
     for (const h of buildings.list) if (h.kind === 'hotel' && h.stored > 0 && Math.random() < Math.min(0.8, h.stored / 20)) this.touristStroll(h);
     for (const b of buildings.list) {
       if (b.built < 1 || b.workers <= 0 || b.access < 0) continue;
-      if (b.kind !== 'busdepot' && b.kind !== 'police') continue;
-      const want = b.kind === 'busdepot' ? Math.min(3, b.workers) : Math.min(2, Math.ceil(b.workers / 2));
-      if ((this.fleet.get(b.id) ?? 0) >= want) continue;
-      let stops: number[];
       if (b.kind === 'busdepot') {
-        stops = buildings.list.filter((s) => s.city === b.city && s.built >= 1 && s.access >= 0 && s.kind !== 'house' && s !== b && dist(s, b) < 30).map((s) => s.access);
-      } else {
-        stops = [];
+        this.dispatchBusFleet(b);
+      } else if (b.kind === 'police') {
+        const want = Math.min(2, Math.ceil(b.workers / 2));
+        if ((this.fleet.get(b.id) ?? 0) >= want) continue;
+        const stops: number[] = [];
         for (let z = b.z - POLICE_RANGE; z <= b.z + POLICE_RANGE; z += 2) for (let x = b.x - POLICE_RANGE; x <= b.x + POLICE_RANGE; x += 2) {
           if (inBounds(x, z) && net.type[idx(x, z)]) stops.push(idx(x, z));
         }
+        if (!stops.length) continue;
+        this.fleet.set(b.id, (this.fleet.get(b.id) ?? 0) + 1);
+        this.policePatrol(b, b.access, stops, 4 + Math.floor(Math.random() * 3));
       }
-      if (!stops.length) continue;
-      this.fleet.set(b.id, (this.fleet.get(b.id) ?? 0) + 1);
-      this.serviceRun(b, b.access, stops, 4 + Math.floor(Math.random() * 3));
     }
   }
 
@@ -1346,48 +1398,366 @@ export class Life {
     walkers.walk(Math.floor(Math.random() * 8), 1, { points: this.graph.points(path, from, target) }, 'none');
   }
 
-  private serviceRun(home: Building, at: number, stops: number[], hops: number): void {
+  private policePatrol(home: Building, at: number, stops: number[], hops: number): void {
     const { traffic, buildings } = this.c;
-    const bus = home.kind === 'busdepot';
     const finish = () => { this.fleet.set(home.id, Math.max(0, (this.fleet.get(home.id) ?? 1) - 1)); };
     if (home.removed) return finish();
     const to = hops <= 0 ? home.access : stops[Math.floor(Math.random() * stops.length)];
-    if (to === at && hops > 0) return this.serviceRun(home, at, stops, hops - 1);
+    if (to === at && hops > 0) return this.policePatrol(home, at, stops, hops - 1);
     const ok = traffic.spawn({
-      kind: bus ? 'bus' : 'car', from: at, to, color: bus ? undefined : new THREE.Color('#1f3f86'),
+      kind: 'car', from: at, to, color: new THREE.Color('#1f3f86'),
       fromPos: at === home.access ? buildings.door(home) : undefined,
       toPos: hops <= 0 ? buildings.door(home) : undefined,
-      purpose: bus ? 'City bus transit' : 'Police patrol route',
-      driverName: bus ? 'Bus driver' : 'Police officer',
+      purpose: 'Police patrol route',
+      driverName: 'Police officer',
       fromName: BUILDINGS[home.kind].name,
       destName: hops <= 0 ? BUILDINGS[home.kind].name : 'City street',
       homeBuildingId: home.id,
-      onArrive: () => { if (hops <= 0) finish(); else this.serviceRun(home, to, stops, hops - 1); },
+      onArrive: () => { if (hops <= 0) finish(); else this.policePatrol(home, to, stops, hops - 1); },
       onFail: finish,
     });
     if (!ok) finish();
   }
 
-  /** Public transport: with a staffed bus depot, people without a car take the bus for longer trips. */
-  private rideBus(c: Citizen, from: Building, to: Building, done: () => void) {
+  /** Public query methods for vehicle inspection & passenger status. */
+  busStateForVehicle(vehicleId: number): ActiveBusState | undefined {
+    return this.busFleet.get(vehicleId);
+  }
+
+  busPassengersForVehicle(vehicleId: number): BusPassenger[] {
+    return this.busFleet.get(vehicleId)?.passengers ?? [];
+  }
+
+  busWaitersAtStop(stopId: number): BusWaiter[] {
+    return this.busWaiters.get(stopId) ?? [];
+  }
+
+  passengerBus(citizenId: number): ActiveBusState | undefined {
+    for (const b of this.busFleet.values()) {
+      if (b.passengers.some((p) => p.citizenId === citizenId)) return b;
+    }
+    return undefined;
+  }
+
+  passengerWaiter(citizenId: number): BusWaiter | undefined {
+    for (const list of this.busWaiters.values()) {
+      const w = list.find((x) => x.citizenId === citizenId);
+      if (w) return w;
+    }
+    return undefined;
+  }
+
+  /** Calculate an ordered cycle of bus stops for a bus depot. */
+  getRouteStops(depot: Building): number[] {
     const { buildings, traffic } = this.c;
-    if (from.access < 0 || to.access < 0 || dist(from, to) < 7 || c.age < 6) return false;
-    if (!buildings.list.some((b) => b.kind === 'busdepot' && b.city === from.city && b.built >= 1 && b.workers > 0)) return false;
-    const ok = traffic.spawn({
-      kind: 'bus', from: from.access, to: to.access, fromPos: buildings.door(from), toPos: buildings.door(to),
-      purpose: 'Public bus transit',
-      driverName: 'Bus driver',
-      fromName: BUILDINGS[from.kind].name,
-      destName: BUILDINGS[to.kind].name,
-      destBuildingId: to.id,
-      homeBuildingId: from.id,
-      onArrive: () => done(),
-      onFail: () => { if (this.alive(c)) this.walk(c, buildings.door(from), buildings.frontTile(from), to, done); },
+    const candidates = buildings.list.filter((b) => {
+      if (b.city !== depot.city || b.built < 1 || b.access < 0 || b.id === depot.id) return false;
+      if (b.kind === 'busstop' || b.kind === 'trainstation') return true;
+      if (b.kind === 'townhall' || b.kind === 'market' || b.kind === 'hospital' ||
+          b.kind === 'school' || b.kind === 'university' || b.kind === 'office' ||
+          b.kind === 'factory' || b.kind === 'carfactory' || b.kind === 'park' ||
+          b.kind === 'hotel' || b.kind === 'grocery' || b.kind === 'clothes' ||
+          b.kind === 'apartment' || b.kind === 'cemetery') return true;
+      return false;
     });
-    if (!ok) return false;
-    if (c.walker) { this.c.walkers.dismiss(c.walker); c.walker = undefined; }
-    c.activity = 'Riding the bus';
-    return true;
+
+    const stops: number[] = [depot.id];
+    let cur = depot;
+    const pool = new Set(candidates);
+
+    while (pool.size > 0 && stops.length < 10) {
+      let best: Building | null = null;
+      let bestD = Infinity;
+      for (const cand of pool) {
+        const d = dist(cur, cand);
+        const weight = (cand.kind === 'busstop' || cand.kind === 'trainstation') ? 0.7 : 1.0;
+        const weightedD = d * weight;
+        if (weightedD < bestD && traffic.canRoute(cur.access, cand.access)) {
+          bestD = weightedD;
+          best = cand;
+        }
+      }
+      if (!best) break;
+      stops.push(best.id);
+      pool.delete(best);
+      cur = best;
+    }
+    return stops;
+  }
+
+  /** Launch buses from depot to run the transit route continuously. */
+  private dispatchBusFleet(depot: Building) {
+    const want = Math.min(3, depot.workers);
+    const active = [...this.busFleet.values()].filter((b) => b.depotId === depot.id);
+    if (active.length >= want) return;
+    const stops = this.getRouteStops(depot);
+    if (stops.length < 2) return;
+    const startIdx = (active.length * Math.floor(stops.length / want)) % stops.length;
+    this.runBusLeg(depot, stops, startIdx, []);
+  }
+
+  /** Drive one segment of the route from stops[fromIdx] to stops[nextIdx]. */
+  private runBusLeg(depot: Building, stops: number[], fromIdx: number, passengers: BusPassenger[]): void {
+    const { traffic, buildings, pop } = this.c;
+    if (depot.removed || stops.length < 2) {
+      const fromB = buildings.get(stops[fromIdx]) ?? depot;
+      for (const p of passengers) {
+        const c = pop.citizens.get(p.citizenId);
+        const finalDest = buildings.get(p.finalDestId);
+        if (c && this.alive(c) && finalDest) {
+          this.walk(c, buildings.door(fromB), buildings.frontTile(fromB), finalDest, () => this.arrive(c, finalDest));
+        }
+      }
+      return;
+    }
+
+    const nextIdx = (fromIdx + 1) % stops.length;
+    const fromB = buildings.get(stops[fromIdx]);
+    const toB = buildings.get(stops[nextIdx]);
+    if (!fromB || !toB || fromB.access < 0 || toB.access < 0) return;
+
+    const fromName = BUILDINGS[fromB.kind].name;
+    const destName = BUILDINGS[toB.kind].name;
+    const routeNum = depot.city + 1;
+    const routeName = `Marshrut #${routeNum}`;
+
+    const v = traffic.spawnVehicle({
+      kind: 'bus',
+      from: fromB.access,
+      to: toB.access,
+      fromPos: buildings.door(fromB),
+      toPos: buildings.door(toB),
+      driverName: 'Avtobus haydovchisi',
+      purpose: `${routeName}: ${destName} tomon`,
+      routeName,
+      routeStops: stops.map((id) => BUILDINGS[buildings.get(id)!.kind].name),
+      stopIndex: nextIdx,
+      fromName,
+      destName,
+      destBuildingId: toB.id,
+      homeBuildingId: depot.id,
+      passengers: passengers.map((p) => p.citizenId),
+      onArrive: () => {
+        this.onBusArrived(v ? v.id : -1, depot, stops, nextIdx);
+      },
+      onFail: () => {
+        this.onBusFailed(v ? v.id : -1, depot, stops, nextIdx);
+      },
+    });
+
+    if (!v) {
+      for (const p of passengers) {
+        const c = pop.citizens.get(p.citizenId);
+        const finalDest = buildings.get(p.finalDestId);
+        if (c && this.alive(c) && finalDest) {
+          this.walk(c, buildings.door(fromB), buildings.frontTile(fromB), finalDest, () => this.arrive(c, finalDest));
+        }
+      }
+      return;
+    }
+
+    this.busFleet.set(v.id, {
+      vehicleId: v.id,
+      depotId: depot.id,
+      routeNum,
+      stops,
+      currentIdx: nextIdx,
+      passengers,
+    });
+
+    for (const p of passengers) {
+      const c = pop.citizens.get(p.citizenId);
+      if (c) {
+        c.state = 'travel';
+        c.activity = 'Riding the bus';
+      }
+    }
+  }
+
+  /** When a bus arrives at a stop: disembark passengers, board waiting passengers, and proceed to next stop. */
+  private onBusArrived(vehicleId: number, depot: Building, stops: number[], arrivedIdx: number) {
+    const { buildings, pop, traffic, walkers } = this.c;
+    const bus = this.busFleet.get(vehicleId);
+    this.busFleet.delete(vehicleId);
+    if (!bus) return;
+
+    const currentStop = buildings.get(stops[arrivedIdx]);
+    if (!currentStop || depot.removed) {
+      const fallback = currentStop ?? depot;
+      for (const p of bus.passengers) {
+        const c = pop.citizens.get(p.citizenId);
+        const finalDest = buildings.get(p.finalDestId);
+        if (c && this.alive(c) && finalDest) {
+          this.walk(c, buildings.door(fallback), buildings.frontTile(fallback), finalDest, () => this.arrive(c, finalDest));
+        }
+      }
+      return;
+    }
+
+    // Step A: Disembark passengers who reached their stop ("tushib qoladi")
+    const remaining: BusPassenger[] = [];
+    for (const p of bus.passengers) {
+      const c = pop.citizens.get(p.citizenId);
+      const finalDest = buildings.get(p.finalDestId);
+      const getsOff = p.dropStopId === currentStop.id ||
+                      p.finalDestId === currentStop.id ||
+                      (finalDest && dist(currentStop, finalDest) <= 8);
+      if (getsOff) {
+        traffic.removePassenger(vehicleId, p.citizenId);
+        if (c && this.alive(c)) {
+          c.state = 'travel';
+          if (!finalDest || currentStop.id === finalDest.id) {
+            this.arrive(c, currentStop);
+          } else {
+            c.activity = c.job === finalDest.id ? 'Walking to work' : c.school === finalDest.id ? 'Walking to school' : 'Out for a walk';
+            this.walk(c, buildings.door(currentStop), buildings.frontTile(currentStop), finalDest, () => this.arrive(c, finalDest));
+          }
+        }
+      } else {
+        remaining.push(p);
+      }
+    }
+
+    // Step B: Board waiting passengers whose direction matches ("agar o'sha tarafga bormoqchi bo'lsa chiqadi")
+    const waiters = this.busWaiters.get(currentStop.id) ?? [];
+    const n = stops.length;
+    const MAX_PASSENGERS = 16;
+    const unboarded: BusWaiter[] = [];
+
+    for (const w of waiters) {
+      if (remaining.length >= MAX_PASSENGERS) {
+        unboarded.push(w);
+        continue;
+      }
+      let reachableAhead = false;
+      for (let step = 1; step < n; step++) {
+        const checkIdx = (arrivedIdx + step) % n;
+        if (stops[checkIdx] === w.dropStopId) {
+          reachableAhead = true;
+          break;
+        }
+      }
+      if (reachableAhead) {
+        const c = pop.citizens.get(w.citizenId);
+        if (c && this.alive(c)) {
+          if (c.walker) { walkers.dismiss(c.walker); c.walker = undefined; }
+          c.state = 'travel';
+          c.activity = 'Riding the bus';
+          remaining.push({
+            citizenId: w.citizenId,
+            pickupStopId: currentStop.id,
+            dropStopId: w.dropStopId,
+            finalDestId: w.finalDestId,
+          });
+        }
+      } else {
+        unboarded.push(w);
+      }
+    }
+
+    if (unboarded.length > 0) this.busWaiters.set(currentStop.id, unboarded);
+    else this.busWaiters.delete(currentStop.id);
+
+    // Step C: Proceed along the route
+    this.runBusLeg(depot, stops, arrivedIdx, remaining);
+  }
+
+  private onBusFailed(vehicleId: number, depot: Building, stops: number[], failedIdx: number) {
+    const { buildings, pop } = this.c;
+    const bus = this.busFleet.get(vehicleId);
+    this.busFleet.delete(vehicleId);
+    if (!bus) return;
+    const stop = buildings.get(stops[failedIdx]) ?? depot;
+    for (const p of bus.passengers) {
+      const c = pop.citizens.get(p.citizenId);
+      const finalDest = buildings.get(p.finalDestId);
+      if (c && this.alive(c) && finalDest) {
+        this.walk(c, buildings.door(stop), buildings.frontTile(stop), finalDest, () => this.arrive(c, finalDest));
+      }
+    }
+  }
+
+  /** Check if a citizen can use public transit to travel from origin to dest. */
+  private findTransitTrip(origin: Building, dest: Building): { pickup: Building; dropoff: Building } | null {
+    const { buildings } = this.c;
+    if (dist(origin, dest) < 8) return null;
+    const depots = buildings.list.filter((b) => b.kind === 'busdepot' && b.city === origin.city && b.built >= 1 && b.workers > 0 && b.access >= 0);
+    if (!depots.length) return null;
+
+    for (const depot of depots) {
+      const stops = this.getRouteStops(depot);
+      if (stops.length < 2) continue;
+
+      let bestPickup: Building | null = null;
+      let bestPickupDist = 16;
+      let pickupIdx = -1;
+
+      let bestDropoff: Building | null = null;
+      let bestDropoffDist = 16;
+
+      for (let i = 0; i < stops.length; i++) {
+        const s = buildings.get(stops[i]);
+        if (!s) continue;
+        const dOrigin = dist(origin, s);
+        if (dOrigin < bestPickupDist) {
+          bestPickupDist = dOrigin;
+          bestPickup = s;
+          pickupIdx = i;
+        }
+        const dDest = dist(dest, s);
+        if (dDest < bestDropoffDist) {
+          bestDropoffDist = dDest;
+          bestDropoff = s;
+        }
+      }
+
+      if (!bestPickup || !bestDropoff || bestPickup.id === bestDropoff.id) continue;
+
+      const n = stops.length;
+      let reachable = false;
+      for (let step = 1; step < n; step++) {
+        if (stops[(pickupIdx + step) % n] === bestDropoff.id) {
+          reachable = true;
+          break;
+        }
+      }
+
+      if (reachable && (bestPickupDist + bestDropoffDist) < dist(origin, dest) * 0.85) {
+        return { pickup: bestPickup, dropoff: bestDropoff };
+      }
+    }
+    return null;
+  }
+
+  private addWaiter(waiter: BusWaiter) {
+    let list = this.busWaiters.get(waiter.pickupStopId);
+    if (!list) {
+      list = [];
+      this.busWaiters.set(waiter.pickupStopId, list);
+    }
+    list.push(waiter);
+  }
+
+  private updateBusWaiters(dt: number) {
+    for (const [stopId, waiters] of this.busWaiters.entries()) {
+      const remaining: BusWaiter[] = [];
+      const stop = this.c.buildings.get(stopId);
+      for (const w of waiters) {
+        w.waitTimer += dt;
+        if (w.waitTimer > 45) {
+          const c = this.c.pop.citizens.get(w.citizenId);
+          const finalDest = this.c.buildings.get(w.finalDestId);
+          if (c && this.alive(c) && stop && finalDest) {
+            c.activity = 'Out for a walk';
+            this.walk(c, this.c.buildings.door(stop), this.c.buildings.frontTile(stop), finalDest, () => this.arrive(c, finalDest));
+          }
+        } else {
+          remaining.push(w);
+        }
+      }
+      if (remaining.length > 0) this.busWaiters.set(stopId, remaining);
+      else this.busWaiters.delete(stopId);
+    }
   }
 
   private teleportHome(c: Citizen) {
@@ -1603,6 +1973,17 @@ export class Life {
       this.spots.delete(key);
     }
     for (const c of pop.citizens.values()) if (c.at === b.id && c.state === 'away') this.teleportHome(c);
+    const waiters = this.busWaiters.get(b.id);
+    if (waiters) {
+      this.busWaiters.delete(b.id);
+      for (const w of waiters) {
+        const c = pop.citizens.get(w.citizenId);
+        const finalDest = buildings.get(w.finalDestId);
+        if (c && this.alive(c) && finalDest) {
+          this.walk(c, buildings.door(b), buildings.frontTile(b), finalDest, () => this.arrive(c, finalDest));
+        }
+      }
+    }
     if (BUILDINGS[b.kind].units) {
       for (const f of [...pop.families.values()].filter((x) => x.home === b.id)) {
         const other = this.freeHomes(b.city)[0];

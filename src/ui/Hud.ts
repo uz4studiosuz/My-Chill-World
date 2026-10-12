@@ -47,6 +47,7 @@ export const ITEMS: ToolItem[] = [
   b('university', 'services', '30 students', 'Young adults with a school diploma study for 4 years and become specialists with a degree.', 'school'),
   b('firestation', 'services', 'Firefighters', 'Fire trucks drive to burning buildings nearby and put the fire out.', 'energy'),
   b('busdepot', 'services', 'Public transport', 'People without a car ride the bus on longer trips. Makes the city happier.', 'car'),
+  b('busstop', 'services', 'Bus Stop', 'Shelter where passengers board and exit buses.', 'car'),
   b('police', 'services', 'Safety', 'Officers cut down fights, accidents and murders in the city.', 'jobs'),
   b('hospital', 'services', 'Heals people', 'Doctors and nurses treat the sick. Reduces deaths from illness, fights and accidents.', 'heart'),
   b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one.', 'heart'),

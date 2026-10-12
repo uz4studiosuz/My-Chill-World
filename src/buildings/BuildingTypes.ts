@@ -1,7 +1,7 @@
 export type BuildingKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower'
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
-  | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
+  | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction';
 
 
 /** How a building's workers behave while at work. */
@@ -77,6 +77,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   clothes: def({ kind: 'clothes', name: 'Clothing Store', size: 1, money: 600, stone: 8, wood: 10, jobs: 3, salary: 12, energy: 2 }),
   firestation: def({ kind: 'firestation', name: 'Fire Station', size: 1, money: 900, iron: 5, stone: 20, wood: 10, jobs: 4, salary: 16, publicJob: true, upkeep: 4, energy: 2 }),
   busdepot: def({ kind: 'busdepot', name: 'Bus Depot', size: 2, money: 1600, iron: 10, stone: 30, wood: 10, jobs: 4, salary: 14, publicJob: true, upkeep: 6, energy: 3 }),
+  busstop: def({ kind: 'busstop', name: 'Bus Stop', size: 1, money: 120, stone: 4, wood: 4, upkeep: 1 }),
   kindergarten: def({ kind: 'kindergarten', name: 'Kindergarten', size: 1, money: 600, stone: 10, wood: 10, jobs: 3, salary: 13, publicJob: true, upkeep: 3, energy: 2, students: 24 }),
   hotel: def({ kind: 'hotel', name: 'Hotel', size: 2, money: 2400, stone: 50, wood: 20, iron: 5, jobs: 6, salary: 14, upkeep: 2, energy: 6 }),
   windturbine: def({ kind: 'windturbine', name: 'Wind Turbine', size: 1, money: 900, stone: 10, iron: 15, jobs: 1, salary: 15, publicJob: true, upkeep: 2, power: 30 }),
