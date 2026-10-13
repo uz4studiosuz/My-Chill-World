@@ -20,6 +20,12 @@ export interface LeisureHost {
   planOuting(c: Citizen, dest: Building, until: number): boolean;
   isLit(k: number): boolean;
   charge(c: Citizen, cityId: number, amount: number): void;
+  staffOnDuty(b: Building): Citizen[];
+  isShiftOver(c: Citizen): boolean;
+  takeDriver(b: Building, activity?: string): Citizen | undefined;
+  releaseDriver(c?: Citizen): void;
+  fullName(c: Citizen): string;
+  sendToPoint(c: Citizen, p: Point, until: number, activity: string, arrived: (c: Citizen) => void): boolean;
 }
 
 export type PetitionKind = 'shop' | 'school' | 'light' | 'park' | 'hospital' | 'busstop' | 'playground';
@@ -53,6 +59,10 @@ export const PETITION_TEXT: Record<PetitionKind, string> = {
 };
 
 /** What people do on a bench. */
+const DRILL = 'Drilling on the parade ground';
+const BUSK = 'Playing music on the square';
+const SKATE = 'Ice skating';
+const PLAY_FOOTBALL = 'Playing football';
 const BENCH_LIFE = ['Resting on a bench', 'Reading a book on a bench', 'Feeding the pigeons', 'Drinking coffee on a bench'];
 
 const PETITION_REWARD: Record<PetitionKind, number> = { shop: 300, school: 500, light: 150, park: 250, hospital: 600, busstop: 150, playground: 150 };
@@ -78,9 +88,11 @@ export class Leisure {
   private lastMatch = -1;
   private festMeshes = new Map<number, THREE.Mesh>();
   /** Soldiers drilling on each military base's parade ground. */
-  private soldiers = new Map<number, Walker[]>();
-  /** A street musician playing on each town hall square in the evening. */
-  private musicians = new Map<number, Walker>();
+  private soldiers = new Map<number, { c: Citizen; w: Walker }[]>();
+  /** Street musician (citizen id) per town hall. */
+  private buskers = new Map<number, number>();
+  /** Where people can skate (centres of frozen lakes near towns), set by the game. */
+  iceSpots: () => Point[] = () => [];
   private pigeons: THREE.InstancedMesh;
   private pigeonSpots: { x: number; z: number; ph: number }[] = [];
   private pigeonT = 0;
@@ -100,7 +112,8 @@ export class Leisure {
   private sport = new Map<number, number>();
   private beauty = new Map<number, number>();
   /** Footballers running on each stadium's pitch during a match. */
-  private players = new Map<number, Walker[]>();
+  /** The two teams on the pitch: real citizens who came to the stadium first. */
+  private players = new Map<number, Citizen[]>();
 
   constructor(private c: LifeContext, private host: LeisureHost) {
     this.pigeons = new THREE.InstancedMesh(pigeonGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), 160);
@@ -126,7 +139,7 @@ export class Leisure {
     if (this.host.festival !== this.festKind) this.festival(this.host.festival);
     this.footballers();
     this.drill();
-    this.busking(tod);
+    if (this.tickT <= 0.05) { this.busking(tod); this.skating(tod); }
     this.time += dt;
     this.updatePigeons(dt);
     if (dt <= 0) return;
@@ -203,6 +216,28 @@ export class Leisure {
     c.activity = b.kind === 'bench' || ((b.kind === 'park' || b.kind === 'fountain') && c.age >= 14) ? pick(BENCH_LIFE) : b.kind === 'townhall' && !this.host.festival ? 'Listening to a street musician' : b.kind === 'cinema' ? 'Watching a film' : b.kind === 'stadium' ? 'Watching football' : b.kind === 'townhall' ? 'Celebrating' : 'Playing';
     const sp = this.spot(b);
     if (BENCH_LIFE.includes(c.activity)) sp.anim = 'sit';
+    // the first ten young people at a match play in it
+    if (b.kind === 'stadium' && this.c.buildings.matchOn && c.age >= 15 && c.age < 40 && (this.players.get(b.id)?.length ?? 0) < 10) {
+      const team = this.players.get(b.id) ?? [];
+      team.push(c);
+      this.players.set(b.id, team);
+      c.activity = PLAY_FOOTBALL;
+      const w0 = c.walker;
+      if (!w0) return;
+      const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
+      const pitch = (): Point => { const x = rnd(-0.95, 0.95), z = rnd(-0.85, 0.55); return { x: b.mesh.position.x + x * cr + z * sr, z: b.mesh.position.z - x * sr + z * cr }; };
+      const run = (w: Walker) => { if (c.activity === PLAY_FOOTBALL) walkers.retarget(w, { points: [{ x: w.x, z: w.z }, pitch()] }, run); };
+      w0.speed = 1 + Math.random() * 0.3;
+      walkers.retarget(w0, { points: [{ x: w0.x, z: w0.z }, pitch()] }, run);
+      return;
+    }
+    if (b.kind === 'townhall' && this.buskers.get(b.id) === c.id) {
+      c.activity = BUSK;
+      const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
+      sp.at = { x: b.mesh.position.x + 0.6 * cr + 0.62 * sr, z: b.mesh.position.z - 0.6 * sr + 0.62 * cr };
+      sp.face = { x: sp.at.x + sr, z: sp.at.z + cr };
+      sp.anim = 'cheer';
+    }
     const secs = Math.max(2, (until - eco.timeOfDay) * DAY_SECONDS);
     const w = c.walker;
     if (!w) return;
@@ -233,54 +268,89 @@ export class Leisure {
   // ---------- football ----------
 
   /** Two teams of five chase the ball while a match is on. */
-  /** Soldiers march up and down the parade ground during the day. */
+  /** Soldiers on duty — real citizens of the base — march up and down the parade ground during the day. */
   private drill() {
     const { buildings, walkers, eco } = this.c;
     const tod = eco.timeOfDay;
     const on = tod > 0.3 && tod < 0.7;
     for (const [id, list] of this.soldiers) {
-      const b = buildings.get(id);
-      if (on && b && !b.removed && b.workers > 0) continue;
-      for (const w of list) walkers.dismiss(w);
-      this.soldiers.delete(id);
+      const base = buildings.get(id);
+      const keep = list.filter(({ c, w }) => on && !!base && !base.removed && c.walker === w && !w.leaving && c.activity === DRILL && !this.host.isShiftOver(c));
+      for (const e of list) {
+        if (keep.includes(e) || e.c.activity !== DRILL) continue;
+        // back inside the barracks; the daily schedule sends them home when the shift is over
+        if (e.c.walker === e.w) { walkers.dismiss(e.w); e.c.walker = undefined; }
+        e.c.activity = 'At work';
+      }
+      if (keep.length) this.soldiers.set(id, keep); else this.soldiers.delete(id);
     }
     if (!on) return;
     for (const b of buildings.list) {
-      if (b.kind !== 'military' || b.built < 1 || !b.workers || this.soldiers.has(b.id)) continue;
+      if (b.kind !== 'military' || b.built < 1) continue;
+      const list = this.soldiers.get(b.id) ?? [];
+      if (list.length >= 8) continue;
+      const free = this.host.staffOnDuty(b).filter((c) => !c.walker);
+      if (!free.length) continue;
       const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
       const at = (x: number, z: number): Point => ({ x: b.mesh.position.x + x * cr + z * sr, z: b.mesh.position.z - x * sr + z * cr });
-      const list: Walker[] = [];
-      for (let i = 0; i < 8; i++) {
+      for (const c of free.slice(0, 8 - list.length)) {
         // two ranks of four, marching in step from one end of the ground to the other
+        const i = list.length;
         const z = 0.35 + Math.floor(i / 4) * 0.18, x0 = -0.1 + (i % 4) * 0.12;
-        const a = at(x0, z), c = at(x0 + 0.8, z);
+        const a = at(x0, z), e = at(x0 + 0.8, z);
         let fwd = true;
-        const march = (w: Walker) => { fwd = !fwd; walkers.retarget(w, { points: [{ x: w.x, z: w.z }, fwd ? c : a] }, march); };
-        const w = walkers.walk(i % 2 ? 1 : 3, 1, { points: [a, c] }, 'none', march);
+        const march = (w: Walker) => { fwd = !fwd; walkers.retarget(w, { points: [{ x: w.x, z: w.z }, fwd ? e : a] }, march); };
+        const w = walkers.walk(c.variant, 1, { points: [buildings.door(b), a] }, 'none', march);
+        w.citizen = c.id;
         w.speed = 0.55;
-        list.push(w);
+        c.walker = w;
+        c.activity = DRILL;
+        list.push({ c, w });
       }
       this.soldiers.set(b.id, list);
     }
   }
 
-  /** In the evening a street musician plays on the town hall square. */
+  /** In the evening a citizen plays music on the town hall square; a few people stop to listen. */
   private busking(tod: number) {
-    const { buildings, walkers } = this.c;
-    const on = !this.host.festival && tod > 0.62 && tod < 0.86;
-    for (const [id, w] of this.musicians) {
-      const b = buildings.get(id);
-      if (on && b && !b.removed) continue;
-      walkers.dismiss(w);
-      this.musicians.delete(id);
-    }
-    if (!on) return;
+    const { buildings, pop } = this.c;
+    const on = !this.host.festival && tod > 0.62 && tod < 0.84;
+    if (!on) { this.buskers.clear(); return; }
     for (const b of buildings.list) {
-      if (b.kind !== 'townhall' || b.built < 1 || this.musicians.has(b.id)) continue;
-      const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
-      const p = { x: b.mesh.position.x + 0.6 * cr + 0.62 * sr, z: b.mesh.position.z - 0.6 * sr + 0.62 * cr };
-      const w = walkers.walk(Math.floor(Math.random() * 4), 1, { points: [p, { x: p.x + 0.01, z: p.z }] }, 'none', (ww) => walkers.holdFor(ww, 9999, 'cheer', () => {}, b.mesh.position));
-      this.musicians.set(b.id, w);
+      if (b.kind !== 'townhall' || b.built < 1) continue;
+      const id = this.buskers.get(b.id);
+      const cur = id !== undefined ? pop.citizens.get(id) : undefined;
+      if (cur && (cur.outing === b.id || cur.activity === BUSK)) continue;
+      const cand = [...pop.citizens.values()].filter((c) => c.state === 'home' && c.age >= 18 && c.age < 60 && !c.night && pop.families.get(c.family) && buildings.get(pop.families.get(c.family)!.home)?.city === b.city);
+      if (!cand.length) continue;
+      const c = pick(cand);
+      if (this.host.planOuting(c, b, 0.86)) this.buskers.set(b.id, c.id);
+    }
+  }
+
+  /** Children and grown-ups go skating on the frozen lake near their town. */
+  private skating(tod: number) {
+    const { pop, buildings, walkers } = this.c;
+    if (tod < 0.4 || tod > 0.74) return;
+    for (const spot of this.iceSpots()) {
+      const n = [...pop.citizens.values()].filter((c) => c.activity === SKATE && c.walker && Math.hypot(c.walker.x - spot.x, c.walker.z - spot.z) < 3).length;
+      if (n >= 6) continue;
+      const cand = [...pop.citizens.values()].filter((c) => {
+        if (c.state !== 'home' || c.age < 6 || c.age > 55 || c.activity.startsWith('Sleeping')) return false;
+        const h = buildings.get(pop.families.get(c.family)?.home ?? -1);
+        return !!h && Math.hypot(h.mesh.position.x - spot.x, h.mesh.position.z - spot.z) < 30;
+      });
+      if (!cand.length) continue;
+      const c = pick(cand);
+      const r = rnd(0.4, 1.0), a0 = Math.random() * Math.PI * 2;
+      const loop = Array.from({ length: 13 }, (_, j) => ({ x: spot.x + Math.cos(a0 + (j / 12) * Math.PI * 2) * r, z: spot.z + Math.sin(a0 + (j / 12) * Math.PI * 2) * r * 0.8 }));
+      this.host.sendToPoint(c, loop[0], Math.min(0.8, tod + 0.12), SKATE, (cc) => {
+        const w = cc.walker;
+        if (!w) return;
+        const go = (ww: Walker) => { if (cc.activity === SKATE) walkers.retarget(ww, { points: loop }, go); };
+        w.speed = 0.95;
+        go(w);
+      });
     }
   }
 
@@ -311,32 +381,12 @@ export class Leisure {
     this.pigeons.instanceMatrix.needsUpdate = true;
   }
 
+  /** After the match the players stop running. The team itself is made of real citizens (see stay). */
   private footballers() {
-    const { buildings, walkers } = this.c;
-    const on = buildings.matchOn;
+    if (this.c.buildings.matchOn) return;
     for (const [id, list] of this.players) {
-      const st = buildings.get(id);
-      if (on && st && !st.removed && st.workers > 0) continue;
-      for (const w of list) walkers.dismiss(w);
+      for (const c of list) if (c.activity === PLAY_FOOTBALL) c.activity = 'Watching football';
       this.players.delete(id);
-    }
-    if (!on) return;
-    for (const st of buildings.list) {
-      if (st.kind !== 'stadium' || st.built < 1 || !st.workers || this.players.has(st.id)) continue;
-      const cr = Math.cos(st.rot), sr = Math.sin(st.rot);
-      const pitch = (): Point => {
-        const x = rnd(-0.95, 0.95), z = rnd(-0.85, 0.55);
-        return { x: st.mesh.position.x + x * cr + z * sr, z: st.mesh.position.z - x * sr + z * cr };
-      };
-      const list: Walker[] = [];
-      for (let i = 0; i < 10; i++) {
-        const run = (w: Walker) => walkers.retarget(w, { points: [{ x: w.x, z: w.z }, pitch()] }, run);
-        const start = pitch();
-        const w = walkers.walk(i < 5 ? 2 : 0, 0.95, { points: [start, pitch()] }, 'none', run);
-        w.speed = 0.9 + Math.random() * 0.4;
-        list.push(w);
-      }
-      this.players.set(st.id, list);
     }
   }
 
@@ -406,36 +456,40 @@ export class Leisure {
       .filter((b) => b.kind === 'hospital' && b.city === home.city && b.built >= 1 && b.workers > 0 && b.access >= 0)
       .sort((p, q) => Math.hypot(p.x - home.x, p.z - home.z) - Math.hypot(q.x - home.x, q.z - home.z))[0];
     if (!hospital || !traffic.canRoute(hospital.access, home.access)) return false;
+    // a paramedic on shift drives the ambulance
+    const medic0 = this.host.takeDriver(hospital, 'Driving the ambulance');
+    if (!medic0) return false;
+    const done = () => { this.calls.delete(patient.id); this.host.releaseDriver(medic0); };
     this.calls.add(patient.id);
     const name = `${patient.name} ${this.c.pop.families.get(patient.family)?.surname ?? ''}`.trim();
     const white = new THREE.Color('#f4f4f2');
     sound.play('siren', home.mesh.position);
     const ok = traffic.spawn({
       kind: 'car', from: hospital.access, to: home.access, color: white, fromPos: buildings.door(hospital), siren: true,
-      purpose: 'Emergency call', driverName: 'Paramedic', fromName: 'Hospital', destName: BUILDINGS[home.kind].name, homeBuildingId: hospital.id,
+      purpose: 'Emergency call', driverId: medic0.id, driverName: this.host.fullName(medic0), fromName: 'Hospital', destName: BUILDINGS[home.kind].name, homeBuildingId: hospital.id,
       onArrive: () => {
         const door = buildings.door(home);
         const road = buildings.slot(home, 0);
         const medic = walkers.walk(3, 1, { points: [door, { x: (door.x + road.x) / 2, z: (door.z + road.z) / 2 }] }, 'stretcher', () => {
           traffic.spawn({
             kind: 'car', from: home.access, to: hospital.access, color: white, toPos: buildings.door(hospital), siren: true,
-            purpose: 'Taking a patient to hospital', driverName: 'Paramedic', fromName: BUILDINGS[home.kind].name, destName: 'Hospital', homeBuildingId: hospital.id,
+            purpose: 'Taking a patient to hospital', driverId: medic0.id, driverName: this.host.fullName(medic0), fromName: BUILDINGS[home.kind].name, destName: 'Hospital', homeBuildingId: hospital.id,
             onArrive: () => {
-              this.calls.delete(patient.id);
+              done();
               if (this.c.pop.citizens.get(patient.id) !== patient) return;
               patient.health = Math.max(patient.health, 85);
               this.host.charge(patient, hospital.city, SERVICE_FEE.hospital);
               this.c.pop.note(patient, 'Taken to hospital by ambulance — the doctors helped');
               this.host.events.push(t('The ambulance took {name} to hospital — doctors saved them', { name }));
             },
-            onFail: () => this.calls.delete(patient.id),
+            onFail: done,
           });
         });
         medic.speed = 0.5;
       },
-      onFail: () => this.calls.delete(patient.id),
+      onFail: done,
     });
-    if (!ok) this.calls.delete(patient.id);
+    if (!ok) done();
     else this.host.events.push(t('{name} fell ill — an ambulance is on its way', { name }));
     return ok;
   }

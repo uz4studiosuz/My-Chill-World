@@ -293,9 +293,10 @@ export class Game implements ToolHost {
     else this.buildStarterTown();
     this.wantTutorial = !!opts.create && Tutorial.wanted();
 
-    this.waterLife = new WaterLife(this.map, this.walkers,
+    this.waterLife = new WaterLife(this.map,
       () => this.buildings.list.filter((b) => b.kind === 'townhall').map((b) => ({ x: b.x, z: b.z })),
       () => this.buildings.list.filter((b) => b.kind === 'fishery').map((b) => ({ x: b.x, z: b.z })));
+    this.life.leisure.iceSpots = () => this.waterLife.iceSpots;
     this.animals = new Animals(this.map, (k) => this.map.isLand(k) && !this.net.type[k] && !this.net.isIsland(k) && this.buildings.occ[k] === -1);
     this.scene.add(
       this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
@@ -1659,6 +1660,18 @@ export class Game implements ToolHost {
       bars.push({ label: t('Waiting passengers'), value: Math.min(1, waiters.length / 8), color: '#d9a92a', text: `${waiters.length} ${t('people')}` });
       rows.push([t('Public transport'), t('Active bus stop')]);
     }
+    if (def.jobs && b.workers === 0 && b.built >= 1) {
+      // explain the empty building
+      const m = city.migration;
+      rows.push([t('Why nobody works here'), m && m.unemployed === 0 ? t('Every worker in town already has a job') : t('Other jobs have a higher priority'), 'bad']);
+      if (m?.reasons.length) rows.push([t('Blocks newcomers'), t(m.reasons[0]), 'bad']);
+      rows.push([t('What to do'), t("Build homes so families move in, or raise this job's priority in Statistics → Jobs")]);
+    }
+    if (b.kind === 'watertower') {
+      const people = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === b.city).reduce((a, f) => a + f.members.length, 0);
+      const towers = this.buildings.list.filter((x) => x.kind === 'watertower' && x.city === b.city).length;
+      rows.push([t('Serves'), t('up to {n} people', { n: BUILDINGS.watertower.water })], [t('People in town'), `${people}`, people > towers * BUILDINGS.watertower.water ? 'bad' : 'good'], [t('Towers needed'), `${Math.ceil(people / BUILDINGS.watertower.water)} (${t('you have {n}', { n: towers })})`, people > towers * BUILDINGS.watertower.water ? 'bad' : 'good']);
+    }
     if (b.kind === 'hotel') {
       const attract = this.life.attraction.get(b.id) ?? 0;
       bars.push({ label: t('Guests'), value: b.stored / TOURISM.rooms, color: '#6fb6ff', text: `${Math.round(b.stored)}/${TOURISM.rooms}` });
@@ -1861,6 +1874,22 @@ export class Game implements ToolHost {
     ];
   }
 
+  /** Why buildings stand empty and what would bring new families. */
+  private migrationSection(city: City): ResourceSection {
+    const m = city.migration;
+    if (!m) return { title: t('New families'), note: t('Known after a few hours') };
+    const rows: [string, string, ('good' | 'bad')?][] = [
+      [t('Empty jobs'), `${Math.max(0, m.vacancies)}`, m.vacancies > 0 ? 'bad' : 'good'],
+      [t('Unemployed'), `${m.unemployed}`],
+      [t('Free homes'), `${m.freeHomes}`, m.freeHomes ? 'good' : 'bad'],
+    ];
+    return {
+      title: t('Why buildings are empty'),
+      rows: [...rows, ...(m.reasons.length ? m.reasons.map((r) => [t('Blocks newcomers'), t(r), 'bad'] as [string, string, 'bad']) : [[t('New families'), t('Moving in — the town is attractive'), 'good'] as [string, string, 'good']])],
+      note: t('Workers come only with new families. A family moves in when there is a free home, enough water, food and power, open jobs and happiness of at least 45%. More empty jobs bring families faster. You can also raise the priority of important jobs in Statistics → Jobs.'),
+    };
+  }
+
   private resourceView(key: string): ResourceView | null {
     const city = this.eco.city;
     const own = this.buildings.list.filter((b) => b.city === city.id && b.built >= 1);
@@ -1938,6 +1967,7 @@ export class Game implements ToolHost {
           key, icon: 'people', title: t('Population'), value: n(c.men + c.women + c.boys + c.girls + c.babies + c.elders),
           sections: [
             { title: t('People'), rows: [[t('Men'), `${c.men}`], [t('Women'), `${c.women}`], [t('Boys'), `${c.boys}`], [t('Girls'), `${c.girls}`], [t('Babies'), `${c.babies}`], [t('Elders'), `${c.elders}`]] },
+            this.migrationSection(city),
             { title: t('Homes'), rows: [[t('Families'), `${fams}`], [t('Free homes'), `${this.life.freeHomes(city.id).length}`], [t('Deaths yesterday'), `${city.deaths}`, city.deaths ? 'bad' : undefined], [t('Hungry'), `${c.hungry}`, c.hungry ? 'bad' : undefined], [t('Sick'), `${c.sick}`, c.sick ? 'bad' : undefined]] },
           ],
         };
@@ -1955,6 +1985,7 @@ export class Game implements ToolHost {
           sections: [
             { title: t('Workers'), bars: [[t('Employed'), c.workforce ? c.workers / c.workforce : 1, `${c.workers}/${c.workforce}`]], rows: [[t('Unemployed'), `${Math.max(0, c.workforce - c.workers)}`, c.workforce - c.workers > 0 ? 'bad' : 'good'], [t('Students'), `${c.students}`]] },
             { title: t('Open jobs'), rows: open.size ? [...open.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => [t(k), `${v}`]) : [[t('Every job is filled'), '—', 'good']] },
+            this.migrationSection(city),
           ],
         };
       }

@@ -56,6 +56,8 @@ export interface City {
   /** Books: today so far, and the last days (newest first). Not saved. */
   ledger: Ledger;
   ledgerDays: Ledger[];
+  /** Why new families do (not) move in: open jobs, free homes, blocking reasons. Not saved. */
+  migration?: { vacancies: number; freeHomes: number; unemployed: number; reasons: string[] };
   /** Happiness target broken down into reasons (label, points). */
   mood: [string, number][];
 }

@@ -325,7 +325,8 @@ export class Population {
   /** Kind of a workplace (set by the game). */
   jobKind?: (id: number) => string | undefined;
 
-  planDay() {
+  /** Plan the day of everyone, or only of `only` (e.g. a family that just moved in). */
+  planDay(only?: Citizen[]) {
     // every third worker of a round-the-clock workplace takes the night shift
     const nightIds = new Set<number>();
     const staff = new Map<number, Citizen[]>();
@@ -336,7 +337,7 @@ export class Population {
       staff.set(c.job, l);
     }
     for (const l of staff.values()) l.sort((a, b) => a.id - b.id).forEach((c, i) => { if (i % 3 === 2) nightIds.add(c.id); });
-    for (const c of this.citizens.values()) {
+    for (const c of only ?? this.citizens.values()) {
       c.errand = false;
       const was = !!c.night;
       c.night = nightIds.has(c.id);

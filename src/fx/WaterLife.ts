@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { DIRS, N, idx, inBounds, tileToWorld, worldToTile } from '../world/grid';
 import type { WorldMap } from '../world/WorldMap';
-import type { Walker, Walkers } from '../people/Walkers';
 import { box, merge, shape } from '../utils/voxel';
 import { WATER_LEVEL } from '../config';
 
@@ -43,11 +42,10 @@ export class WaterLife {
   private meshes: Record<BoatKind | 'duck', THREE.InstancedMesh>;
   private towels: THREE.InstancedMesh;
   private umbrellas: THREE.InstancedMesh;
-  private skaters: Walker[] = [];
   private time = 0;
   private wasFrozen = false;
 
-  constructor(private map: WorldMap, private walkers: Walkers, private towns: () => { x: number; z: number }[], private fisheries: () => { x: number; z: number }[]) {
+  constructor(private map: WorldMap, private towns: () => { x: number; z: number }[], private fisheries: () => { x: number; z: number }[]) {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     const make = (g: THREE.BufferGeometry, n: number, colorful = false) => {
       const m = new THREE.InstancedMesh(g, colorful ? new THREE.MeshLambertMaterial({ vertexColors: true }) : mat, n);
@@ -159,10 +157,11 @@ export class WaterLife {
     }
   }
 
-  /** Skaters glide in loops on the frozen lake nearest to a town. */
-  private skate(on: boolean) {
-    for (const w of this.skaters) this.walkers.dismiss(w);
-    this.skaters = [];
+  /** Centres of frozen lakes near the towns, where citizens go skating (filled while frozen). */
+  iceSpots: { x: number; z: number }[] = [];
+
+  private findIce(on: boolean) {
+    this.iceSpots = [];
     if (!on) return;
     for (const town of this.towns()) {
       let best = -1, bd = 26;
@@ -177,22 +176,13 @@ export class WaterLife {
         const d = Math.abs(dx) + Math.abs(dz);
         if (d < bd) { bd = d; best = k; }
       }
-      if (best < 0) continue;
-      const cx = tileToWorld(best % N), cz = tileToWorld((best / N) | 0);
-      for (let i = 0; i < 6; i++) {
-        const r = 0.5 + (i % 3) * 0.3, a0 = (i / 6) * Math.PI * 2;
-        const pts = Array.from({ length: 13 }, (_, j) => ({ x: cx + Math.cos(a0 + (j / 12) * Math.PI * 2) * r, z: cz + Math.sin(a0 + (j / 12) * Math.PI * 2) * r * 0.8 }));
-        const loop = (w: Walker) => this.walkers.retarget(w, { points: pts }, loop);
-        const w = this.walkers.walk(Math.floor(Math.random() * 8), i % 3 === 2 ? 0.7 : 1, { points: pts }, 'none', loop);
-        w.speed = 0.9;
-        this.skaters.push(w);
-      }
+      if (best >= 0) this.iceSpots.push({ x: tileToWorld(best % N), z: tileToWorld((best / N) | 0) });
     }
   }
 
   update(dt: number, frozen: boolean, summer: boolean, night: number) {
     this.time += dt;
-    if (frozen !== this.wasFrozen) { this.wasFrozen = frozen; this.skate(frozen); }
+    if (frozen !== this.wasFrozen) { this.wasFrozen = frozen; this.findIce(frozen); }
     this.towels.visible = this.umbrellas.visible = summer && !frozen && night < 0.5;
     const counts: Record<BoatKind | 'duck', number> = { sail: 0, fishing: 0, ferry: 0, duck: 0 };
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
