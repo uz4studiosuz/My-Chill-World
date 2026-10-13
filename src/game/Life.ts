@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, DayReport, Family, Population } from '../people/Population';
@@ -100,6 +100,7 @@ export class Life {
   /** Hotel id → how attractive the town is to tourists (0..1+). */
   attraction = new Map<number, number>();
   private serviceT = 5;
+  private routeCache = new Map<number, { t: number; stops: number[] }>();
   /** Buses / patrol cars on the road per depot or station. */
   private fleet = new Map<number, number>();
   /** Active buses running transit routes (vehicleId -> state). */
@@ -121,6 +122,10 @@ export class Life {
   private gridIds = new Set<number>();
   private rained = new Set<number>();
   events: string[] = [];
+  /** Money that changed hands just now (city id, amount) — the HUD shows it at once. */
+  onMoney: (city: number, amount: number) => void = () => {};
+  /** Today's on-the-spot income and spending per city (added to the daily balance). */
+  private live = new Map<number, { incomeTax: number; publicWages: number; fares: number; services: number; businessTax: number }>();
   /** Playgrounds, cinema, football, festivals, weddings, ambulances and residents' letters. */
   readonly leisure: Leisure;
   /** Fire trucks spraying water: building, nozzle position, seconds left. */
@@ -171,6 +176,44 @@ export class Life {
   }
 
   isLit(k: number) { return this.c.isLit?.(k) ?? false; }
+
+  private liveOf(city: number) {
+    let l = this.live.get(city);
+    if (!l) this.live.set(city, (l = { incomeTax: 0, publicWages: 0, fares: 0, services: 0, businessTax: 0 }));
+    return l;
+  }
+
+  /** Change a city's treasury right now and tell the HUD. */
+  private cash(cityId: number, amount: number, kind: 'incomeTax' | 'publicWages' | 'fares' | 'services' | 'businessTax') {
+    const city = this.c.eco.cities.get(cityId);
+    if (!city || !amount) return;
+    city.money += amount;
+    this.liveOf(cityId)[kind] += Math.abs(amount);
+    this.onMoney(cityId, amount);
+  }
+
+  /** A family pays the city for a service (hospital treatment, parking ticket) on the spot. */
+  charge(c: Citizen, cityId: number, amount: number) {
+    const f = this.family(c);
+    if (!f) return;
+    f.money -= amount;
+    this.cash(cityId, amount, 'services');
+  }
+
+  /** A worker finishes the shift: the wage is paid now, income tax goes to the city, public wages come out of it. */
+  private payShift(c: Citizen, b: Building) {
+    const f = this.family(c);
+    const city = this.c.eco.cities.get(b.city);
+    if (!f || !city || c.paid) return;
+    const gross = this.c.pop.wage(c, b);
+    if (gross <= 0) return;
+    c.paid = true;
+    const tax = gross * city.taxRate;
+    f.money += gross - tax;
+    f.income += Math.round(gross - tax);
+    if (BUILDINGS[b.kind].publicJob) this.cash(b.city, -gross, 'publicWages');
+    this.cash(b.city, tax, 'incomeTax');
+  }
 
   /** Send someone who is at home to a leisure place until `until` (time of day). */
   planOuting(c: Citizen, dest: Building, until: number) {
@@ -370,6 +413,12 @@ export class Life {
         if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'gasstation' || b.kind === 'hotel') {
           turnover = b.sales ?? 0;
           b.sales = 0;
+          // sales already taxed at the till are not taxed twice
+          const taxed = Math.min(turnover, b.salesTaxed ?? 0);
+          b.salesTaxed = 0;
+          const owner = b.owner >= 0 ? pop.families.get(b.owner) : undefined;
+          if (owner && taxed) owner.money += taxed * (1 - city.taxRate * 0.8) * OWNER_SHARE;
+          turnover -= taxed;
         } else if (b.kind === 'carmarket') {
           turnover = b.workers > 0 ? r.carSales / Math.max(1, working('carmarket').length) : 0;
         } else if (d.revenue) {
@@ -387,9 +436,14 @@ export class Life {
       }
       const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax + rentToCity + r.utilities + business - r.publicWages - upkeep);
       city.money += net;
+      // what came in and went out on the spot during the day belongs in the day's balance too
+      const lv = this.liveOf(city.id);
+      this.live.delete(city.id);
+      const liveNet = lv.incomeTax + lv.businessTax + lv.fares + lv.services - lv.publicWages;
       city.balance = {
-        incomeTax: Math.round(r.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax + rentToCity, businessTax: Math.round(business),
-        utilities: Math.round(r.utilities), publicWages: Math.round(r.publicWages), upkeep, net,
+        incomeTax: Math.round(r.incomeTax + lv.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax + rentToCity,
+        businessTax: Math.round(business + lv.businessTax), utilities: Math.round(r.utilities), publicWages: Math.round(r.publicWages + lv.publicWages),
+        upkeep, net: Math.round(net + liveNet), fares: Math.round(lv.fares), services: Math.round(lv.services),
       };
       city.deaths = r.deaths.length;
 
@@ -451,6 +505,7 @@ export class Life {
     for (const c of pop.citizens.values()) if (c.state !== 'home' && !(c.night && c.state === 'away' && c.at === c.job)) this.teleportHome(c);
     for (const w of [...this.c.walkers.list]) if (!w.leaving) this.c.walkers.dismiss(w);
     for (const c of pop.citizens.values()) if (c.walker?.leaving) c.walker = undefined;
+    this.busWaiters.clear();
     this.porters.clear();
     this.meals.clear();
     this.crews.clear();
@@ -815,7 +870,7 @@ export class Life {
       const sp = this.sprays[i];
       sp.t -= dt;
       if (dt > 0) effects.spray(sp.x, sp.z, sp.b.mesh.position.x, sp.b.mesh.position.z);
-      if (Math.random() < dt * 2) sound.play('water');
+      if (Math.random() < dt * 2) sound.play('water', sp.b.mesh.position);
       if (sp.t <= 0 || sp.b.removed) { this.sprays.splice(i, 1); sp.done(); }
     }
     this.fireT -= dt;
@@ -831,7 +886,7 @@ export class Life {
         if (near.length) {
           const o = near[Math.floor(Math.random() * near.length)];
           o.fire = 14;
-          sound.play('fire');
+          sound.play('fire', o.mesh.position);
           this.events.push(t('The fire spread to the {name}!', { name: t(BUILDINGS[o.kind].name) }));
         }
       }
@@ -851,7 +906,7 @@ export class Life {
           const nozzle = buildings.door(b);
           // firefighters spray water for a few seconds before the flames die
           const spray = () => { this.sprays.push({ b, x: nozzle.x, z: nozzle.z, t: 3.5, done: putOut }); };
-          sound.play('siren');
+          sound.play('siren', b.mesh.position);
           const sent = station.access >= 0 && b.access >= 0 && traffic.spawn({
             kind: 'truck', from: station.access, to: b.access, color: new THREE.Color('#d9443b'), siren: true,
             purpose: 'Fire call', driverName: 'Firefighter', destName: BUILDINGS[b.kind].name,
@@ -1082,8 +1137,8 @@ export class Life {
     const k = pick(junctions);
     const x = tileToWorld(k % N), z = tileToWorld((k / N) | 0);
     const wreck = effects.wreck(x, z);
-    sound.play('demolish');
-    sound.play('siren');
+    sound.play('demolish', { x, z });
+    sound.play('siren', { x, z });
     const police = buildings.list.find((b) => b.kind === 'police' && b.city === cityId && b.built >= 1 && b.workers > 0 && b.access >= 0);
     if (police) {
       traffic.spawn({
@@ -1181,8 +1236,13 @@ export class Life {
     }
     if (c.job >= 0) return buildings.get(c.job);
     if (c.school >= 0) return buildings.get(c.school);
-    if (c.errand) {
+    if (c.errand || (c.health < 55 && c.job < 0 && c.age >= 3)) {
       const home = buildings.get(this.family(c)?.home ?? -1);
+      // feeling unwell: off to the doctor first
+      if (c.health < 55) {
+        const clinic = buildings.list.find((b) => b.kind === 'hospital' && b.built >= 1 && b.workers > 0 && (!home || b.city === home.city));
+        if (clinic) return clinic;
+      }
       const shops = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && b.workers > 0 && SHOP_PRICE[b.kind]);
       if (this.festival) {
         const parks = buildings.list.filter((b) => (!home || b.city === home.city) && b.built >= 1 && (b.kind === 'park' || b.kind === 'townhall'));
@@ -1229,6 +1289,8 @@ export class Life {
           homeBuildingId: home.id,
           onArrive: () => {
             car.at = 'away'; car.lot = spot.lot.id; car.slot = spot.slot;
+            // a public car park charges a small fee
+            if (spot.lot.kind === 'parking') this.charge(c, spot.lot.city, SERVICE_FEE.parking);
             if (!this.alive(c)) return;
             c.drove = true;
             c.activity = purpose === 'work' ? 'Walking to work' : 'Out for a walk';
@@ -1253,9 +1315,10 @@ export class Life {
       c.activity = 'Walking to bus stop';
       this.walk(c, buildings.door(home), buildings.frontTile(home), transit.pickup, () => {
         if (!this.alive(c)) return;
-        c.state = 'away';
+        c.state = 'travel'; // waiting is part of the trip (the daily schedule must not pull them away)
         c.at = transit.pickup.id;
         c.activity = 'Waiting for bus';
+        this.standAt(c, transit.pickup);
         this.addWaiter({ citizenId: c.id, pickupStopId: transit.pickup.id, dropStopId: transit.dropoff.id, finalDestId: dest.id, waitTimer: 0 });
       });
       return;
@@ -1277,6 +1340,13 @@ export class Life {
     const work = c.job === b.id ? BUILDINGS[b.kind].work : 'indoor';
     c.activity = c.job === b.id ? 'At work' : c.school === b.id ? 'At school' : 'Visiting';
     if (c.job !== b.id && c.school !== b.id) this.shop(c, b);
+    if (b.kind === 'hospital' && c.job !== b.id) {
+      // a visit to the doctor: paid to the city on the spot
+      this.charge(c, b.city, SERVICE_FEE.hospital);
+      c.health = Math.min(100, c.health + 30);
+      c.activity = 'At the doctor';
+      this.c.pop.note(c, 'Saw a doctor at the hospital');
+    }
     if (work === 'woodcutter') this.woodcutterLoop(c, b);
     else if (work === 'farmer') this.farmLoop(c, b);
     else if (work === 'builder') this.builderLoop(c, b);
@@ -1289,6 +1359,7 @@ export class Life {
     const home = f && buildings.get(f.home);
     if (!f || !home) return;
     const at = buildings.get(c.at);
+    if (c.job >= 0 && c.at === c.job && at) this.payShift(c, at);
     c.state = 'travel';
     c.activity = 'Going home';
     c.outing = undefined;
@@ -1385,9 +1456,10 @@ export class Life {
         c.activity = 'Walking to bus stop';
         this.walk(c, buildings.door(atBuilding), buildings.frontTile(atBuilding), transit.pickup, () => {
           if (!this.alive(c)) return;
-          c.state = 'away';
+          c.state = 'travel'; // waiting is part of the trip (the daily schedule must not pull them away)
           c.at = transit.pickup.id;
           c.activity = 'Waiting for bus';
+          this.standAt(c, transit.pickup);
           this.addWaiter({ citizenId: c.id, pickupStopId: transit.pickup.id, dropStopId: transit.dropoff.id, finalDestId: home.id, waitTimer: 0 });
         });
         return;
@@ -1413,6 +1485,13 @@ export class Life {
     const spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1));
     f.money -= spend;
     b.sales = (b.sales ?? 0) + spend;
+    // the business tax on the sale reaches the town hall right away
+    const city = this.c.eco.cities.get(b.city);
+    if (city) {
+      const tax = spend * city.taxRate * 0.8;
+      b.salesTaxed = (b.salesTaxed ?? 0) + spend;
+      this.cash(b.city, tax, 'businessTax');
+    }
     c.activity = 'Shopping';
   }
 
@@ -1522,20 +1601,17 @@ export class Life {
     const { buildings, traffic } = this.c;
     const candidates = buildings.list.filter((b) => {
       if (b.city !== depot.city || b.built < 1 || b.access < 0 || b.id === depot.id) return false;
-      if (b.kind === 'busstop' || b.kind === 'trainstation') return true;
-      if (b.kind === 'townhall' || b.kind === 'market' || b.kind === 'hospital' ||
-          b.kind === 'school' || b.kind === 'university' || b.kind === 'office' ||
-          b.kind === 'factory' || b.kind === 'carfactory' || b.kind === 'park' ||
-          b.kind === 'hotel' || b.kind === 'grocery' || b.kind === 'clothes' ||
-          b.kind === 'apartment' || b.kind === 'cemetery') return true;
-      return false;
+      // buses stop only at real bus stops (and train stations)
+      return b.kind === 'busstop' || b.kind === 'trainstation';
     });
 
+    const cached = this.routeCache.get(depot.id);
+    if (cached && cached.t > performance.now() - 8000) return cached.stops;
     const stops: number[] = [depot.id];
     let cur = depot;
     const pool = new Set(candidates);
 
-    while (pool.size > 0 && stops.length < 10) {
+    while (pool.size > 0 && stops.length < 12) {
       let best: Building | null = null;
       let bestD = Infinity;
       for (const cand of pool) {
@@ -1552,12 +1628,15 @@ export class Life {
       pool.delete(best);
       cur = best;
     }
-    return stops;
+    const route = stops.length >= 3 ? stops : [];
+    this.routeCache.set(depot.id, { t: performance.now(), stops: route });
+    return route;
   }
 
   /** Launch buses from depot to run the transit route continuously. */
   private dispatchBusFleet(depot: Building) {
-    const want = Math.min(3, depot.workers);
+    // one bus per two drivers, at most BUS.perDepot per depot
+    const want = Math.min(BUS.perDepot, Math.max(1, Math.floor(depot.workers / 2)));
     const active = [...this.busFleet.values()].filter((b) => b.depotId === depot.id);
     if (active.length >= want) return;
     const stops = this.getRouteStops(depot);
@@ -1691,7 +1770,7 @@ export class Life {
     // Step B: Board waiting passengers whose direction matches ("agar o'sha tarafga bormoqchi bo'lsa chiqadi")
     const waiters = this.busWaiters.get(currentStop.id) ?? [];
     const n = stops.length;
-    const MAX_PASSENGERS = 16;
+    const MAX_PASSENGERS = BUS.seats;
     const unboarded: BusWaiter[] = [];
 
     for (const w of waiters) {
@@ -1709,10 +1788,11 @@ export class Life {
       }
       if (reachableAhead) {
         const c = pop.citizens.get(w.citizenId);
-        if (c && this.alive(c)) {
+        if (c && this.alive(c) && c.activity === 'Waiting for bus') {
           if (c.walker) { walkers.dismiss(c.walker); c.walker = undefined; }
           c.state = 'travel';
           c.activity = 'Riding the bus';
+          this.payFare(c, depot);
           remaining.push({
             citizenId: w.citizenId,
             pickupStopId: currentStop.id,
@@ -1747,10 +1827,28 @@ export class Life {
     }
   }
 
+  /** A passenger buys a ticket: the driver gets a share (and pays income tax on it), the rest goes to the city's bus company. */
+  private payFare(c: Citizen, depot: Building) {
+    const f = this.family(c);
+    const city = this.c.eco.cities.get(depot.city);
+    if (!f || !city) return;
+    f.money -= BUS.fare;
+    const driver = [...this.c.pop.citizens.values()].find((d) => d.job === depot.id && d.state === 'away');
+    const df = driver && this.family(driver);
+    const share = df ? BUS.fare * BUS.driverShare : 0;
+    if (df) {
+      const tax = share * city.taxRate;
+      df.money += share - tax;
+      this.cash(depot.city, tax, 'incomeTax');
+    }
+    this.cash(depot.city, BUS.fare - share, 'fares');
+    depot.sales = (depot.sales ?? 0) + BUS.fare;
+  }
+
   /** Check if a citizen can use public transit to travel from origin to dest. */
   private findTransitTrip(origin: Building, dest: Building): { pickup: Building; dropoff: Building } | null {
     const { buildings } = this.c;
-    if (dist(origin, dest) < 8) return null;
+    if (dist(origin, dest) < 10) return null;
     const depots = buildings.list.filter((b) => b.kind === 'busdepot' && b.city === origin.city && b.built >= 1 && b.workers > 0 && b.access >= 0);
     if (!depots.length) return null;
 
@@ -1759,11 +1857,11 @@ export class Life {
       if (stops.length < 2) continue;
 
       let bestPickup: Building | null = null;
-      let bestPickupDist = 16;
+      let bestPickupDist = 7;
       let pickupIdx = -1;
 
       let bestDropoff: Building | null = null;
-      let bestDropoffDist = 16;
+      let bestDropoffDist = 7;
 
       for (let i = 0; i < stops.length; i++) {
         const s = buildings.get(stops[i]);
@@ -1799,6 +1897,15 @@ export class Life {
     return null;
   }
 
+  /** Stand and wait next to a bus stop (visible, not walking off). */
+  private standAt(c: Citizen, stop: Building) {
+    const w = c.walker;
+    if (!w) return;
+    const d = this.c.buildings.door(stop);
+    const p = { x: d.x + (Math.random() - 0.5) * 0.4, z: d.z + (Math.random() - 0.5) * 0.4 };
+    this.c.walkers.retarget(w, { points: [{ x: w.x, z: w.z }, p] }, () => this.c.walkers.holdFor(w, 9999, 'none', () => {}));
+  }
+
   private addWaiter(waiter: BusWaiter) {
     let list = this.busWaiters.get(waiter.pickupStopId);
     if (!list) {
@@ -1817,7 +1924,7 @@ export class Life {
         if (w.waitTimer > 45) {
           const c = this.c.pop.citizens.get(w.citizenId);
           const finalDest = this.c.buildings.get(w.finalDestId);
-          if (c && this.alive(c) && stop && finalDest) {
+          if (c && this.alive(c) && stop && finalDest && c.activity === 'Waiting for bus') {
             c.activity = 'Out for a walk';
             this.walk(c, this.c.buildings.door(stop), this.c.buildings.frontTile(stop), finalDest, () => this.arrive(c, finalDest));
           }
@@ -1860,6 +1967,8 @@ export class Life {
     } else {
       const scale = c.age < 13 ? 0.62 : c.age < 17 ? 0.85 : 1;
       c.walker = walkers.walk(c.variant, scale, route, carry, () => done());
+      // tired people walk slower
+      c.walker.speed *= 0.7 + 0.3 * Math.min(1, (c.energy ?? 80) / 60);
       c.walker.citizen = c.id;
     }
   }

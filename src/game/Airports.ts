@@ -60,7 +60,7 @@ export class Airports {
           x = -FAR + (FAR - 1.35) * k;
           y = 0.02 + CRUISE * (1 - ease(k));
           tilt = -0.08;
-          if (k >= 1) { f.phase = 'landing'; f.t = 0; sound.play('plane'); }
+          if (k >= 1) { f.phase = 'landing'; f.t = 0; sound.play('plane', f.mesh.position); }
           break;
         }
         case 'landing': {
@@ -71,7 +71,7 @@ export class Airports {
         }
         case 'gate':
           x = 0.5;
-          if (f.t > 5) { f.phase = 'takeoff'; f.t = 0; sound.play('plane'); }
+          if (f.t > 5) { f.phase = 'takeoff'; f.t = 0; sound.play('plane', f.mesh.position); }
           break;
         case 'takeoff': {
           const k = Math.min(1, f.t / 2.5);

@@ -80,6 +80,7 @@ const ICONS = {
   save: '<path d="M5 3h11l3 3v13a2 2 0 01-2 2H7a2 2 0 01-2-2z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
   home: '<path d="M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+  dots: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   flower: '<circle cx="12" cy="8" r="3"/><path d="M12 5a3 3 0 013-3M12 5a3 3 0 00-3-3M9 8H6M18 8h-3M12 11v10M12 16c-2-2-5-2-6 0M12 18c2-2 5-2 6 0"/>',

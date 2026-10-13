@@ -1,7 +1,7 @@
 import { DAY_SECONDS } from '../config';
 import { ENERGY_PER_WOOD } from '../buildings/BuildingTypes';
 
-export interface Balance { incomeTax: number; foodSales: number; propertyTax: number; businessTax: number; utilities: number; publicWages: number; upkeep: number; net: number }
+export interface Balance { incomeTax: number; foodSales: number; propertyTax: number; businessTax: number; utilities: number; publicWages: number; upkeep: number; net: number; fares?: number; services?: number }
 
 /** One city: owned by a Town Hall. Buildings, families and resources all belong to a city. */
 export interface City {

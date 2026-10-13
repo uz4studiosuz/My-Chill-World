@@ -7,6 +7,9 @@ export type SoundName =
   | 'click' | 'place' | 'build' | 'demolish' | 'error' | 'coin' | 'toast' | 'thunder' | 'complete' | 'achieve' | 'fire' | 'siren' | 'cheer' | 'goal' | 'wedding' | 'water' | 'plane';
 
 const KEY = 'mcw_audio';
+/** Master levels: calm and a little quiet. */
+const SFX_LEVEL = 0.32;
+const NATURE_LEVEL = 0.6;
 const SCALE = [0, 2, 4, 7, 9, 12, 14, 16];
 
 class SoundEngine {
@@ -23,6 +26,10 @@ class SoundEngine {
   private layers: Partial<Record<'water' | 'wind' | 'rain' | 'town', GainNode>> = {};
   private amb = { water: 0, forest: 0, rain: 0, night: 0, town: 0 };
   private critterTimer = 0;
+  /** Where the player is looking (sounds far from it are quiet or silent). */
+  private ear = { x: 0, z: 0, view: 12 };
+  /** Loudness of the sound being played (distance falloff). */
+  private vol = 1;
 
   constructor() {
     try {
@@ -43,8 +50,12 @@ class SoundEngine {
     if (!AC) return;
     this.ctx = new AC();
     this.sfxGain = this.ctx.createGain();
-    this.sfxGain.gain.value = this.sfxOn ? 0.5 : 0;
-    this.sfxGain.connect(this.ctx.destination);
+    this.sfxGain.gain.value = this.sfxOn ? SFX_LEVEL : 0;
+    // a gentle low-pass takes the edge off every effect
+    const soft = this.ctx.createBiquadFilter();
+    soft.type = 'lowpass';
+    soft.frequency.value = 3200;
+    this.sfxGain.connect(soft).connect(this.ctx.destination);
     this.musicGain = this.ctx.createGain();
     this.musicGain.gain.value = this.musicOn ? 0.12 : 0;
     this.musicGain.connect(this.ctx.destination);
@@ -58,7 +69,7 @@ class SoundEngine {
 
   setSfx(on: boolean) {
     this.sfxOn = on;
-    if (this.sfxGain) this.sfxGain.gain.value = on ? 0.5 : 0;
+    if (this.sfxGain) this.sfxGain.gain.value = on ? SFX_LEVEL : 0;
     this.store();
   }
 
@@ -70,7 +81,7 @@ class SoundEngine {
 
   setNature(on: boolean) {
     this.natureOn = on;
-    if (this.natureGain && this.ctx) this.natureGain.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.3);
+    if (this.natureGain && this.ctx) this.natureGain.gain.setTargetAtTime(on ? NATURE_LEVEL : 0, this.ctx.currentTime, 0.3);
     this.store();
   }
 
@@ -84,16 +95,16 @@ class SoundEngine {
     if (!ctx) return;
     const now = ctx.currentTime;
     const set = (k: 'water' | 'wind' | 'rain' | 'town', v: number) => this.layers[k]?.gain.setTargetAtTime(v, now, 1.2);
-    set('water', a.water * 0.5);
-    set('wind', 0.05 + a.forest * 0.18);
-    set('rain', a.rain * 0.35);
-    set('town', a.town * 0.12 * (1 - a.night * 0.6));
+    set('water', a.water * 0.4);
+    set('wind', 0.03 + a.forest * 0.14);
+    set('rain', a.rain * 0.28);
+    set('town', a.town * 0.09 * (1 - a.night * 0.6));
   }
 
   private startNature() {
     const ctx = this.ctx!;
     this.natureGain = ctx.createGain();
-    this.natureGain.gain.value = this.natureOn ? 1 : 0;
+    this.natureGain.gain.value = this.natureOn ? NATURE_LEVEL : 0;
     this.natureGain.connect(ctx.destination);
     const layer = (type: BiquadFilterType, freq: number, q: number, lfoHz: number, depth: number) => {
       const src = ctx.createBufferSource();
@@ -171,9 +182,25 @@ class SoundEngine {
     try { localStorage.setItem(KEY, JSON.stringify({ sfx: this.sfxOn, music: this.musicOn, nature: this.natureOn })); } catch { /* ignore */ }
   }
 
-  play(name: SoundName) {
+  /** Set the listening point (the middle of the view) and how far out the player sees. */
+  listen(x: number, z: number, view: number) { this.ear = { x, z, view }; }
+
+  /**
+   * Play an effect. With a position it is heard only near the middle of the view:
+   * full volume close by, fading out with distance and silent far away.
+   */
+  play(name: SoundName, at?: { x: number; z: number }) {
     const ctx = this.ctx;
     if (!ctx || !this.sfxOn || ctx.state !== 'running') return;
+    this.vol = 1;
+    if (at) {
+      const reach = Math.max(4, Math.min(14, this.ear.view * 0.9));
+      const d = Math.hypot(at.x - this.ear.x, at.z - this.ear.z);
+      if (d > reach) return;
+      // zoomed far out everything is quieter
+      this.vol = (1 - d / reach) ** 1.5 * Math.max(0.25, Math.min(1, 16 / this.ear.view));
+      if (this.vol < 0.03) return;
+    }
     const now = ctx.currentTime;
     // the same sound at most ~12 times a second
     if (now - (this.last.get(name) ?? -1) < 0.08) return;
@@ -207,8 +234,10 @@ class SoundEngine {
     o.frequency.setValueAtTime(freq, t0);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
+    // soft attack, never harsh waveforms
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol * this.vol), t0 + Math.min(0.03, dur * 0.3));
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    if (o.type === 'square' || o.type === 'sawtooth') o.type = 'triangle';
     o.connect(g).connect(this.sfxGain!);
     o.start(t0);
     o.stop(t0 + dur + 0.05);
@@ -222,7 +251,7 @@ class SoundEngine {
     f.type = 'lowpass';
     f.frequency.value = cutoff;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(vol, t0);
+    g.gain.setValueAtTime(Math.max(0.0002, vol * this.vol), t0);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(f).connect(g).connect(this.sfxGain!);
     src.start(t0);

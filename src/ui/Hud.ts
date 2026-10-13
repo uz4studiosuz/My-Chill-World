@@ -137,6 +137,8 @@ export interface HudHandlers {
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50, 100];
+/** Readouts hidden behind the fold on narrow screens. */
+const SECONDARY = new Set(['stone', 'wood', 'iron', 'food', 'energy', 'water', 'jobs']);
 
 export class Hud {
 
@@ -170,7 +172,36 @@ export class Hud {
 
     const top = el('div', 'topbar');
     const soundBtn = this.iconButton(sound.sfxOn ? 'sound' : 'mute', t('Sound'), () => { soundBtn.innerHTML = icon(h.toggleSound() ? 'sound' : 'mute'); });
-    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats), this.iconButton('trophy', t('Goals'), h.openGoals), this.iconButton('list', t('Chronicle'), h.openLog), this.iconButton('mail', t('Letters'), h.openPetitions), this.iconButton('car', t('Drive a car'), h.openDrive), this.iconButton('book', t('Guide'), h.openGuide), soundBtn);
+    // one compact navigation block; on small screens the less used panels move into a "more" menu
+    const nav = el('div', 'navgroup');
+    const more = el('div', 'navmenu');
+    const panels: [IconName, string, () => void, boolean][] = [
+      ['stats', 'Statistics', h.openStats, false], ['trophy', 'Goals', h.openGoals, false], ['mail', 'Letters', h.openPetitions, false],
+      ['list', 'Chronicle', h.openLog, true], ['car', 'Drive a car', h.openDrive, true], ['book', 'Guide', h.openGuide, true],
+    ];
+    nav.appendChild(this.iconButton('menu', t('Menu'), h.openMenu));
+    for (const [ic, label, fn, secondary] of panels) {
+      const b = this.iconButton(ic, t(label), fn);
+      if (secondary) b.classList.add('nav-sec');
+      nav.appendChild(b);
+      if (secondary) {
+        const item = el('button', 'navmenu-item');
+        item.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
+        item.addEventListener('click', () => { more.classList.remove('show'); fn(); });
+        more.appendChild(item);
+      }
+    }
+    soundBtn.classList.add('nav-snd');
+    const moreBtn = this.iconButton('dots', t('More'), () => more.classList.toggle('show'));
+    moreBtn.classList.add('nav-more');
+    nav.append(soundBtn, moreBtn);
+    const sndItem = el('button', 'navmenu-item');
+    sndItem.innerHTML = `${icon('sound')}<span>${t('Sound')}</span>`;
+    sndItem.addEventListener('click', () => { soundBtn.click(); });
+    more.appendChild(sndItem);
+    nav.appendChild(more);
+    document.addEventListener('pointerdown', (e) => { if (!nav.contains(e.target as Node)) more.classList.remove('show'); }, true);
+    top.append(nav);
     const chips = el('div', 'chips');
     // grouped, colour-coded resource readouts: city · materials · utilities · people · time
     const GROUPS: [string, IconName, string][][] = [
@@ -191,6 +222,7 @@ export class Hud {
       chip.innerHTML = icon(ic);
       chip.addEventListener('click', key === 'city' ? h.cycleCity : h.openStats);
       if (key === 'city') chip.classList.add('city');
+      if (SECONDARY.has(key)) chip.classList.add('sec');
       const v = el('span', 'v');
       chip.appendChild(v);
       this.stat[key] = v;
@@ -199,6 +231,12 @@ export class Hud {
       box.appendChild(chip);
     }
     }
+    // on narrow screens the secondary readouts fold away behind this toggle
+    const fold = el('button', 'chip chip-fold');
+    fold.innerHTML = icon('dots');
+    fold.title = t('More');
+    fold.addEventListener('click', () => chips.classList.toggle('open'));
+    chips.appendChild(fold);
     top.appendChild(chips);
 
     const corner = el('div', 'corner');
@@ -258,6 +296,34 @@ export class Hud {
 
     this.root.append(top, corner, this.hint, this.toastEl, this.pendingEl, this.drawer, bar);
     parent.appendChild(this.root);
+  }
+
+  private moneyIn = 0;
+  private moneyOut = 0;
+  private moneyT = 0;
+
+  /** Money arrived or left the treasury just now: shown as a small rising "+$12" next to the money readout. */
+  flashMoney(amount: number) {
+    if (amount > 0) this.moneyIn += amount; else this.moneyOut -= amount;
+    if (this.moneyT) return;
+    this.moneyT = window.setTimeout(() => {
+      this.moneyT = 0;
+      const chip = this.chip.money;
+      if (!chip?.isConnected) { this.moneyIn = this.moneyOut = 0; return; }
+      const r = chip.getBoundingClientRect(), host = this.root.getBoundingClientRect();
+      const show = (v: number, cls: string, dy: number) => {
+        if (Math.round(v) < 1) return;
+        const p = el('div', `money-pop ${cls}`);
+        p.textContent = `${cls === 'pos' ? '+' : '−'}$${Math.round(v).toLocaleString('en-US')}`;
+        p.style.left = `${r.left - host.left + r.width / 2}px`;
+        p.style.top = `${r.bottom - host.top + 4 + dy}px`;
+        this.root.appendChild(p);
+        setTimeout(() => p.remove(), 1300);
+      };
+      show(this.moneyIn, 'pos', 0);
+      show(this.moneyOut, 'neg', 16);
+      this.moneyIn = this.moneyOut = 0;
+    }, 700);
   }
 
   private iconButton(name: IconName, label: string, onClick: () => void) {

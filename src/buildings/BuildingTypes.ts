@@ -132,6 +132,10 @@ export const DECOR_RANGE = 6;
 export const AIR_TRADE: Record<'food' | 'wood' | 'stone' | 'iron', { keep: number; low: number; price: number }> = {
   food: { keep: 500, low: 30, price: 3 }, wood: { keep: 300, low: 20, price: 4 }, stone: { keep: 300, low: 20, price: 5 }, iron: { keep: 150, low: 10, price: 9 },
 };
+/** Public transport: fare per ride, the driver's share of it, seats per bus, buses per depot. */
+export const BUS = { fare: 2, driverShare: 0.25, seats: 16, perDepot: 2 };
+/** City services paid on the spot: a hospital treatment, a parking ticket. */
+export const SERVICE_FEE = { hospital: 20, parking: 1 };
 /** Football: ticket price per fan; match day is Sunday. */
 export const FOOTBALL = { ticket: 3, fans: 30 };
 /** Open-air cinema ticket price and seats per evening. */

@@ -256,7 +256,7 @@ export class Game implements ToolHost {
       this.life.rebuildGrid();
       this.footpaths.rebuild((k) => this.net.type[k] !== 0);
       this.life.events.push(t('{name} is finished', { name: t(BUILDINGS[b.kind].name) }));
-      sound.play('complete');
+      sound.play('complete', b.mesh.position);
     };
     this.cam = new CameraRig(canvas);
 
@@ -274,6 +274,7 @@ export class Game implements ToolHost {
       this.cam.apply();
     };
     this.pop.jobKind = (id) => this.buildings.get(id)?.kind;
+    this.life.onMoney = (cityId, amount) => { if (cityId === this.eco.active) this.hud?.flashMoney(amount); };
     this.calm = !!(opts.save?.calm ?? opts.create?.calm);
     this.life.calm = this.calm;
     if (opts.save) this.loadSave(opts.save);
@@ -567,6 +568,7 @@ export class Game implements ToolHost {
       this.cam.apply();
     }
     this.lights.update(dt, this.cam.target.x, this.cam.target.z);
+    sound.listen(this.cam.target.x, this.cam.target.z, this.drive?.active || this.pov ? 4 : this.cam.viewHalf);
     this.followSun();
 
     if (this.hud) {
@@ -1365,6 +1367,7 @@ export class Game implements ToolHost {
       bars: [
         { label: t('Food'), value: c.hunger / 100, color: barColor(c.hunger / 100) },
         { label: t('Health'), value: c.health / 100, color: barColor(c.health / 100) },
+        { label: t('Energy'), value: (c.energy ?? 80) / 100, color: (c.energy ?? 80) > 40 ? '#ffd166' : '#ff6b5e' },
         ...(age >= 6 ? [{ label: t('Education'), value: c.edu, color: '#6fb6ff' }] : []),
       ],
       rows: [
@@ -1791,17 +1794,22 @@ export class Game implements ToolHost {
   private updateAmbience() {
     const tg = this.cam.target;
     const cx = Math.floor(tg.x + N / 2), cz = Math.floor(tg.z + N / 2);
-    const r = Math.max(5, Math.min(16, Math.round(this.cam.viewHalf * 0.6)));
+    // only what is close to the middle of the view is heard; nearer tiles count more
+    const r = Math.max(3, Math.min(9, Math.round(this.cam.viewHalf * 0.4)));
     let total = 0, water = 0, trees = 0, town = 0;
-    for (let z = cz - r; z <= cz + r; z += 2) for (let x = cx - r; x <= cx + r; x += 2) {
+    for (let z = cz - r; z <= cz + r; z++) for (let x = cx - r; x <= cx + r; x++) {
       if (!inBounds(x, z)) continue;
+      const d = Math.hypot(x - cx, z - cz);
+      if (d > r) continue;
+      const w = 1 - d / (r + 1);
       const k = idx(x, z);
-      total++;
-      if (this.map.water[k] || this.canals.flowing[k]) water++;
-      else if (this.terrain.trees.has(k)) trees++;
-      else if (this.buildings.occ[k] !== -1 || this.net.type[k]) town++;
+      total += w;
+      if (this.map.water[k] || this.canals.flowing[k]) water += w;
+      else if (this.terrain.trees.has(k)) trees += w;
+      else if (this.buildings.occ[k] !== -1 || this.net.type[k]) town += w;
     }
-    const near = Math.max(0.35, Math.min(1, (42 - this.cam.viewHalf) / 30));
+    // zoomed far out the world is quiet; close up it is fully heard
+    const near = Math.max(0.12, Math.min(1, (30 - this.cam.viewHalf) / 22));
     const f = (n: number, gain: number) => Math.min(1, (n / Math.max(1, total)) * gain) * near;
     sound.setAmbience({
       water: f(water, 4), forest: f(trees, 2.2), town: f(town, 2.5),
@@ -1976,6 +1984,8 @@ export class Game implements ToolHost {
             [t('Property tax'), signed(bal.propertyTax), 'good'],
             [t('Business tax'), signed(bal.businessTax), 'good'],
             [t('Utility bills'), signed(bal.utilities), 'good'],
+            [t('Bus fares'), signed(bal.fares ?? 0), 'good'],
+            [t('Services (hospital, parking)'), signed(bal.services ?? 0), 'good'],
             [t('Public wages'), signed(-bal.publicWages), bal.publicWages ? 'bad' : undefined],
             [t('Upkeep'), signed(-bal.upkeep), bal.upkeep ? 'bad' : undefined],
           ],

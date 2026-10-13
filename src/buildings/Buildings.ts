@@ -64,6 +64,8 @@ export interface Building {
   scaffold?: THREE.LineSegments;
   /** Floating construction status above a building site. */
   label?: THREE.Sprite;
+  /** Part of today's sales already taxed at the till. */
+  salesTaxed?: number;
   labelText?: string;
   /** Cemetery extension: the cemetery it belongs to. Cemetery: its extensions. */
   parent?: number;

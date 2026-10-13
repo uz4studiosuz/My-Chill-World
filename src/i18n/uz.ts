@@ -1035,4 +1035,10 @@ export const UZ: Record<string, string> = {
   "Moved into a home of their own": "O'z uyiga ko'chib o'tdi",
   "Married {name} at the Wedding Hall": "ZAGSda {name} bilan turmush qurdi",
   "Taken to hospital by ambulance — the doctors helped": "Tez yordam shifoxonaga olib bordi — shifokorlar yordam berdi",
+  "Bus fares": "Avtobus chiptalari",
+  "More": "Ko'proq",
+  "Services (hospital, parking)": "Xizmatlar (shifoxona, avtoturargoh)",
+  "Resting on a bench": "O'rindiqda dam olmoqda",
+  "At the doctor": "Shifokor qabulida",
+  "Saw a doctor at the hospital": "Shifoxonada shifokor ko'rigidan o'tdi",
 };

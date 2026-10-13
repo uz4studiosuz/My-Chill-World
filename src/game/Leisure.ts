@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { DAY_SECONDS } from '../config';
 import { N, idx, inBounds } from '../world/grid';
 import type { Building, Point } from '../buildings/Buildings';
-import { BUILDINGS, CINEMA, DECOR, DECOR_RANGE, FOOTBALL } from '../buildings/BuildingTypes';
+import { BUILDINGS, CINEMA, SERVICE_FEE, DECOR, DECOR_RANGE, FOOTBALL } from '../buildings/BuildingTypes';
 import type { City } from '../sim/Economy';
 import type { Citizen } from '../people/Population';
 import type { LifeContext } from './Life';
@@ -18,6 +18,7 @@ export interface LeisureHost {
   calm: boolean;
   planOuting(c: Citizen, dest: Building, until: number): boolean;
   isLit(k: number): boolean;
+  charge(c: Citizen, cityId: number, amount: number): void;
 }
 
 export type PetitionKind = 'shop' | 'school' | 'light' | 'park' | 'hospital' | 'busstop' | 'playground';
@@ -113,6 +114,8 @@ export class Leisure {
     this.tickT = 1.5;
     if (this.visitDay !== this.c.eco.day) { this.visitDay = this.c.eco.day; this.visits.clear(); }
     if (tod > 0.63 && tod < 0.76) this.outings(['playground', 'park'], (c) => c.age >= 3 && c.age < 14, 0.1, 6, Math.min(0.8, tod + 0.09), 10);
+    // tired people sit down on a bench, in a park or by a fountain for a while
+    if (tod > 0.4 && tod < 0.74) this.outings(['bench', 'park', 'fountain'], (c) => c.age >= 14 && (c.energy ?? 80) < 45 && c.job < 0, 0.15, 6, Math.min(0.78, tod + 0.06), 8);
     if (tod > 0.8 && tod < 0.86) this.outings(['cinema'], (c) => c.age >= 14, 0.08, CINEMA.seats, 0.95, 18);
     if (this.matchDay && tod > 0.54 && tod < 0.62) this.outings(['stadium'], (c) => c.age >= 8, 0.1, FOOTBALL.fans, 0.73, 24);
     if (this.host.festival && tod > 0.4 && tod < 0.66) this.outings(['townhall'], (c) => c.age >= 5, 0.05, 30, Math.min(0.78, tod + 0.12), 18);
@@ -146,6 +149,10 @@ export class Leisure {
       const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
       return { x: b.mesh.position.x + x * cr + z * sr, z: b.mesh.position.z - x * sr + z * cr };
     };
+    if (b.kind === 'bench') {
+      const x = pick([-0.2, 0.25]) + rnd(-0.1, 0.1);
+      return { at: local(x, -0.05), face: local(x, 0.5), anim: 'sit', lift: 0.06 };
+    }
     if (b.kind === 'cinema') {
       const z = pick([-0.25, 0.05, 0.35]), x = pick([-1, 1]) * rnd(0.2, 0.7);
       return { at: local(x, z), face: local(x * 0.6, -0.8), anim: 'sit', lift: 0.06 };
@@ -170,8 +177,9 @@ export class Leisure {
     const f = pop.families.get(c.family);
     const price = b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0;
     if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; }
-    c.activity = b.kind === 'cinema' ? 'Watching a film' : b.kind === 'stadium' ? 'Watching football' : b.kind === 'townhall' ? 'Celebrating' : 'Playing';
+    c.activity = b.kind === 'bench' || ((b.kind === 'park' || b.kind === 'fountain') && c.age >= 14) ? 'Resting on a bench' : b.kind === 'cinema' ? 'Watching a film' : b.kind === 'stadium' ? 'Watching football' : b.kind === 'townhall' ? 'Celebrating' : 'Playing';
     const sp = this.spot(b);
+    if (c.activity === 'Resting on a bench') sp.anim = 'sit';
     const secs = Math.max(2, (until - eco.timeOfDay) * DAY_SECONDS);
     const w = c.walker;
     if (!w) return;
@@ -253,8 +261,10 @@ export class Leisure {
       swing(b, Math.sign(as - hs));
       const winner = hs > as ? res.home : as > hs ? res.away : null;
       this.host.events.push(t('Football: {a} {x}:{y} {b}', { a: res.home, x: hs, y: as, b: res.away }) + (winner ? ` — ${t('{city} wins! The fans are celebrating', { city: winner })}` : ` — ${t('a draw')}`));
-      sound.play(hs + as > 0 ? 'goal' : 'cheer');
-      for (const st of buildings.list.filter((s) => s.kind === 'stadium' && (s.city === a.id || s.city === b?.id))) this.c.effects.firework(st.mesh.position.x, st.mesh.position.z);
+      for (const st of buildings.list.filter((s) => s.kind === 'stadium' && (s.city === a.id || s.city === b?.id))) {
+        this.c.effects.firework(st.mesh.position.x, st.mesh.position.z);
+        sound.play(hs + as > 0 ? 'goal' : 'cheer', st.mesh.position);
+      }
     }
     this.matches.length = Math.min(this.matches.length, 12);
   }
@@ -271,7 +281,7 @@ export class Leisure {
     const home = pick(homes);
     if (!traffic.canRoute(hall.access, home.access)) return;
     effects.hearts(hall.mesh.position.x, hall.mesh.position.z);
-    sound.play('wedding');
+    sound.play('wedding', hall.mesh.position);
     const colors = ['#f2f2ee', '#3a3f48', '#c4553d', '#3a6fd1'];
     for (let i = 0; i < 4; i++) {
       this.later(i * 1.1, () => {
@@ -298,7 +308,7 @@ export class Leisure {
     this.calls.add(patient.id);
     const name = `${patient.name} ${this.c.pop.families.get(patient.family)?.surname ?? ''}`.trim();
     const white = new THREE.Color('#f4f4f2');
-    sound.play('siren');
+    sound.play('siren', home.mesh.position);
     const ok = traffic.spawn({
       kind: 'car', from: hospital.access, to: home.access, color: white, fromPos: buildings.door(hospital), siren: true,
       purpose: 'Emergency call', driverName: 'Paramedic', fromName: 'Hospital', destName: BUILDINGS[home.kind].name, homeBuildingId: hospital.id,
@@ -313,6 +323,7 @@ export class Leisure {
               this.calls.delete(patient.id);
               if (this.c.pop.citizens.get(patient.id) !== patient) return;
               patient.health = Math.max(patient.health, 85);
+              this.host.charge(patient, hospital.city, SERVICE_FEE.hospital);
               this.c.pop.note(patient, 'Taken to hospital by ambulance — the doctors helped');
               this.host.events.push(t('The ambulance took {name} to hospital — doctors saved them', { name }));
             },

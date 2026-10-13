@@ -40,6 +40,10 @@ export interface Citizen {
   walker?: Walker;
   /** Leisure trip planned for today (playground, cinema, stadium, festival square). */
   outing?: number;
+  /** Wage for today already paid at the end of the shift. */
+  paid?: boolean;
+  /** 100 = rested, 0 = exhausted. Work and walking tire, home, benches and meals restore it. */
+  energy?: number;
   /** Works the night shift (better pay). */
   night?: boolean;
   /** Life story: day, age, English text key and its parameters. */
@@ -368,7 +372,19 @@ export class Population {
 
   /** Hunger drops through the day; it's restored at the evening meal. */
   tickNeeds(dayFraction: number) {
-    for (const c of this.citizens.values()) c.hunger = Math.max(0, c.hunger - dayFraction * 55);
+    for (const c of this.citizens.values()) {
+      c.hunger = Math.max(0, c.hunger - dayFraction * 55);
+      // energy: work and walking tire, sleep at home and a rest on a bench restore it
+      const e = c.energy ?? 80;
+      let d = 0;
+      if (c.state === 'home') d = c.activity.startsWith('Sleeping') ? 150 : 70;
+      else if (c.activity === 'Resting on a bench' || c.activity === 'Watching a film') d = 110;
+      else if (c.state === 'away' && c.job >= 0 && c.at === c.job) d = -95;
+      else if (c.state === 'travel') d = -45;
+      else d = -25;
+      if (c.age < 13 && d < 0) d *= 0.7;
+      c.energy = Math.max(0, Math.min(100, e + d * dayFraction));
+    }
   }
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
@@ -386,6 +402,8 @@ export class Population {
       const people = this.members(f);
       let earned = 0;
       for (const c of people) {
+        // whoever finished a shift today was paid on the spot; the rest get paid now
+        if (c.paid) { c.paid = false; continue; }
         if (c.job < 0) continue;
         const b = buildings.get(c.job);
         const gross = this.wage(c, b);
@@ -401,6 +419,7 @@ export class Population {
           r.foodSales += FOOD_PRICE;
           earned -= FOOD_PRICE;
           c.hunger = 100;
+          c.energy = Math.min(100, (c.energy ?? 80) + 10);
         }
       }
       const propTax = PROPERTY_TAX * (buildings.get(f.home)?.level ?? 1);
@@ -577,7 +596,7 @@ export class Population {
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, night: c.night,
+        story: c.story, night: c.night, energy: c.energy === undefined ? undefined : Math.round(c.energy),
       })),
     }));
   }
