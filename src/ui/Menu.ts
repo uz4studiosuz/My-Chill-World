@@ -4,6 +4,17 @@ import { Lang, getLang, setLang, t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
 import { VERSION } from '../version';
 import { Newspaper } from './Newspaper';
+import homeArt from '../assets/home-art.jpg';
+
+/** Tips shown on the artwork of the home page, one after another. */
+const TIPS: [string, string][] = [
+  ['A harbour town', 'Lay roads, build homes and watch families move in — every citizen has a name, a job and a story.'],
+  ['Bread from the field', 'Farms grow grain, the mill grinds flour and the bakery feeds the town. Trucks show what they carry.'],
+  ['Every worker is real', 'Bus drivers, soldiers and firefighters are citizens on their shift — tap anyone to see their day.'],
+  ['Water and light', 'Water towers feed the mains under the roads; street lamps and windows light up the night.'],
+  ['The town hall decides', 'Investors, strikes, concerts and letters from residents — every choice has its price.'],
+  ['Seasons', 'Blossom in spring, beaches in summer, golden autumn and frozen lakes with skaters in winter.'],
+];
 
 export interface MenuHandlers {
   newWorld: (name: string, seed: number, calm: boolean) => void;
@@ -19,34 +30,113 @@ export interface MenuHandlers {
 export class Menu {
   private root: HTMLDivElement;
   private panel: HTMLDivElement;
+  /** The home page: a side column with the menu and the town artwork. */
+  private home: HTMLDivElement;
+  private side: HTMLDivElement;
+  private tip = 0;
 
   constructor(parent: HTMLElement, private h: MenuHandlers) {
     this.root = el('div', 'menu');
     this.panel = el('div', 'panel');
     this.root.appendChild(this.panel);
-    parent.appendChild(this.root);
+    this.home = el('div', 'home');
+    this.side = el('div', 'home-side');
+    const border = el('div', 'home-border');
+    const art = el('div', 'home-art');
+    art.style.backgroundImage = `url(${homeArt})`;
+    const caption = el('div', 'home-caption');
+    art.appendChild(caption);
+    this.home.append(this.side, border, art);
+    parent.append(this.root, this.home);
+    this.paintTip(caption);
+    window.setInterval(() => { if (this.home.classList.contains('show')) { this.tip = (this.tip + 1) % TIPS.length; this.paintTip(caption); } }, 9000);
+  }
+
+  private paintTip(caption: HTMLDivElement) {
+    const [title, text] = TIPS[this.tip];
+    caption.replaceChildren();
+    const h = el('b', '');
+    h.textContent = t(title);
+    const p = el('p', '');
+    p.textContent = t(text);
+    const nav = el('div', 'home-cap-nav');
+    const prev = el('button', '');
+    prev.innerHTML = '&#8249;';
+    prev.setAttribute('aria-label', t('Previous'));
+    prev.addEventListener('click', () => { this.tip = (this.tip + TIPS.length - 1) % TIPS.length; this.paintTip(caption); });
+    const next = el('button', '');
+    next.innerHTML = '&#8250;';
+    next.setAttribute('aria-label', t('Next'));
+    next.addEventListener('click', () => { this.tip = (this.tip + 1) % TIPS.length; this.paintTip(caption); });
+    const count = el('span', '');
+    count.textContent = t('{a} of {b}', { a: this.tip + 1, b: TIPS.length });
+    nav.append(prev, next, count);
+    caption.append(h, p, nav);
   }
 
   hide() {
     this.root.classList.remove('show');
+    this.home.classList.remove('show');
   }
 
   showMain() {
     const worlds = SaveStore.list();
-    this.render(
-      'My Chill World',
-      'Build roads, grow your town.',
-      [
-        worlds.length ? button('Continue', () => this.h.loadWorld(worlds[0].id), 'primary', worlds[0].name, 'play') : null,
-        button('New World', () => this.showNew(), worlds.length ? '' : 'primary', undefined, 'plus'),
-        worlds.length ? button('Load World', () => this.showLoad(), '', undefined, 'folder') : null,
-        worlds.length ? button('Records', () => this.showRecords(), '', 'Your best cities', 'trophy') : null,
-        button('Gallery', () => this.h.openGallery('main'), '', 'Inspect every model in 3D', 'gallery'),
-        this.languagePicker(() => this.showMain()),
-        footer(),
-      ],
-      true,
-    );
+    const w = worlds[0];
+    this.renderHome([
+      w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${t('Day {n}', { n: w.day })} · ${t('{n} people', { n: w.population })}`) : null,
+      homeItem('New World', () => this.showNew()),
+      worlds.length ? homeItem('Load World', () => this.showLoad()) : null,
+      worlds.length ? homeItem('Records', () => this.showRecords()) : null,
+      homeItem('Gallery', () => this.h.openGallery('main')),
+      homeItem('Model editor', () => { location.href = 'editor.html'; }),
+      homeItem('Settings', () => this.showSettings()),
+      homeItem('Credits', () => this.showCredits()),
+    ]);
+  }
+
+  /** Language, sound and newspaper options. */
+  showSettings() {
+    this.renderHome([this.languagePicker(() => this.showSettings()), this.audioRow(), homeItem('Back', () => this.showMain())], 'Settings');
+  }
+
+  showCredits() {
+    const p = el('div', 'home-credits');
+    p.innerHTML = '';
+    for (const [k, v] of [['Game', 'My Chill World'], ['Made by', 'UZ4 Studios'], ['Engine', 'Three.js · TypeScript'], ['Version', `v${VERSION}`]]) {
+      const row = el('div', '');
+      const a = el('small', '');
+      a.textContent = t(k);
+      const b = el('b', '');
+      b.textContent = v;
+      row.append(a, b);
+      p.appendChild(row);
+    }
+    this.renderHome([p, homeItem('Back', () => this.showMain())], 'Credits');
+  }
+
+  /** The home layout: title, a list of menu entries (or a sub-page), the version at the bottom. */
+  private renderHome(items: (HTMLElement | null)[], page?: string) {
+    this.root.classList.remove('show');
+    this.side.replaceChildren();
+    const brand = el('div', 'home-brand');
+    const h = el('h1', '');
+    h.textContent = 'MY CHILL WORLD';
+    const studio = el('div', 'home-studio');
+    studio.textContent = 'UZ4 STUDIOS';
+    brand.append(h, studio);
+    const list = el('nav', 'home-menu');
+    if (page) {
+      const ph = el('div', 'home-page');
+      ph.textContent = t(page);
+      list.appendChild(ph);
+    }
+    for (const i of items) if (i) list.appendChild(i);
+    const foot = el('div', 'home-foot');
+    foot.textContent = t('Build roads, grow your town.');
+    const ver = el('div', 'home-ver');
+    ver.textContent = `v${VERSION}`;
+    this.side.append(brand, list, foot, ver);
+    this.home.classList.add('show');
   }
 
   showNew() {
@@ -61,17 +151,18 @@ export class Menu {
     calmBtn.addEventListener('click', () => { calm = !calm; paintCalm(); });
     const calmNote = el('small', 'calm-note');
     calmNote.textContent = t('No disasters, crime or bankruptcy — just build and watch.');
-    this.render('New World', 'Every seed makes a different landscape.', [
-      name.parentElement!,
-      seed.parentElement!,
-      calmBtn,
-      calmNote,
-      button('Create', () => {
+    const form = el('div', 'home-form');
+    const hint = el('small', 'calm-note');
+    hint.textContent = t('Every seed makes a different landscape.');
+    form.append(name.parentElement!, seed.parentElement!, hint, calmBtn, calmNote);
+    this.renderHome([
+      form,
+      homeItem('Create', () => {
         const s = parseInt(seed.value, 10);
         this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9), calm);
-      }, 'primary', undefined, 'check'),
-      button('Back', () => this.showMain(), '', undefined, 'undo'),
-    ]);
+      }, undefined, true),
+      homeItem('Back', () => this.showMain()),
+    ], 'New World');
   }
 
   showLoad() {
@@ -79,7 +170,7 @@ export class Menu {
     if (!worlds.length) return this.showMain();
     const list = el('div', 'worlds');
     for (const w of worlds) list.appendChild(this.worldRow(w));
-    this.render('Your Worlds', '', [list, button('Back', () => this.showMain(), '', undefined, 'undo')]);
+    this.renderHome([list, homeItem('Back', () => this.showMain())], 'Your Worlds');
   }
 
   /** Local records: every saved world ranked by its city score. */
@@ -99,7 +190,7 @@ export class Menu {
       row.append(rank, info);
       list.appendChild(row);
     });
-    this.render('Records', 'Your cities ranked by score: people, happiness, wealth, buildings and goals.', [list, button('Back', () => this.showMain(), '', undefined, 'undo')]);
+    this.renderHome([list, homeItem('Back', () => this.showMain())], 'Records');
   }
 
   showPause() {
@@ -178,6 +269,7 @@ export class Menu {
   }
 
   private render(title: string, sub: string, items: (HTMLElement | null)[], big = false) {
+    this.home.classList.remove('show');
     this.panel.replaceChildren();
     this.panel.classList.toggle('main', big);
     if (big) {
@@ -215,10 +307,19 @@ function button(label: string, onClick: (b: HTMLButtonElement) => void, cls = ''
   return b;
 }
 
-function footer() {
-  const f = el('div', 'menu-foot');
-  f.textContent = `My Chill World · v${VERSION}`;
-  return f;
+/** A text entry of the home menu, with an optional line below it (e.g. the world to continue). */
+function homeItem(label: string, onClick: () => void, sub?: string, primary = false) {
+  const b = el('button', `home-item${primary ? ' primary' : ''}`);
+  const main = el('span', '');
+  main.textContent = t(label);
+  b.appendChild(main);
+  if (sub) {
+    const s = el('small', '');
+    s.textContent = sub;
+    b.appendChild(s);
+  }
+  b.addEventListener('click', onClick);
+  return b;
 }
 
 function input(label: string, value: string, max: number) {
