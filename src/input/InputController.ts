@@ -157,6 +157,7 @@ export class InputController {
     if (e.repeat) return;
     if (e.code === 'KeyQ') this.cam.rotate(Math.PI / 2);
     else if (e.code === 'KeyE') this.cam.rotate(-Math.PI / 2);
+    else if (e.code === 'KeyR') { if (this.tool.active) this.tool.rotate(); }
     else if (e.code === 'Space') this.actions.togglePause();
     else if (e.code === 'Enter' && this.tool.hasPending) this.tool.confirm();
     else if (e.code === 'Escape') { if (this.tool.hasPending) this.tool.cancel(); else this.actions.setTool('pan'); }

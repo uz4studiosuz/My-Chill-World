@@ -15,17 +15,24 @@ export type ToolId = 'pan' | 'bulldoze' | LineKind | PlaceKind;
 
 export interface CheckResult { ok: boolean; reason?: string; money?: number; stone?: number; wood?: number; iron?: number; bridges?: number }
 
+export interface GhostInfo {
+  geo: THREE.BufferGeometry;
+  size: number;
+  rot: number;
+}
+
 /** What the tool needs from the game. Every action re-validates and reports its own errors. */
 export interface ToolHost {
   checkLine(kind: LineKind, path: Tile[]): CheckResult;
   buildLine(kind: LineKind, path: Tile[]): void;
-  checkPlace(kind: PlaceKind, t: Tile): CheckResult;
-  place(kind: PlaceKind, t: Tile): void;
+  checkPlace(kind: PlaceKind, t: Tile, rotDir?: number): CheckResult;
+  place(kind: PlaceKind, t: Tile, rotDir?: number): void;
   footprint(kind: PlaceKind, t: Tile): Tile[];
   bulldoze(path: Tile[]): void;
   showHint(text: string | null): void;
   /** A build is waiting for the player's confirmation (null = nothing pending). */
-  pending(info: { text: string; ok: boolean } | null): void;
+  pending(info: { text: string; ok: boolean; canRotate?: boolean } | null): void;
+  getGhost?(kind: PlaceKind, t: Tile, rotDir: number): GhostInfo | null;
 }
 
 const OK = new THREE.Color('#5fe08a');
@@ -37,6 +44,7 @@ const isPlace = (t: ToolId): t is PlaceKind => t !== 'pan' && t !== 'bulldoze' &
 
 export class BuildTool {
   tool: ToolId = 'pan';
+  rotDir = 0;
   private start: Tile | null = null;
   private current: Tile | null = null;
   private path: Tile[] = [];
@@ -50,6 +58,29 @@ export class BuildTool {
   setTool(t: ToolId) {
     this.cancel();
     this.tool = t;
+    this.rotDir = 0;
+  }
+
+  setRotation(dir: number) {
+    this.rotDir = ((dir % 4) + 4) % 4;
+    const target = this.current ?? this.waiting?.cur;
+    if (target) this.update(target);
+  }
+
+  rotate() {
+    if (!isPlace(this.tool)) return;
+    this.rotDir = (this.rotDir + 1) % 4;
+    const target = this.current ?? this.waiting?.cur;
+    if (target) {
+      const wasWaiting = this.waiting;
+      this.update(target);
+      if (wasWaiting) {
+        this.current = null;
+        const r = this.host.checkPlace(wasWaiting.tool as PlaceKind, target, this.rotDir);
+        const tiles = isLine(wasWaiting.tool) ? `${tr('{n} tiles', { n: wasWaiting.path.length })} · ` : '';
+        this.host.pending({ text: `${tiles}${cost(r)}`, ok: r.ok, canRotate: true });
+      }
+    }
   }
 
   begin(t: Tile) {
@@ -80,18 +111,18 @@ export class BuildTool {
     const path = this.path, cur = this.current, tool = this.tool;
     if (tool === 'bulldoze') { this.cancel(); this.host.bulldoze(path); return; }
     // buildings and lines wait for a confirmation (the preview stays on the map)
-    const r = isLine(tool) ? this.host.checkLine(tool, path) : isPlace(tool) ? this.host.checkPlace(tool, cur) : { ok: false };
+    const r = isLine(tool) ? this.host.checkLine(tool, path) : isPlace(tool) ? this.host.checkPlace(tool, cur, this.rotDir) : { ok: false };
     this.start = null;
     this.current = null;
     if (!r.ok) {
       this.cancel();
       if (isLine(tool)) this.host.buildLine(tool, path);
-      else if (isPlace(tool)) this.host.place(tool, cur);
+      else if (isPlace(tool)) this.host.place(tool, cur, this.rotDir);
       return;
     }
     this.waiting = { tool, path, cur };
     const tiles = isLine(tool) ? `${tr('{n} tiles', { n: path.length })} · ` : '';
-    this.host.pending({ text: `${tiles}${cost(r)}`, ok: true });
+    this.host.pending({ text: `${tiles}${cost(r)}`, ok: true, canRotate: isPlace(tool) });
     this.host.showHint(null);
   }
 
@@ -99,9 +130,10 @@ export class BuildTool {
   confirm() {
     const w = this.waiting;
     if (!w) return;
+    const rot = this.rotDir;
     this.cancel();
     if (isLine(w.tool)) this.host.buildLine(w.tool, w.path);
-    else if (isPlace(w.tool)) this.host.place(w.tool, w.cur);
+    else if (isPlace(w.tool)) this.host.place(w.tool, w.cur, rot);
   }
 
   cancel() {
@@ -119,11 +151,19 @@ export class BuildTool {
     this.current = cur;
     const tool = this.tool;
     if (isPlace(tool)) {
-      const r = this.host.checkPlace(tool, cur);
+      const r = this.host.checkPlace(tool, cur, this.rotDir);
       this.preview.show(this.host.footprint(tool, cur), r.ok ? OK : BAD);
-      this.host.showHint(r.ok ? cost(r) : r.reason ?? null);
+      const ghost = this.host.getGhost?.(tool, cur, this.rotDir);
+      if (ghost) {
+        this.preview.showGhost(ghost.geo, cur.x, cur.z, ghost.size, ghost.rot, r.ok);
+      } else {
+        this.preview.hideGhost();
+      }
+      const rotHint = ` · [R] ${tr('Rotate')}`;
+      this.host.showHint(r.ok ? `${cost(r)}${rotHint}` : r.reason ?? null);
       return;
     }
+    this.preview.hideGhost();
     this.path = tool === 'path' ? diagPath(this.start!, cur) : lPath(this.start!, cur);
     if (isLine(tool)) {
       const r = this.host.checkLine(tool, this.path);

@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import { Tile, tileToWorld } from '../world/grid';
 
-/** Translucent tile highlights shown while hovering / dragging a tool. */
+/** Translucent tile highlights and 3D ghost preview shown while hovering / dragging a tool. */
 export class Preview {
   readonly mesh: THREE.InstancedMesh;
+  readonly ghostGroup = new THREE.Group();
+  private ghostMesh: THREE.Mesh;
+  private ghostValidMat: THREE.Material;
+  private ghostInvalidMat: THREE.Material;
+  private emptyGeo = new THREE.BufferGeometry();
   private m = new THREE.Matrix4();
 
   constructor(max: number) {
@@ -14,6 +19,28 @@ export class Preview {
     this.mesh.count = 0;
     this.mesh.renderOrder = 10;
     this.mesh.frustumCulled = false;
+
+    this.ghostValidMat = new THREE.MeshLambertMaterial({
+      color: new THREE.Color('#94ffd2'),
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.68,
+      depthWrite: false,
+    });
+
+    this.ghostInvalidMat = new THREE.MeshLambertMaterial({
+      color: new THREE.Color('#ff4d4f'),
+      vertexColors: false,
+      transparent: true,
+      opacity: 0.60,
+      depthWrite: false,
+    });
+
+    this.ghostMesh = new THREE.Mesh(this.emptyGeo, this.ghostValidMat);
+    this.ghostMesh.renderOrder = 14;
+    this.ghostMesh.frustumCulled = false;
+    this.ghostGroup.add(this.ghostMesh);
+    this.ghostGroup.visible = false;
   }
 
   show(tiles: Tile[], color: THREE.Color) {
@@ -28,7 +55,21 @@ export class Preview {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
+  showGhost(geo: THREE.BufferGeometry, x: number, z: number, size: number, rot: number, valid: boolean) {
+    this.ghostMesh.geometry = geo;
+    this.ghostMesh.material = valid ? this.ghostValidMat : this.ghostInvalidMat;
+    this.ghostMesh.position.set(tileToWorld(x) + (size - 1) / 2, 0.04, tileToWorld(z) + (size - 1) / 2);
+    this.ghostMesh.rotation.y = rot;
+    this.ghostGroup.visible = true;
+  }
+
+  hideGhost() {
+    this.ghostGroup.visible = false;
+  }
+
   hide() {
     this.mesh.count = 0;
+    this.hideGhost();
   }
 }
+

@@ -8,7 +8,7 @@ import { BRIDGE_COST, ROAD_COST, ROAD_TWO_LANE, ROUNDABOUT_COST, RoadNetwork, is
 import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
-import { Buildings, Building } from '../buildings/Buildings';
+import { Buildings, Building, rotToDir } from '../buildings/Buildings';
 import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
@@ -39,7 +39,7 @@ import { Airports } from './Airports';
 import { DriveMode } from './DriveMode';
 import { CameraRig } from '../camera/CameraRig';
 import { Preview } from '../build/Preview';
-import { BuildTool, CheckResult, LineKind, PlaceKind, ToolHost, ToolId } from '../build/BuildTool';
+import { BuildTool, CheckResult, GhostInfo, LineKind, PlaceKind, ToolHost, ToolId } from '../build/BuildTool';
 import { InputController } from '../input/InputController';
 import { Hud } from '../ui/Hud';
 import { Inspector, InspectorView } from '../ui/Inspector';
@@ -287,7 +287,7 @@ export class Game implements ToolHost {
     this.animals = new Animals(this.map, (k) => this.map.isLand(k) && !this.net.type[k] && !this.net.isIsland(k) && this.buildings.occ[k] === -1);
     this.scene.add(
       this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
-      this.walkers.group, this.lights.group, this.railway.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker, this.ring, this.beam,
+      this.walkers.group, this.lights.group, this.railway.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.preview.ghostGroup, this.grid, this.marker, this.ring, this.beam,
       this.life.leisure.group, this.povCam, this.airports.group, this.drive.group,
     );
     this.pop.assign(this.buildings);
@@ -340,6 +340,7 @@ export class Game implements ToolHost {
       cycleCity: () => this.cycleCity(),
       confirmBuild: () => this.tool?.confirm(),
       cancelBuild: () => this.tool?.cancel(),
+      rotateBuild: () => this.tool?.rotate(),
     }, this.thumbs);
     this.inspector = new Inspector(this.hud.root, () => this.select(null), (id) => this.select({ type: 'person', id }));
     this.stats = new StatsPanel(this.hud.root, () => this.snapshot(), (kind, prio) => {
@@ -707,7 +708,19 @@ export class Game implements ToolHost {
     this.networkChanged();
   }
 
-  checkPlace(kind: PlaceKind, tl: Tile): CheckResult {
+  getGhost(kind: PlaceKind, t: Tile, rotDir: number): GhostInfo | null {
+    if (kind === 'roundabout') return null;
+    const def = BUILDINGS[kind];
+    if (!def) return null;
+    const { rot } = this.buildings.resolveOrientation(kind, t.x, t.z, rotDir);
+    const mv = this.moving && this.moving.kind === kind ? this.moving : null;
+    const geo = mv
+      ? ((mv.mesh.children[0] as THREE.Mesh)?.geometry ?? this.buildings.geometry(kind, t.x, t.z))
+      : this.buildings.geometry(kind, t.x, t.z);
+    return { geo, size: def.size, rot };
+  }
+
+  checkPlace(kind: PlaceKind, tl: Tile, _rotDir = 0): CheckResult {
     if (kind === 'roundabout') return this.checkRoundabout(tl);
     const def = BUILDINGS[kind];
     const mv = this.moving && this.moving.kind === kind ? this.moving : null;
@@ -733,8 +746,8 @@ export class Game implements ToolHost {
     return { ok: true, money: def.money, stone: def.stone, wood: def.wood, iron: def.iron };
   }
 
-  place(kind: PlaceKind, tl: Tile) {
-    const r = this.checkPlace(kind, tl);
+  place(kind: PlaceKind, tl: Tile, rotDir = 0) {
+    const r = this.checkPlace(kind, tl, rotDir);
     if (!r.ok) { sound.play('error'); return this.hud?.toast(r.reason!); }
     if (kind === 'roundabout') {
       this.net.pushUndo(ROUNDABOUT_COST.money, ROUNDABOUT_COST.stone);
@@ -750,11 +763,12 @@ export class Game implements ToolHost {
       return;
     }
     const def = BUILDINGS[kind];
+    const { rot, access } = this.buildings.resolveOrientation(kind, tl.x, tl.z, rotDir);
     if (this.moving && this.moving.kind === kind) {
       const b = this.moving;
       this.moving = null;
       this.eco.add(this.cityOf(b), 'money', -(r.money ?? 0), 'Moving buildings');
-      this.buildings.move(b, tl.x, tl.z);
+      this.buildings.move(b, tl.x, tl.z, rot, access);
       this.terrain.clearTiles(this.footprint(kind, tl).map((f) => idx(f.x, f.z)));
       this.effects.puff(b.mesh.position.x, b.mesh.position.z, def.size * 0.5, 14);
       sound.play('place');
@@ -773,7 +787,7 @@ export class Game implements ToolHost {
       founded = this.eco.found(townName(), NEW_CITY_GRANT);
       owner = founded.id;
     }
-    const b = this.buildings.place(kind, tl.x, tl.z, { city: owner });
+    const b = this.buildings.place(kind, tl.x, tl.z, { city: owner, rot, access });
     this.terrain.clearTiles(this.footprint(kind, tl).map((f) => idx(f.x, f.z)));
     this.effects.puff(b.mesh.position.x, b.mesh.position.z, def.size * 0.5, 10 + def.size * 8);
     this.net.clearUndo();
@@ -1311,6 +1325,7 @@ export class Game implements ToolHost {
   private startMove(b: Building) {
     this.moving = b;
     this.setTool(b.kind as PlaceKind);
+    this.tool?.setRotation(rotToDir(b.rot));
     this.moving = b;
     this.select(null);
     this.hud?.toast(t('Choose a new place for the {name}', { name: t(BUILDINGS[b.kind].name) }));

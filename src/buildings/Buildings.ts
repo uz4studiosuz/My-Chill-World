@@ -92,12 +92,17 @@ export interface BuildingContext {
   treesNear(x: number, z: number, r: number): number;
 }
 
+export function rotToDir(rot: number): number {
+  const norm = ((rot % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  return Math.round(norm / (Math.PI / 2)) % 4;
+}
+
 // Entrance search order: front (S), right (E), back (N), left (W) → model rotation
-const SIDES = [
-  { rot: 0, tile: (x: number, z: number, s: number, i: number) => ({ x: x + i, z: z + s }) },
-  { rot: Math.PI / 2, tile: (x: number, z: number, s: number, i: number) => ({ x: x + s, z: z + i }) },
-  { rot: Math.PI, tile: (x: number, z: number, _s: number, i: number) => ({ x: x + i, z: z - 1 }) },
-  { rot: -Math.PI / 2, tile: (x: number, z: number, _s: number, i: number) => ({ x: x - 1, z: z + i }) },
+export const SIDES = [
+  { dir: 0, rot: 0, tile: (x: number, z: number, s: number, i: number) => ({ x: x + i, z: z + s }) },
+  { dir: 1, rot: Math.PI / 2, tile: (x: number, z: number, s: number, i: number) => ({ x: x + s, z: z + i }) },
+  { dir: 2, rot: Math.PI, tile: (x: number, z: number, _s: number, i: number) => ({ x: x + i, z: z - 1 }) },
+  { dir: 3, rot: -Math.PI / 2, tile: (x: number, z: number, _s: number, i: number) => ({ x: x - 1, z: z + i }) },
 ];
 
 const CROP_GREEN = new THREE.Color('#6faa45');
@@ -221,8 +226,12 @@ export class Buildings {
     return { ok: true };
   }
 
-  place(kind: BuildingKind, x: number, z: number, opts: { stored?: number; animate?: boolean; id?: number; city?: number; built?: number; level?: number; owner?: number } = {}): Building {
-    const { access, rot } = this.findAccess(kind, x, z);
+  place(kind: BuildingKind, x: number, z: number, opts: { stored?: number; animate?: boolean; id?: number; city?: number; built?: number; level?: number; owner?: number; rot?: number; access?: number; preferredDir?: number } = {}): Building {
+    const resolved = (opts.rot !== undefined && opts.access !== undefined)
+      ? { rot: opts.rot, access: opts.access }
+      : this.findAccess(kind, x, z, opts.preferredDir ?? 0);
+    const access = resolved.access;
+    const rot = resolved.rot;
     const s = BUILDINGS[kind].size;
     const mesh = new THREE.Group();
     const body = new THREE.Mesh(this.geometry(kind, x, z), this.mat);
@@ -533,17 +542,19 @@ export class Buildings {
   }
 
   /** Move a building to a new spot (people, owner and records stay with it). */
-  move(b: Building, x: number, z: number) {
+  move(b: Building, x: number, z: number, explicitRot?: number, explicitAccess?: number) {
     for (const t of this.footprint(b.kind, b.x, b.z)) this.occ[idx(t.x, t.z)] = -1;
-    const { access, rot } = this.findAccess(b.kind, x, z);
+    const resolved = (explicitRot !== undefined && explicitAccess !== undefined)
+      ? { rot: explicitRot, access: explicitAccess }
+      : this.findAccess(b.kind, x, z, rotToDir(b.rot));
     const s = BUILDINGS[b.kind].size;
     b.x = x;
     b.z = z;
-    b.access = access;
-    b.rot = rot;
+    b.access = resolved.access;
+    b.rot = resolved.rot;
     for (const t of this.footprint(b.kind, x, z)) this.occ[idx(t.x, t.z)] = b.id;
     b.mesh.position.set(tileToWorld(x) + (s - 1) / 2, 0, tileToWorld(z) + (s - 1) / 2);
-    b.mesh.rotation.y = rot;
+    b.mesh.rotation.y = resolved.rot;
     b.grow = 0;
   }
 
@@ -556,7 +567,7 @@ export class Buildings {
 
   /** Re-resolve entrances after road edits (orientation stays as built). */
   refreshAccess() {
-    for (const b of this.list) b.access = this.findAccess(b.kind, b.x, b.z).access;
+    for (const b of this.list) b.access = this.findAccess(b.kind, b.x, b.z, rotToDir(b.rot)).access;
   }
 
   totals() {
@@ -579,20 +590,56 @@ export class Buildings {
     return out;
   }
 
-  private findAccess(kind: BuildingKind, x: number, z: number) {
+  roadAccessList(kind: BuildingKind, x: number, z: number): Array<{ dir: number; rot: number; access: number }> {
     const s = BUILDINGS[kind].size;
+    const list: Array<{ dir: number; rot: number; access: number }> = [];
     for (const side of SIDES) {
       for (let i = 0; i < s; i++) {
         const t = side.tile(x, z, s, i);
         if (!inBounds(t.x, t.z)) continue;
         const ty = this.roads.type[idx(t.x, t.z)];
-        if (ty && ty !== ROAD_RING) return { access: idx(t.x, t.z), rot: side.rot };
+        if (ty && ty !== ROAD_RING) {
+          list.push({ dir: side.dir, rot: side.rot, access: idx(t.x, t.z) });
+          break;
+        }
       }
     }
-    return { access: -1, rot: 0 };
+    return list;
   }
 
-  private geometry(kind: BuildingKind, x: number, z: number) {
+  resolveOrientation(kind: BuildingKind, x: number, z: number, preferredDir = 0): { rot: number; access: number; dir: number } {
+    const def = BUILDINGS[kind];
+    const roadSides = this.roadAccessList(kind, x, z);
+
+    if (def.needsRoad) {
+      if (roadSides.length === 0) {
+        const p = ((preferredDir % 4) + 4) % 4;
+        return { rot: SIDES[p].rot, access: -1, dir: p };
+      }
+      if (roadSides.length === 1) {
+        return roadSides[0];
+      }
+      const p = ((preferredDir % 4) + 4) % 4;
+      const match = roadSides.find((s) => s.dir === p);
+      if (match) return match;
+      for (let step = 1; step <= 3; step++) {
+        const nextDir = (p + step) % 4;
+        const nextMatch = roadSides.find((s) => s.dir === nextDir);
+        if (nextMatch) return nextMatch;
+      }
+      return roadSides[0];
+    } else {
+      const p = ((preferredDir % 4) + 4) % 4;
+      const matchRoad = roadSides.find((s) => s.dir === p);
+      return { rot: SIDES[p].rot, access: matchRoad ? matchRoad.access : -1, dir: p };
+    }
+  }
+
+  findAccess(kind: BuildingKind, x: number, z: number, preferredDir = 0) {
+    return this.resolveOrientation(kind, x, z, preferredDir);
+  }
+
+  geometry(kind: BuildingKind, x: number, z: number) {
     const variant = kind === 'house' ? hash2(x, z) % 16 : kind === 'flowerbed' || kind === 'sapling' ? hash2(x, z) % 3 : 0;
     const key = `${kind}:${variant}`;
     let g = this.geoCache.get(key);

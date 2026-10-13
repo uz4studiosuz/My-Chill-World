@@ -136,6 +136,7 @@ export interface HudHandlers {
   cycleCity: () => void;
   confirmBuild: () => void;
   cancelBuild: () => void;
+  rotateBuild?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50, 100];
@@ -167,6 +168,7 @@ export class Hud {
   private modal?: HTMLDivElement;
   private pendingEl: HTMLDivElement;
   private pendingText: HTMLSpanElement;
+  private rotBtn: HTMLButtonElement;
   private descEl?: HTMLDivElement;
 
   constructor(parent: HTMLElement, private h: HudHandlers, private thumbs: Map<string, string>) {
@@ -288,13 +290,17 @@ export class Hud {
 
     this.pendingEl = el('div', 'pending');
     this.pendingText = el('span', 'ptext');
+    this.rotBtn = el('button', 'pbtn rot');
+    this.rotBtn.innerHTML = icon('rotR') + `<span>${t('Rotate')} (R)</span>`;
+    this.rotBtn.setAttribute('title', t('Rotate building (R)'));
+    this.rotBtn.addEventListener('click', () => h.rotateBuild?.());
     const okBtn = el('button', 'pbtn ok');
     okBtn.innerHTML = icon('check') + `<span>${t('Build')}</span>`;
     okBtn.addEventListener('click', h.confirmBuild);
     const noBtn = el('button', 'pbtn no');
     noBtn.innerHTML = icon('close') + `<span>${t('Cancel')}</span>`;
     noBtn.addEventListener('click', h.cancelBuild);
-    this.pendingEl.append(this.pendingText, okBtn, noBtn);
+    this.pendingEl.append(this.pendingText, this.rotBtn, okBtn, noBtn);
 
     this.root.append(top, corner, this.hint, this.toastEl, this.pendingEl, this.drawer, bar);
     parent.appendChild(this.root);
@@ -426,10 +432,13 @@ export class Hud {
   }
 
   /** Show the confirm / cancel bar for a build that is waiting. */
-  setPending(info: { text: string; ok: boolean } | null) {
+  setPending(info: { text: string; ok: boolean; canRotate?: boolean } | null) {
     this.pendingEl.classList.toggle('show', !!info);
     this.hint.style.visibility = info ? 'hidden' : '';
-    if (info) this.pendingText.textContent = info.text;
+    if (info) {
+      this.pendingText.textContent = info.text;
+      this.rotBtn.style.display = info.canRotate ? '' : 'none';
+    }
   }
 
   setUndoEnabled(on: boolean) {
