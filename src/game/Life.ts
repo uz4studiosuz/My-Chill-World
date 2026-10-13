@@ -1682,7 +1682,7 @@ export class Life {
     const fromName = BUILDINGS[fromB.kind].name;
     const destName = BUILDINGS[toB.kind].name;
     const routeNum = depot.city + 1;
-    const routeName = `Marshrut #${routeNum}`;
+    const routeName = t('Route #{n}', { n: routeNum });
 
     const v = traffic.spawnVehicle({
       kind: 'bus',
@@ -1690,8 +1690,8 @@ export class Life {
       to: toB.access,
       fromPos: buildings.door(fromB),
       toPos: buildings.door(toB),
-      driverName: 'Avtobus haydovchisi',
-      purpose: `${routeName}: ${destName} tomon`,
+      driverName: 'Bus driver',
+      purpose: 'Bus route',
       routeName,
       routeStops: stops.map((id) => BUILDINGS[buildings.get(id)!.kind].name),
       stopIndex: nextIdx,

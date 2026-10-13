@@ -25,6 +25,8 @@ export function setLang(l: Lang) {
  */
 export function t(s: string, vars?: Record<string, string | number>) {
   let out = lang === 'uz' ? UZ[s] ?? s : s;
+  // development: remember texts that still have no Uzbek translation
+  if (import.meta.env.DEV && lang === 'uz' && UZ[s] === undefined && /[a-z]/i.test(s)) ((window as unknown as { __missing?: Set<string> }).__missing ??= new Set()).add(s);
   if (vars) for (const k in vars) out = out.split(`{${k}}`).join(String(vars[k]));
   return out;
 }

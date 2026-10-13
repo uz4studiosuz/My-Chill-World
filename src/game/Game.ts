@@ -1268,7 +1268,7 @@ export class Game implements ToolHost {
       badge,
       badgeColor,
       title,
-      subtitle: `${t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : 'Bus')} · ${speedKmh} km/h`,
+      subtitle: `${t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : 'Bus')} · ${speedKmh} ${t('km/h')}`,
       tags,
       rows,
       actions,

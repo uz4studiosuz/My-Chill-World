@@ -157,5 +157,5 @@ async function boot() {
 boot().catch((e) => {
   console.error(e);
   const l = document.getElementById('loading');
-  if (l) l.textContent = 'Failed to start. Please reload.';
+  if (l) l.textContent = t('Failed to start. Please reload.');
 });

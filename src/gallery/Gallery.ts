@@ -55,7 +55,7 @@ export class Gallery {
     h.textContent = t('Gallery');
     const close = el('button', 'rbtn');
     close.innerHTML = icon('close');
-    close.setAttribute('aria-label', 'Close gallery');
+    close.setAttribute('aria-label', t('Close gallery'));
     close.addEventListener('click', () => this.onClose());
     head.append(h, close);
     this.list = el('div', 'gallery-list');
