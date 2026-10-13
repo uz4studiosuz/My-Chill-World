@@ -406,7 +406,7 @@ export class Leisure {
       if (p.city !== city.id || p.state !== 'open') continue;
       if (this.fulfilled(p, own)) {
         p.state = 'done';
-        city.money += p.reward;
+        this.c.eco.add(city, 'money', p.reward, 'Letters answered');
         this.trust.set(city.id, Math.min(10, (this.trust.get(city.id) ?? 0) + 4));
         say(t('The {family} family thanks the town hall for answering their letter: +${n} and more trust', { family: p.from, n: p.reward }));
         sound.play('coin');

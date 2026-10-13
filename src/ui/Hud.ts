@@ -130,6 +130,8 @@ export interface HudHandlers {
   openGuide: () => void;
   openPetitions: () => void;
   openDrive: () => void;
+  /** Details of one readout: where it comes from and where it goes. */
+  openResource: (key: string) => void;
   toggleSound: () => boolean;
   cycleCity: () => void;
   confirmBuild: () => void;
@@ -220,7 +222,7 @@ export class Hud {
       chip.dataset.k = key;
       chip.title = t(title);
       chip.innerHTML = icon(ic);
-      chip.addEventListener('click', key === 'city' ? h.cycleCity : h.openStats);
+      chip.addEventListener('click', key === 'city' ? h.cycleCity : key === 'day' ? h.openStats : () => h.openResource(key));
       if (key === 'city') chip.classList.add('city');
       if (SECONDARY.has(key)) chip.classList.add('sec');
       const v = el('span', 'v');

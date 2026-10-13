@@ -7,9 +7,11 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { buildingGeometry } from '../buildings/Buildings';
 import { BUILDINGS, BuildingKind } from '../buildings/BuildingTypes';
 import { t } from '../i18n/i18n';
+import { ShapeKind, orient, unitShape } from '../utils/voxel';
 
 /** One box of a voxel model — the same shape the game's models are made of: box(w, h, d, x, y, z, color). */
-interface Part { id: number; w: number; h: number; d: number; x: number; y: number; z: number; color: string; name?: string }
+/** A part of the model: a box, or a round / sloped shape, turned along an axis. */
+interface Part { id: number; w: number; h: number; d: number; x: number; y: number; z: number; color: string; name?: string; shape?: ShapeKind; axis?: 'x' | 'y' | 'z' }
 
 interface ModelFile { format: 'mcw-model'; version: 1; name: string; size: 1 | 2 | 3; parts: Omit<Part, 'id'>[] }
 
@@ -20,6 +22,7 @@ const PALETTE = [
   '#3a6fd1', '#3f6fb5', '#2d4f8a', '#4fa3d1', '#a8d0e6', '#6f9fc8', '#8a5a35', '#6b4a2e', '#b0478f', '#e85a7a',
 ];
 const round = (v: number) => Math.round(v * 1000) / 1000;
+const SHAPE_NAME: Record<ShapeKind, string> = { box: 'Box', cylinder: 'Cylinder', sphere: 'Sphere', cone: 'Cone', dome: 'Dome', wedge: 'Ramp' };
 
 /**
  * Model editor at /editor: build a model from boxes (like every model in the game), recolour, move and resize
@@ -169,6 +172,12 @@ export class Editor {
       btn(t('Door'), () => this.add({ w: 0.12, h: 0.2, d: 0.02, x: 0, y: 0.1, z: 0.21, color: '#6b4a2e' })),
       btn(t('Pillar'), () => this.add({ w: 0.05, h: 0.4, d: 0.05, x: 0, y: 0.2, z: 0, color: '#f4f1ea' })),
       btn(t('Tree'), () => this.addTree()),
+      btn(t('Cylinder'), () => this.add({ w: 0.2, h: 0.3, d: 0.2, x: 0, y: 0.15, z: 0, shape: 'cylinder' })),
+      btn(t('Sphere'), () => this.add({ w: 0.2, h: 0.2, d: 0.2, x: 0, y: 0.1, z: 0, shape: 'sphere' })),
+      btn(t('Cone'), () => this.add({ w: 0.24, h: 0.3, d: 0.24, x: 0, y: 0.15, z: 0, shape: 'cone' })),
+      btn(t('Dome'), () => this.add({ w: 0.4, h: 0.2, d: 0.4, x: 0, y: 0.1, z: 0, shape: 'dome' })),
+      btn(t('Ramp'), () => this.add({ w: 0.3, h: 0.15, d: 0.3, x: 0, y: 0.075, z: 0, shape: 'wedge' })),
+      btn(t('Wheel'), () => this.add({ w: 0.03, h: 0.06, d: 0.06, x: 0, y: 0.03, z: 0, shape: 'cylinder', axis: 'x', color: '#1f2226' })),
     );
     left.append(adds, h('div', 'ed-h', t('Colour')));
     const pal = h('div', 'ed-palette');
@@ -218,12 +227,12 @@ export class Editor {
     this.parts.forEach((p, i) => {
       const row = document.createElement('button');
       row.className = 'ed-row' + (this.selected.includes(p.id) ? ' on' : '');
-      row.innerHTML = `<i style="background:${p.color}"></i><span>${p.name ?? t('Box')} ${i + 1}</span><small>${p.w}×${p.h}×${p.d}</small>`;
+      row.innerHTML = `<i style="background:${p.color};border-radius:${p.shape && p.shape !== 'box' && p.shape !== 'wedge' ? '50%' : '3px'}"></i><span>${p.name ?? t(SHAPE_NAME[p.shape ?? 'box'])} ${i + 1}</span><small>${p.w}×${p.h}×${p.d}</small>`;
       row.addEventListener('click', (e) => this.select(p.id, e.shiftKey));
       list.appendChild(row);
     });
     const n = this.imported.children.length;
-    this.ui.status.textContent = `${this.parts.length} ${t('boxes')}${n ? ` · ${n} ${t('imported models')}` : ''} · ${t('Plot')} ${this.size}×${this.size}`;
+    this.ui.status.textContent = `${this.parts.length} ${t('parts')}${n ? ` · ${n} ${t('imported models')}` : ''} · ${t('Plot')} ${this.size}×${this.size}`;
   }
 
   private renderProps() {
@@ -258,9 +267,22 @@ export class Editor {
     const nm = document.createElement('input');
     nm.className = 'ed-input';
     nm.placeholder = t('Part name');
+    // shape and direction of the selected part
+    const shapeSel = document.createElement('select');
+    shapeSel.className = 'ed-input';
+    for (const [v, label] of [['box', 'Box'], ['cylinder', 'Cylinder'], ['sphere', 'Sphere'], ['cone', 'Cone'], ['dome', 'Dome'], ['wedge', 'Ramp']] as const) {
+      const o = document.createElement('option'); o.value = v; o.textContent = t(label); if ((p.shape ?? 'box') === v) o.selected = true; shapeSel.appendChild(o);
+    }
+    shapeSel.addEventListener('change', () => { this.pushUndo(); p.shape = shapeSel.value === 'box' ? undefined : shapeSel.value as ShapeKind; this.rebuild(); });
+    const axisSel = document.createElement('select');
+    axisSel.className = 'ed-input';
+    for (const [v, label] of [['y', 'Upright (Y)'], ['x', 'Sideways (X)'], ['z', 'Forward (Z)']] as const) {
+      const o = document.createElement('option'); o.value = v; o.textContent = t(label); if ((p.axis ?? 'y') === v) o.selected = true; axisSel.appendChild(o);
+    }
+    axisSel.addEventListener('change', () => { this.pushUndo(); p.axis = axisSel.value === 'y' ? undefined : axisSel.value as 'x' | 'z'; this.rebuild(); });
     nm.value = p.name ?? '';
     nm.addEventListener('change', () => { p.name = nm.value || undefined; this.renderList(); this.save(); });
-    props.append(grid, nm);
+    props.append(grid, shapeSel, axisSel, nm);
   }
 
   // ---------- model ----------
@@ -290,7 +312,7 @@ export class Editor {
     for (const m of this.meshes.values()) { this.root.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
     this.meshes.clear();
     for (const p of this.parts) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: p.color }));
+      const m = new THREE.Mesh(orient(unitShape(p.shape ?? 'box', 32), p.axis ?? 'y'), new THREE.MeshLambertMaterial({ color: p.color }));
       m.scale.set(p.w, p.h, p.d);
       m.position.set(p.x, p.y, p.z);
       m.castShadow = true;
@@ -574,7 +596,11 @@ export class Editor {
   /** TypeScript in the style of src/models/buildings.ts. */
   private code() {
     const fn = this.name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-    const lines = this.parts.map((p) => `    box(${p.w}, ${p.h}, ${p.d}, ${p.x}, ${p.y}, ${p.z}, '${p.color}'),${p.name ? ` // ${p.name}` : ''}`);
+    const lines = this.parts.map((p) => {
+      const call = !p.shape || p.shape === 'box' ? `box(${p.w}, ${p.h}, ${p.d}, ${p.x}, ${p.y}, ${p.z}, '${p.color}')`
+        : `shape('${p.shape}', ${p.w}, ${p.h}, ${p.d}, ${p.x}, ${p.y}, ${p.z}, '${p.color}'${p.axis && p.axis !== 'y' ? `, '${p.axis}'` : ''})`;
+      return `    ${call},${p.name ? ` // ${p.name}` : ''}`;
+    });
     return `/** ${this.name} — ${this.size}×${this.size} tiles, made in the model editor. */\nexport function ${fn}Geometry(): THREE.BufferGeometry {\n  return merge([\n${lines.join('\n')}\n  ]);\n}\n`;
   }
 
@@ -664,8 +690,10 @@ export class Editor {
 body.editor-page { overflow: hidden; background: var(--base, #1a1d22); }
 body.editor-page #loading { display: none; }
 .ed-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-.ed-top { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: #1a1d22; border-bottom: 1px solid #343a43; color: #eceef1; font-family: Nunito, system-ui, sans-serif; z-index: 2; }
-.ed-title { font-family: Fredoka, Nunito, sans-serif; font-size: 15px; margin-right: 6px; }
+.ed-top { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 6px; align-items: center; padding: 8px 12px; background: #1a1d22; border-bottom: 1px solid #343a43; color: #eceef1; font-family: Nunito, system-ui, sans-serif; z-index: 2; }
+.ed-title { font-family: Fredoka, Nunito, sans-serif; font-size: 15px; margin-right: 6px; white-space: nowrap; }
+.ed-top > * { flex: none; }
+.ed-top::-webkit-scrollbar { display: none; }
 .ed-title span { color: #f2a93b; }
 .ed-btn { border: 0; border-radius: 8px; background: #272b32; color: #eceef1; font-weight: 800; font-size: 12px; padding: 7px 10px; cursor: pointer; font-family: inherit; }
 .ed-btn:hover { background: #30353d; }

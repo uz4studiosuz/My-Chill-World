@@ -47,9 +47,21 @@ export interface City {
   tourists: number;
   smart: boolean;
   railLink: boolean;
+  /** Books: today so far, and the last days (newest first). Not saved. */
+  ledger: Ledger;
+  ledgerDays: Ledger[];
+  /** Happiness target broken down into reasons (label, points). */
+  mood: [string, number][];
 }
 
 export type PromiseKind = 'tax' | 'park' | 'hospital' | 'school' | 'jobs';
+
+/** Resources that are counted in the city's books. */
+export type Res = 'money' | 'stone' | 'wood' | 'iron' | 'food';
+/** Where each resource came from / went to: reason (English key) → signed amount. */
+export type Ledger = Record<Res, Record<string, number>>;
+export const blankLedger = (): Ledger => ({ money: {}, stone: {}, wood: {}, iron: {}, food: {} });
+export const LEDGER_DAYS = 7;
 
 export interface CitySave {
   id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
@@ -70,6 +82,7 @@ function blankCity(id: number, name: string, founded: number, g: Grant = { money
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
     foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25, mayor: -1, elected: 0,
     jobPriority: {}, pollution: 0, tourists: 0, smart: false, railLink: false,
+    ledger: blankLedger(), ledgerDays: [], mood: [],
   };
 }
 
@@ -122,11 +135,35 @@ export class Economy {
     return this.money >= money && this.stone >= stone && this.wood >= wood && this.iron >= iron;
   }
 
-  spend(money: number, stone: number, wood = 0, iron = 0) {
-    this.money -= money;
-    this.stone -= stone;
-    this.wood -= wood;
-    this.iron -= iron;
+  spend(money: number, stone: number, wood = 0, iron = 0, reason = 'Construction') {
+    const c = this.city;
+    this.add(c, 'money', -money, reason);
+    this.add(c, 'stone', -stone, reason);
+    this.add(c, 'wood', -wood, reason);
+    this.add(c, 'iron', -iron, reason);
+  }
+
+  /** Write a change into the city's books (the amount is already applied). */
+  note(city: City, res: Res, amount: number, reason: string) {
+    if (!amount || !Number.isFinite(amount)) return;
+    const l = city.ledger[res];
+    l[reason] = (l[reason] ?? 0) + amount;
+  }
+
+  /** Change a resource and write it into the books. */
+  add(city: City, res: Res, amount: number, reason: string) {
+    if (!amount) return;
+    city[res] += amount;
+    this.note(city, res, amount, reason);
+  }
+
+  /** A day is over: today's page of the books becomes yesterday's. */
+  closeBooks() {
+    for (const c of this.cities.values()) {
+      c.ledgerDays.unshift(c.ledger);
+      c.ledgerDays.length = Math.min(c.ledgerDays.length, LEDGER_DAYS);
+      c.ledger = blankLedger();
+    }
   }
 
   /** Advance the clock; returns true when a new day starts. */
@@ -156,6 +193,7 @@ export class Economy {
     for (const p of plants) {
       const burnt = Math.min(Math.max(0, p.city.wood), (need * (p.power / capacity)) / ENERGY_PER_WOOD);
       p.city.wood -= burnt;
+      this.note(p.city, 'wood', -burnt, 'Burnt in power plants');
       supplied += burnt * ENERGY_PER_WOOD;
     }
     return capacity * (supplied / need);
