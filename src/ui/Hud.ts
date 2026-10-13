@@ -1,6 +1,6 @@
 import { ToolId } from '../build/BuildTool';
 import { IS_TOUCH } from '../config';
-import { BUILDINGS, BuildingKind } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, PIPE_COST } from '../buildings/BuildingTypes';
 import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
@@ -34,6 +34,7 @@ export const ITEMS: ToolItem[] = [
   { tool: 'roundabout', cat: 'roads', name: 'Roundabout', desc: 'Place it on a junction — roads connect to the middle of each side.', ...ROUNDABOUT_COST, wood: 0, tag: '3×3 · no lights', icon: 'roundabout' },
   { tool: 'rail', cat: 'roads', name: 'Railway', desc: 'Lay tracks between two Train Stations: a train then carries goods and passengers between the cities.', money: 14, stone: 0, wood: 0, iron: 1, perTile: true, tag: 'Trains', icon: 'rail' },
   { tool: 'path', cat: 'roads', name: 'Footpath', desc: 'Free walking path. People walk faster on paths than on grass.', money: 0, stone: 0, wood: 0, perTile: true, tag: 'Free · pedestrians', icon: 'path' },
+  { tool: 'pipe', cat: 'roads', name: 'Water Pipe', desc: 'Underground pipe. Water runs under roads anyway; pipes bring it to homes and towers that are not on a road.', money: PIPE_COST.money, stone: 0, wood: 0, iron: PIPE_COST.iron, perTile: true, tag: 'Water to homes', icon: 'water' },
   { tool: 'canal', cat: 'roads', name: 'Irrigation Canal', desc: 'Dig from a river or lake to a crop farm — farms need water to grow.', money: 8, stone: 0, wood: 0, perTile: true, tag: 'Water for farms', icon: 'canal' },
   b('townhall', 'buildings', 'New city', 'Found a new city with its own Town Hall, treasury and citizens. Select a Town Hall to build for that city.', 'buildings'),
   b('apartment', 'buildings', '6 families', 'Five floors, six flats. Families pay rent to the owner — the city or a businessman who built it.', 'office'),
@@ -53,10 +54,13 @@ export const ITEMS: ToolItem[] = [
   b('military', 'services', 'Safety', 'Soldiers keep the whole city safe: much less crime. They drill on the parade ground and march at Navruz.', 'jobs'),
   b('landfill', 'services', 'Garbage', 'Garbage trucks empty the bins of homes nearby. Cheap, but it smells: homes around it suffer from the pollution.', 'bulldoze'),
   b('recycling', 'services', 'Recycling', 'Garbage trucks bring rubbish here; it is sorted and iron is recovered. Clean, but costs more.', 'bulldoze'),
+  b('pharmacy', 'services', 'Medicines', 'Sells medicines: the flu spreads less and the sick recover faster.', 'heart'),
+  b('sewage', 'services', 'Sanitation', 'Treats the sewage of the town. Without it a bigger town gets dirty water: people fall ill and are unhappy.', 'water'),
   b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one. Newly-weds drive through town in a decorated car.', 'heart'),
   b('academy', 'services', 'Science & sport', 'Researchers and coaches: children learn 30% faster and the city football team gets stronger.', 'school'),
   b('stadium', 'services', 'Football', 'Every other day the city team plays a match. Fans fill the stands — a win makes the whole city happier.', 'ball'),
   b('bakery', 'business', 'Bread', 'Bakes flour from the mill into bread: much more food than raw grain. Vans deliver the bread to the shops.', 'food'),
+  b('supermarket', 'business', 'Big shop', 'A big shop that sells bread, cheese and everything else. Counts as a food shop for homes.', 'food'),
   b('kiosk', 'business', 'Coffee', 'A coffee and ice-cream cart. People stop by on their walks.', 'food'),
   b('cinema', 'business', 'Films at night', 'An open-air cinema: in the evening people sit on benches and watch a film on the big screen.', 'film'),
   b('grocery', 'business', 'Food shop', 'Families buy their everyday food here. A family may buy the shop or build one with its savings.', 'food'),
@@ -68,6 +72,12 @@ export const ITEMS: ToolItem[] = [
   b('gasstation', 'business', 'Fuel', 'Sells fuel to the town\'s drivers and pays business tax.', 'energy'),
   b('office', 'business', '24 jobs', 'Workplace with parking spaces in front.', 'office'),
   b('construction', 'business', 'Builders', 'Builders work here: they walk to every construction site and build it. Without a construction company nothing can be built (it can build itself and a Town Hall slowly).', 'quarry'),
+  b('dairy', 'production', 'Milk → cheese', 'Ranches send milk in a tanker; the dairy makes cheese and ice cream for the shops (1.5 food per milk).', 'cow'),
+  b('brickworks', 'production', 'Stone → bricks', 'Fires stone into bricks. Trucks bring bricks to construction sites, which go up faster.', 'quarry'),
+  b('steelmill', 'production', 'Iron → steel', 'Melts iron into steel beams for big construction sites.', 'iron'),
+  b('coalmine', 'production', 'Coal', 'Must touch mountains. Miners dig coal for the coal power plant.', 'quarry'),
+  b('coalplant', 'production', '+160 energy/day', 'Burns coal: a lot of steady power, but heavy smoke.', 'powerplant'),
+  b('hydro', 'production', '+90 clean energy', 'Built on a river or lake bank: steady clean power day and night.', 'water'),
   b('mill', 'production', 'Grain → flour', 'Farms grow grain; tractors bring it here and the windmill grinds it into flour for the bakery.', 'farm'),
   b('sawmill', 'production', 'Wood → planks', 'Saws wood into planks. Trucks bring planks to construction sites, which then go up 40% faster.', 'woodcutter'),
   b('battery', 'production', 'Stores power', 'Stores spare electricity (e.g. from solar panels by day) and gives it back at night.', 'energy'),
@@ -138,6 +148,7 @@ export interface HudHandlers {
   openGuide: () => void;
   openPetitions: () => void;
   openDrive: () => void;
+  openPhoto: () => void;
   /** Details of one readout: where it comes from and where it goes. */
   openResource: (key: string) => void;
   toggleSound: () => boolean;
@@ -189,7 +200,7 @@ export class Hud {
     const more = el('div', 'navmenu');
     const panels: [IconName, string, () => void, boolean][] = [
       ['stats', 'Statistics', h.openStats, false], ['trophy', 'Goals', h.openGoals, false], ['mail', 'Letters', h.openPetitions, false],
-      ['list', 'Chronicle', h.openLog, true], ['car', 'Drive a car', h.openDrive, true], ['book', 'Guide', h.openGuide, true],
+      ['list', 'Chronicle', h.openLog, true], ['car', 'Drive a car', h.openDrive, true], ['camera', 'Photo mode', h.openPhoto, true], ['book', 'Guide', h.openGuide, true],
     ];
     nav.appendChild(this.iconButton('menu', t('Menu'), h.openMenu));
     for (const [ic, label, fn, secondary] of panels) {

@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BATTERY, CHAIN, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, DayReport, Family, Population } from '../people/Population';
@@ -39,6 +39,8 @@ export interface LifeContext {
   burnDown: (b: Building) => void;
   /** Does this road tile have street lamps? */
   isLit?: (k: number) => boolean;
+  /** Water pipe tiles. */
+  pipes?: Uint8Array;
 }
 
 export interface BusPassenger {
@@ -84,7 +86,9 @@ const FOOD_RATE = { adult: 1.4, child: 0.9, baby: 0.4 };
 const HEATING = { woodPerHome: 1.2, price: 3 };
 /** Activities of workers who are out driving a service vehicle (they stay on duty until back). */
 const DRIVING = new Set(['Driving the bus', 'On patrol', 'Driving a truck', 'Driving the fire truck', 'Driving the ambulance', 'Drilling on the parade ground', 'Collecting garbage']);
+export type WeatherMood = 'clear' | 'fog' | 'blizzard' | 'heat';
 const CARGO_PURPOSE: Record<CargoKind, string> = {
+  bricks: 'Delivering bricks', steel: 'Delivering steel', milk: 'Bringing milk to the dairy', dairy: 'Delivering cheese and ice cream',
   stone: 'Delivering stone', logs: 'Bringing logs to the sawmill', planks: 'Delivering planks', grain: 'Bringing grain to the mill',
   flour: 'Bringing flour to the bakery', bread: 'Delivering bread to the shops', trash: 'Collecting garbage', veg: 'Delivering fruit and fish',
 };
@@ -114,6 +118,15 @@ export class Life {
   /** Hotel id → how attractive the town is to tourists (0..1+). */
   attraction = new Map<number, number>();
   private serviceT = 5;
+  /** Water supply of every home (0..1), from towers through road mains and pipes. */
+  homeWater = new Map<number, number>();
+  /** Share of people whose sewage is treated, per city. */
+  sanitation = new Map<number, number>();
+  /** Today's special weather. */
+  weatherMood: WeatherMood = 'clear';
+  /** Extra happiness from the town hall's decisions (value, until day), per city. */
+  moodBoost = new Map<number, { v: number; until: number }>();
+  private waterT = 0;
   /** Share of homes with overflowing bins, per city. */
   private dirty = new Map<number, number>();
   /** Homes a garbage truck is already on its way to. */
@@ -192,6 +205,8 @@ export class Life {
     this.presentT -= dt;
     this.serviceT -= dt;
     if (this.serviceT <= 0) { this.serviceT = 3; this.dispatchServices(); this.deliverPlanks(); }
+    this.waterT -= dt;
+    if (this.waterT <= 0) { this.waterT = 2; this.updateWater(); }
     this.updateBusWaiters(dt);
     if (this.presentT <= 0) { this.presentT = 0.5; this.people = this.populationByCity(); this.mouths = this.appetiteByCity(); this.countPresent(); this.checkRain(); this.dispatchBuilders(); }
     this.produce(dt);
@@ -392,7 +407,7 @@ export class Life {
 
   private updateEnergy(dt: number) {
     const { buildings, eco } = this.c;
-    const plants: { city: (typeof eco.city); power: number }[] = [];
+    const plants: { city: (typeof eco.city); power: number; coal?: boolean }[] = [];
     let total = 0, clean = 0;
     for (const city of eco.cities.values()) {
       let demand = 0, capacity = 0;
@@ -402,14 +417,14 @@ export class Life {
         if (d.energy && this.gridIds.has(b.id)) demand += d.energy * (b.kind === 'house' ? b.level : 1);
         if (d.power && b.access >= 0) {
           if (CLEAN_POWER[b.kind]) {
-            const sun = b.kind === 'solarfarm' ? (eco.timeOfDay > 0.25 && eco.timeOfDay < 0.78 ? 1 : 0.1) : 0.7 + 0.3 * Math.sin(eco.day * 1.7 + eco.timeOfDay * 9);
+            const sun = b.kind === 'hydro' ? 1 : b.kind === 'solarfarm' ? (eco.timeOfDay > 0.25 && eco.timeOfDay < 0.78 ? 1 : 0.1) : 0.7 + 0.3 * Math.sin(eco.day * 1.7 + eco.timeOfDay * 9);
             const p = d.power * Math.max(0.6, Math.min(1, b.workers / d.jobs)) * sun;
             capacity += p;
             clean += p;
           } else {
             const p = d.power * Math.min(1, b.workers / d.jobs);
             capacity += p;
-            if (p > 0) plants.push({ city, power: p });
+            if (p > 0) plants.push({ city, power: p, coal: b.kind === 'coalplant' });
           }
         }
       }
@@ -445,15 +460,74 @@ export class Life {
       const share = city.energyDemand > 0 ? Math.min(1, (got.get(city.id) ?? 0) / city.energyDemand) : 1;
       city.powered += (share - city.powered) * Math.min(1, dt * 2);
     }
-    const people = this.populationByCity();
-    for (const city of eco.cities.values()) {
-      let water = 0;
-      for (const w of buildings.ofKind('watertower')) {
-        if (w.city !== city.id) continue;
-        water += BUILDINGS.watertower.water * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3);
+  }
+
+  /**
+   * Water flows from the towers through the mains under the roads and through pipes. A home gets water when it
+   * touches that network; each connected network shares the water of its towers among its people.
+   */
+  private updateWater() {
+    const { buildings, eco, net, pop } = this.c;
+    const pipes = this.c.pipes;
+    const isMain = (k: number) => net.type[k] !== 0 || (pipes ? pipes[k] === 1 : false);
+    const comp = new Int32Array(N * N).fill(-1);
+    let id = 0;
+    for (let k = 0; k < comp.length; k++) {
+      if (comp[k] >= 0 || !isMain(k)) continue;
+      const stack = [k];
+      comp[k] = id;
+      while (stack.length) {
+        const cur = stack.pop()!;
+        const x = cur % N, z = (cur / N) | 0;
+        for (const d of DIRS) {
+          const nx = x + d.dx, nz = z + d.dz;
+          if (!inBounds(nx, nz)) continue;
+          const nk = nz * N + nx;
+          if (comp[nk] < 0 && isMain(nk)) { comp[nk] = id; stack.push(nk); }
+        }
       }
-      const n = people.get(city.id) ?? 0;
-      city.water = n ? Math.min(1, water / n) : 1;
+      id++;
+    }
+    const compOf = (b: Building) => {
+      if (b.access >= 0 && comp[b.access] >= 0) return comp[b.access];
+      const s = BUILDINGS[b.kind].size;
+      for (let i = -1; i <= s; i++) for (const [x, z] of [[b.x + i, b.z - 1], [b.x + i, b.z + s], [b.x - 1, b.z + i], [b.x + s, b.z + i]]) {
+        if (inBounds(x, z) && comp[z * N + x] >= 0) return comp[z * N + x];
+      }
+      return -1;
+    };
+    const cap = new Map<number, number>(), need = new Map<number, number>();
+    for (const w of buildings.list) {
+      if (w.kind !== 'watertower' || w.built < 1) continue;
+      const c = compOf(w);
+      if (c < 0) continue;
+      cap.set(c, (cap.get(c) ?? 0) + BUILDINGS.watertower.water * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3));
+    }
+    const living = new Map<number, number>();
+    for (const f of pop.families.values()) living.set(f.home, (living.get(f.home) ?? 0) + f.members.length);
+    const homeComp = new Map<number, number>();
+    for (const h of buildings.list) {
+      if (!BUILDINGS[h.kind].units) continue;
+      const c = compOf(h);
+      homeComp.set(h.id, c);
+      if (c >= 0) need.set(c, (need.get(c) ?? 0) + (living.get(h.id) ?? 0));
+    }
+    this.homeWater.clear();
+    const totals = new Map<number, { people: number; served: number; homes: number; connected: number }>();
+    for (const h of buildings.list) {
+      if (!BUILDINGS[h.kind].units) continue;
+      const c = homeComp.get(h.id) ?? -1;
+      const share = c < 0 ? 0 : Math.min(1, (cap.get(c) ?? 0) / Math.max(1, need.get(c) ?? 0));
+      this.homeWater.set(h.id, share);
+      const n = living.get(h.id) ?? 0;
+      const tt = totals.get(h.city) ?? { people: 0, served: 0, homes: 0, connected: 0 };
+      tt.people += n; tt.served += n * share; tt.homes++; if (c >= 0) tt.connected++;
+      totals.set(h.city, tt);
+    }
+    for (const city of eco.cities.values()) {
+      const tt = totals.get(city.id);
+      city.water = tt && tt.people ? tt.served / tt.people : 1;
+      city.piped = tt && tt.homes ? tt.connected / tt.homes : 1;
     }
   }
 
@@ -485,6 +559,8 @@ export class Life {
         taxRate: city.taxRate, calm: this.calm,
         safety: Math.min(0.95, this.policeCover(city.id) * 0.75 + (own.some((b) => b.kind === 'military' && b.workers > 0) ? MILITARY.safety : 0)),
         eduBoost: own.some((b) => b.kind === 'academy' && b.workers > 0) ? 0.3 : 0,
+        waterAt: (home) => this.homeWater.get(home) ?? city.water,
+        foodPrice: city.priceFactor,
       });
       city.foodYesterday = { made: Math.round(city.foodMade), eaten: r.foodEaten };
       city.foodMade = 0;
@@ -503,7 +579,7 @@ export class Life {
       for (const b of own) {
         const d = BUILDINGS[b.kind];
         let turnover = 0;
-        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'gasstation' || b.kind === 'hotel' || b.kind === 'kiosk' || b.kind === 'bakery') {
+        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'gasstation' || b.kind === 'hotel' || b.kind === 'kiosk' || b.kind === 'bakery' || b.kind === 'supermarket' || b.kind === 'pharmacy') {
           turnover = b.sales ?? 0;
           b.sales = 0;
           // sales already taxed at the till are not taxed twice
@@ -584,6 +660,11 @@ export class Life {
       this.tourism(city, own, say);
       this.heating(city, belongs, say);
       this.fillBins(city, own);
+      this.prices(city, say);
+      this.pensions(city, belongs);
+      this.sewage(city, own, belongs);
+      this.flu(city, own, belongs, say);
+      this.switchJobs(city, own, say);
       this.leisure.daily(city, own, say);
       this.updateHappiness(city, own, r, belongs, say);
       this.smartCity(city, belongs, say);
@@ -622,6 +703,7 @@ export class Life {
       this.events.push(t('Drought! No rain for days and farms give less food'));
     }
     weather.newDay(season);
+    this.pickWeather((m) => this.events.push(m));
     if (!this.calm && season === 'winter' && Math.random() < 0.18) {
       for (const c of pop.citizens.values()) c.health = Math.max(1, c.health - 8);
       this.events.push(t('A cold snap! People get sick more easily'));
@@ -863,6 +945,7 @@ export class Life {
           }
         }
       }
+      if (b.kind === 'coalmine') this.c.eco.add(city, 'coal', CHAIN2.coalPerDay * Math.min(1, b.workers / d.jobs) * share, 'Coal mines');
       if (b.kind === 'ironmine') this.c.eco.add(city, 'iron', IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share, 'Iron mines');
       if (b.kind === 'carfactory' && b.stored < CARS.factoryMax) {
         const made = CARS.perDay * Math.min(1, b.workers / d.jobs) * (b.powered ? 1 : 0.4) * share;
@@ -882,9 +965,16 @@ export class Life {
         this.chainTruck(b, f * share, ['mill'], 'grain');
         continue;
       }
+      if (b.kind === 'ranch') {
+        // part of the ranch's output is milk: a tanker takes it to the dairy
+        const milk = f * share * CHAIN2.milkShareOfRanch;
+        this.c.eco.add(city, 'milk', milk, BUILDINGS[b.kind].name);
+        this.chainTruck(b, milk, ['dairy'], 'milk');
+        f *= 1 - CHAIN2.milkShareOfRanch;
+      }
       this.c.eco.add(city, 'food', f * share, BUILDINGS[b.kind].name);
       city.foodMade += f * share;
-      if (b.kind === 'orchard' || b.kind === 'fishery') this.chainTruck(b, f * share, ['grocery', 'market'], 'veg');
+      if (b.kind === 'orchard' || b.kind === 'fishery') this.chainTruck(b, f * share, ['grocery', 'market', 'supermarket'], 'veg');
     }
     this.chains(share);
 
@@ -995,7 +1085,35 @@ export class Life {
         eco.add(city, 'flour', -n, 'Bakery');
         eco.add(city, 'food', n * CHAIN.breadPerFlour, 'Bakery');
         city.foodMade += n * CHAIN.breadPerFlour;
-        this.chainTruck(bk, n * CHAIN.breadPerFlour, ['grocery', 'market'], 'bread');
+        this.chainTruck(bk, n * CHAIN.breadPerFlour, ['supermarket', 'grocery', 'market'], 'bread');
+      }
+      const dairies = own.filter((b) => b.kind === 'dairy');
+      for (const dy of dairies) {
+        const n = Math.min(city.milk, CHAIN2.dairy * staff(dy) * share);
+        if (n <= 0) continue;
+        eco.add(city, 'milk', -n, 'Dairy');
+        eco.add(city, 'food', n * CHAIN2.foodPerMilk, 'Dairy');
+        city.foodMade += n * CHAIN2.foodPerMilk;
+        this.chainTruck(dy, n * CHAIN2.foodPerMilk, ['supermarket', 'grocery', 'market'], 'dairy');
+      }
+      if (!dairies.length && city.milk > 0) {
+        // no dairy: the milk is drunk fresh
+        const n = Math.min(city.milk, 60 * share);
+        eco.add(city, 'milk', -n, 'Drunk fresh (no dairy)');
+        eco.add(city, 'food', n, 'Fresh milk (no dairy)');
+        city.foodMade += n;
+      }
+      for (const bw of own.filter((b) => b.kind === 'brickworks')) {
+        const n = Math.min(Math.max(0, city.stone - 30) / CHAIN2.stonePerBrick, CHAIN2.bricks * staff(bw) * share);
+        if (n <= 0) continue;
+        eco.add(city, 'stone', -n * CHAIN2.stonePerBrick, 'Brickworks');
+        eco.add(city, 'bricks', n, 'Brickworks');
+      }
+      for (const sm of own.filter((b) => b.kind === 'steelmill')) {
+        const n = Math.min(Math.max(0, city.iron - 10) / CHAIN2.ironPerSteel, CHAIN2.steel * staff(sm) * share);
+        if (n <= 0) continue;
+        eco.add(city, 'iron', -n * CHAIN2.ironPerSteel, 'Steel mill');
+        eco.add(city, 'steel', n, 'Steel mill');
       }
       for (const sm of own.filter((b) => b.kind === 'sawmill')) {
         const n = Math.min(Math.max(0, city.wood - 20), CHAIN.sawmill * staff(sm) * share);
@@ -1040,6 +1158,8 @@ export class Life {
 
   /** Construction sites get planks from the sawmill: a truck brings them and the site goes up faster. */
   private deliverPlanks() {
+    this.deliverMaterial('bricks', 'brickworks', 'bricks', 'Delivering bricks');
+    this.deliverMaterial('steel', 'steelmill', 'steel', 'Delivering steel');
     const { buildings, eco, traffic } = this.c;
     const now = this.clock();
     for (const site of buildings.list) {
@@ -1054,6 +1174,27 @@ export class Life {
         const ok = traffic.spawn({ kind: 'truck', from: mill.access, to: site.access, loaded: true, cargo: 'planks', fromPos: buildings.door(mill), purpose: 'Delivering planks', driverId: driver.id, driverName: this.fullName(driver), fromName: 'Sawmill', destName: BUILDINGS[site.kind].name, onArrive: () => this.releaseDriver(driver), onFail: () => this.releaseDriver(driver) });
         if (!ok) this.releaseDriver(driver);
       } else this.releaseDriver(driver);
+    }
+  }
+
+  /** Bricks and steel go to construction sites by truck; each makes the site go up faster for a while. */
+  private deliverMaterial(res: 'bricks' | 'steel', producer: string, cargo: CargoKind, purpose: string) {
+    const { buildings, eco, traffic } = this.c;
+    const now = this.clock();
+    for (const site of buildings.list) {
+      if (site.built >= 1 || site.removed || this.crewSize(site) === 0) continue;
+      if (res === 'steel' && BUILDINGS[site.kind].size < 2) continue;
+      const boost = (site.boost ??= {});
+      if ((boost[res] ?? 0) > now) continue;
+      const city = eco.cities.get(site.city);
+      if (!city || city[res] < CHAIN2.perSite) continue;
+      const from = buildings.list.find((b) => b.kind === producer && b.city === site.city && b.access >= 0);
+      const driver = from ? this.takeDriver(from) : undefined;
+      if (!from || !driver || site.access < 0) { this.releaseDriver(driver); continue; }
+      eco.add(city, res, -CHAIN2.perSite, 'Used on construction sites');
+      boost[res] = now + 90;
+      const ok = traffic.spawn({ kind: 'truck', from: from.access, to: site.access, loaded: true, cargo, fromPos: buildings.door(from), purpose, driverId: driver.id, driverName: this.fullName(driver), fromName: BUILDINGS[from.kind].name, destName: BUILDINGS[site.kind].name, onArrive: () => this.releaseDriver(driver), onFail: () => this.releaseDriver(driver) });
+      if (!ok) this.releaseDriver(driver);
     }
   }
 
@@ -1127,6 +1268,100 @@ export class Life {
       onFail: () => finish(load),
     });
     if (!ok) finish(load);
+  }
+
+  /** Food is dearer when it is scarce and cheaper when the stores are full. */
+  private prices(city: City, say: (msg: string) => void) {
+    const days = city.food / Math.max(1, this.mouths.get(city.id) ?? 1);
+    const want = days < 1 ? 1.8 : days < 2 ? 1.4 : days < 4 ? 1.1 : days > 10 ? 0.85 : 1;
+    const before = city.priceFactor;
+    city.priceFactor += (want - before) * 0.5;
+    if (before < 1.3 && city.priceFactor >= 1.3) say(t('Food got more expensive: the stores are almost empty'));
+    if (before > 0.92 && city.priceFactor <= 0.92) say(t('Food is cheap: the stores are full'));
+  }
+
+  /** The town hall pays a pension to every retired citizen. */
+  private pensions(city: City, belongs: (f: Family) => boolean) {
+    const { pop, eco } = this.c;
+    let total = 0;
+    for (const f of pop.families.values()) {
+      if (!belongs(f)) continue;
+      for (const c of pop.members(f)) if (c.age >= 65) { f.money += PENSION; total += PENSION; }
+    }
+    if (total) eco.add(city, 'money', -total, 'Pensions');
+  }
+
+  /** Bigger towns need a sewage plant; without one the water gets dirty and people fall ill. */
+  private sewage(city: City, own: Building[], belongs: (f: Family) => boolean) {
+    const { pop } = this.c;
+    const n = [...pop.families.values()].filter(belongs).reduce((a, f) => a + f.members.length, 0);
+    const plants = own.filter((b) => b.kind === 'sewage' && b.workers > 0).length;
+    const san = n <= 60 ? 1 : Math.min(1, (plants * 600) / n + Math.max(0, 1 - (n - 60) / 200));
+    this.sanitation.set(city.id, san);
+    if (san >= 0.99) return;
+    for (const f of pop.families.values()) {
+      if (!belongs(f) || Math.random() > (1 - san) * 0.3) continue;
+      for (const c of pop.members(f)) c.health = Math.max(1, c.health - 12);
+    }
+  }
+
+  /** Winter flu: it spreads in families and around town; pharmacies and hospitals slow it down. */
+  private flu(city: City, own: Building[], belongs: (f: Family) => boolean, say: (msg: string) => void) {
+    const { pop, eco } = this.c;
+    const people = [...pop.citizens.values()].filter((c) => { const f = pop.families.get(c.family); return !!f && belongs(f); });
+    const ill = people.filter((c) => (c.flu ?? 0) > 0);
+    const pharmacy = own.some((b) => b.kind === 'pharmacy' && b.workers > 0);
+    const hospital = own.some((b) => b.kind === 'hospital' && b.workers > 0);
+    for (const c of ill) {
+      c.health = Math.max(1, c.health - (c.age > 65 || c.age < 4 ? 14 : 8));
+      c.flu = Math.max(0, (c.flu ?? 0) - (pharmacy ? 2 : 1));
+      if (!c.flu) this.c.pop.note(c, 'Got over the flu');
+    }
+    if (this.calm || people.length < 10) return;
+    const winter = seasonOf(monthOf(eco.day)) === 'winter';
+    if (!ill.length && winter && Math.random() < FLU.outbreak) {
+      for (let i = 0; i < 3; i++) { const c = pick(people); c.flu = FLU.days; this.c.pop.note(c, 'Caught the flu'); }
+      say(t('Flu season! People are falling ill — pharmacies and hospitals help'));
+      return;
+    }
+    // spreading: family members, then a few others in town
+    const rate = FLU.spread * (pharmacy ? 0.5 : 1) * (hospital ? 0.7 : 1) * (winter ? 1 : 0.4);
+    for (const c of ill) {
+      const f = pop.families.get(c.family);
+      if (f) for (const m of pop.members(f)) if (!m.flu && Math.random() < 0.35 * (pharmacy ? 0.6 : 1)) m.flu = FLU.days;
+      if (Math.random() < rate * 3) { const o = pick(people); if (!o.flu) o.flu = FLU.days; }
+    }
+  }
+
+  /** Skilled workers move to better-paid jobs when one is free (a job interview, in short). */
+  private switchJobs(city: City, own: Building[], say: (msg: string) => void) {
+    const { pop, buildings } = this.c;
+    let moved = 0;
+    const open = own.filter((b) => BUILDINGS[b.kind].jobs > b.workers).sort((a, b) => BUILDINGS[b.kind].salary - BUILDINGS[a.kind].salary);
+    if (!open.length) return;
+    for (const c of pop.citizens.values()) {
+      if (moved >= 3 || c.job < 0 || c.skill < 1 || Math.random() > 0.15) continue;
+      const cur = buildings.get(c.job);
+      if (!cur || cur.city !== city.id) continue;
+      const best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && BUILDINGS[b.kind].salary >= BUILDINGS[cur.kind].salary * 1.25 && b.id !== cur.id);
+      if (!best || (this.c.pop.priority(cur) <= 2 && cur.workers <= 1)) continue;
+      cur.workers--;
+      best.workers++;
+      c.job = best.id;
+      this.c.pop.note(c, 'Changed jobs: now at the {place} for better pay', { place: BUILDINGS[best.kind].name });
+      moved++;
+    }
+    if (moved) { pop.assign(buildings); say(t('{n} skilled workers moved to better-paid jobs', { n: moved })); }
+  }
+
+  /** Special weather for the day: morning fog, a winter blizzard or a summer heatwave. */
+  pickWeather(say: (msg: string) => void) {
+    const season = seasonOf(monthOf(this.c.eco.day));
+    const r = Math.random();
+    this.weatherMood = 'clear';
+    if ((season === 'autumn' || season === 'spring') && r < 0.3) { this.weatherMood = 'fog'; say(t('Thick fog this morning')); }
+    else if (season === 'winter' && r < 0.18 && !this.calm) { this.weatherMood = 'blizzard'; this.c.weather.allDay('snow'); say(t('Blizzard! People stay at home and traffic is slow')); }
+    else if (season === 'summer' && r < 0.22) { this.weatherMood = 'heat'; say(t('Heatwave! People look for shade, fountains and ice cream')); }
   }
 
   private truckBack(b: Building) {
@@ -1242,7 +1477,7 @@ export class Life {
     add('Leisure, decorations, letters and sport', this.leisure.bonus(city.id, own));
     add('Air pollution', -Math.min(15, city.pollution * 4));
     add('Parks', Math.min(1, (parks * 80) / n) * 10);
-    if (has('grocery') || has('market')) add('Food shops', 7);
+    if (has('grocery') || has('market') || has('supermarket')) add('Food shops', 7);
     if (has('clothes')) add('Clothing store', 4);
     if (has('hospital')) add('Hospital', 7);
     if (has('school')) add('School', 5);
@@ -1252,6 +1487,14 @@ export class Life {
     add('Hungry or sick people', -unwell * 30);
     add('Cold homes in winter', -(1 - (this.heated.get(city.id) ?? 1)) * 15);
     add('Garbage in the streets', -(this.dirty.get(city.id) ?? 0) * 14);
+    add('Sewage', -(1 - (this.sanitation.get(city.id) ?? 1)) * 12);
+    add('Food prices', city.priceFactor > 1.05 ? -(city.priceFactor - 1) * 12 : city.priceFactor < 0.95 ? 2 : 0);
+    const flu = people.filter((c) => (c.flu ?? 0) > 0).length / n;
+    add('Flu', -Math.min(10, flu * 30));
+    if (this.weatherMood === 'heat') add('Heatwave', own.some((b) => b.kind === 'park' || b.kind === 'fountain') ? -1 : -5);
+    if (this.weatherMood === 'blizzard') add('Blizzard', -3);
+    const boost = this.moodBoost.get(city.id);
+    if (boost && boost.until >= this.c.eco.day) add('Town hall decisions', boost.v);
     if (own.some((b) => b.kind === 'military' && b.workers > 0)) add('Army base', 3);
     add('Water', -(1 - city.water) * 20);
     add('Electricity', -(1 - city.powered) * 10);
@@ -1425,8 +1668,8 @@ export class Life {
     const has = (k: string) => buildings.list.some((b) => b.kind === k && b.city === h.city && b.built >= 1 && (!BUILDINGS[b.kind].jobs || b.workers > 0));
     const near = (k: string, r: number) => buildings.list.some((b) => b.kind === k && b.city === h.city && b.built >= 1 && dist(b, h) <= r);
     const tiers: [string, boolean][][] = [
-      [['Clean water', city.water >= 0.95], ['Enough food', !pop.members(fam).some((c) => c.hunger < 30)]],
-      [['Electricity', h.powered], ['Bread from a bakery', has('bakery')], ['A food shop', has('grocery') || has('market')], ['A school', has('school')]],
+      [['Clean water', (this.homeWater.get(h.id) ?? city.water) >= 0.95], ['Enough food', !pop.members(fam).some((c) => c.hunger < 30)]],
+      [['Electricity', h.powered], ['Bread from a bakery', has('bakery')], ['A food shop', has('grocery') || has('market') || has('supermarket')], ['A school', has('school')]],
       [['A park nearby', near('park', 10) || near('playground', 6)], ['A hospital', has('hospital')], ['A clothing store', has('clothes')], ['A coffee cart', has('kiosk')]],
     ];
     let level = 0;
@@ -1555,12 +1798,18 @@ export class Life {
           c.activity = tod > 0.32 && tod < 0.62 ? 'Sleeping after the night shift' : 'At home';
           if (tod < c.leaveAt || tod > 0.97) continue;
         } else {
-          c.activity = tod < 0.25 || tod > 0.9 ? 'Sleeping' : 'At home';
+          c.activity = tod < 0.22 || tod > 0.9 ? 'Sleeping' : tod < 0.3 ? 'Having breakfast' : tod > 0.74 && tod < 0.82 ? 'Having dinner with the family' : 'At home';
+          if ((c.flu ?? 0) > 0) { c.activity = 'Sick with flu — staying in bed'; continue; }
+          if (this.weatherMood === 'blizzard' && c.errand) continue;
           if (tod < c.leaveAt || tod >= c.returnAt - 0.03 || c.age < 3) continue;
         }
         const dest = this.destination(c);
         c.leaveAt = 2;
         if (dest) this.goTo(c, dest);
+      } else if (c.state === 'away' && c.job >= 0 && c.at === c.job && !DRIVING.has(c.activity) && (c.activity === 'At work' || c.activity === 'Lunch break') && !c.night) {
+        // lunch break around noon
+        c.activity = tod > 0.48 && tod < 0.53 ? 'Lunch break' : 'At work';
+        if (tod >= c.returnAt || tod > 0.92) this.goHome(c);
       } else if (c.state === 'away' && !DRIVING.has(c.activity) && (c.night ? tod >= c.returnAt && tod < 0.5 : tod >= c.returnAt || tod > 0.92)) {
         this.goHome(c);
       }
@@ -1822,7 +2071,11 @@ export class Life {
     const range = SHOP_PRICE[b.kind];
     const f = this.family(c);
     if (!range || !f || b.workers <= 0 || f.money < 20) return;
-    const spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1));
+    const food = b.kind === 'grocery' || b.kind === 'market' || b.kind === 'bakery' || b.kind === 'supermarket';
+    const price = food ? this.c.eco.cities.get(b.city)?.priceFactor ?? 1 : 1;
+    const spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1) * price);
+    // a pharmacy sells medicine: the sick feel better
+    if (b.kind === 'pharmacy') { c.health = Math.min(100, c.health + 15); if (c.flu) c.flu = Math.max(0, c.flu - 1); }
     f.money -= spend;
     b.sales = (b.sales ?? 0) + spend;
     // the business tax on the sale reaches the town hall right away
@@ -2445,7 +2698,8 @@ export class Life {
   buildSpeed(b: Building) {
     const n = Math.min(4, this.crewSize(b));
     // a Town Hall and the construction company itself go up slowly with hired hands; everything else needs builders
-    const planks = (b.planked ?? 0) > this.clock() ? CHAIN.plankBoost : 1;
+    const now = this.clock();
+    const planks = ((b.planked ?? 0) > now ? CHAIN.plankBoost : 1) * ((b.boost?.bricks ?? 0) > now ? CHAIN2.brickBoost : 1) * ((b.boost?.steel ?? 0) > now ? CHAIN2.steelBoost : 1);
     if (SELF_BUILT[b.kind]) return (0.5 + 0.6 * n) * planks;
     return 0.65 * n * planks;
   }

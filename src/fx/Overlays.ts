@@ -132,7 +132,8 @@ export class Overlays {
   }
 
   /** Light up the footprints of the given buildings (e.g. everything a power plant feeds). */
-  showGrid(list: Building[]) {
+  showGrid(list: Building[], color = '#ffe066') {
+    (this.grid.material as THREE.MeshBasicMaterial).color.set(color);
     const m = new THREE.Matrix4();
     let n = 0;
     for (const b of list) {

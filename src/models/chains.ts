@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { box, cylX, merge, shape } from '../utils/voxel';
+import { moreCargo } from './chains2';
 
 // Production-chain, service and street-life buildings, plus the cargo trucks carry. Models face +z.
 
@@ -159,11 +160,12 @@ export function kioskGeometry(): THREE.BufferGeometry {
 }
 
 /** Cargo on a truck bed, by kind (the truck bed sits around y = 0.15, z = -0.08). */
-export type CargoKind = 'stone' | 'logs' | 'planks' | 'grain' | 'flour' | 'bread' | 'trash' | 'veg';
-export const CARGO_KINDS: CargoKind[] = ['stone', 'logs', 'planks', 'grain', 'flour', 'bread', 'trash', 'veg'];
+export type CargoKind = 'stone' | 'logs' | 'planks' | 'grain' | 'flour' | 'bread' | 'trash' | 'veg' | 'bricks' | 'steel' | 'milk' | 'dairy';
+export const CARGO_KINDS: CargoKind[] = ['stone', 'logs', 'planks', 'grain', 'flour', 'bread', 'trash', 'veg', 'bricks', 'steel', 'milk', 'dairy'];
 
 export function cargoOf(kind: CargoKind): THREE.BufferGeometry {
   switch (kind) {
+    case 'bricks': case 'steel': case 'milk': case 'dairy': return moreCargo(kind);
     case 'logs': return merge([0, 1, 2, 3, 4].map((i) => shape('cylinder', 0.05, 0.05, 0.25, -0.05 + (i % 3) * 0.05, 0.17 + Math.floor(i / 3) * 0.045, -0.08, '#8a5a35', 'z', 8)));
     case 'planks': return merge([0, 1, 2, 3].map((i) => box(0.17, 0.022, 0.25, 0, 0.165 + i * 0.024, -0.08, i % 2 ? '#e2c48e' : '#d4b27a')));
     case 'grain': return merge([0, 1, 2, 3].map((i) => shape('sphere', 0.08, 0.06, 0.1, -0.04 + (i % 2) * 0.08, 0.18, -0.15 + Math.floor(i / 2) * 0.12, '#d9b45a', 'y', 8)));

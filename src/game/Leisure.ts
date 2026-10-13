@@ -26,6 +26,7 @@ export interface LeisureHost {
   releaseDriver(c?: Citizen): void;
   fullName(c: Citizen): string;
   sendToPoint(c: Citizen, p: Point, until: number, activity: string, arrived: (c: Citizen) => void): boolean;
+  weatherMood: string;
 }
 
 export type PetitionKind = 'shop' | 'school' | 'light' | 'park' | 'hospital' | 'busstop' | 'playground';
@@ -89,6 +90,9 @@ export class Leisure {
   private festMeshes = new Map<number, THREE.Mesh>();
   /** Soldiers drilling on each military base's parade ground. */
   private soldiers = new Map<number, { c: Citizen; w: Walker }[]>();
+  /** Why a citizen went out (overrides the activity on arrival). */
+  private purpose = new Map<number, string>();
+  private lunchDay = -1;
   /** Street musician (citizen id) per town hall. */
   private buskers = new Map<number, number>();
   /** Where people can skate (centres of frozen lakes near towns), set by the game. */
@@ -147,6 +151,7 @@ export class Leisure {
     if (this.tickT > 0) return;
     this.tickT = 1.5;
     if (this.visitDay !== this.c.eco.day) { this.visitDay = this.c.eco.day; this.visits.clear(); }
+    this.routines(tod);
     if (tod > 0.63 && tod < 0.76) this.outings(['playground', 'park'], (c) => c.age >= 3 && c.age < 14, 0.1, 6, Math.min(0.8, tod + 0.09), 10);
     // tired people sit down on a bench, in a park or by a fountain for a while
     if (tod > 0.4 && tod < 0.74) this.outings(['bench', 'park', 'fountain'], (c) => c.age >= 14 && c.job < 0 && ((c.energy ?? 80) < 45 || Math.random() < 0.2), 0.15, 6, Math.min(0.78, tod + 0.06), 8);
@@ -159,7 +164,48 @@ export class Leisure {
   }
 
   /** Send people who are at home to a leisure place nearby. */
-  private outings(kinds: string[], who: (c: Citizen) => boolean, chance: number, cap: number, until: number, range: number) {
+  /** Everyday rhythm: elders, evening visits, weekends, heatwaves and lunch at the coffee cart. */
+  private routines(tod: number) {
+    const { pop, buildings, eco } = this.c;
+    const weekend = eco.day % 7 >= 5;
+    const hasToddler = (c: Citizen) => { const f = pop.families.get(c.family); return !!f && pop.members(f).some((m) => m.age >= 3 && m.age < 6 && m.school >= 0); };
+    if (tod > 0.4 && tod < 0.6) this.outings(['park'], (c) => c.age >= 65, 0.06, 6, Math.min(0.7, tod + 0.1), 12, 'Playing chess in the park');
+    if (tod > 0.58 && tod < 0.62) this.outings(['kindergarten'], (c) => c.age >= 58 && hasToddler(c), 0.3, 6, tod + 0.05, 15, 'Picking up the grandchildren');
+    if (weekend && tod > 0.42 && tod < 0.6) this.outings(['park', 'market', 'supermarket', 'fountain', 'kiosk'], (c) => c.age >= 3, 0.04, 12, Math.min(0.72, tod + 0.12), 14, 'Weekend family walk');
+    if (this.host.weatherMood === 'heat' && tod > 0.45 && tod < 0.7) this.outings(['fountain', 'park', 'kiosk'], (c) => c.age >= 3, 0.06, 10, Math.min(0.75, tod + 0.08), 12, 'Cooling off by the fountain');
+    // evening: friends and neighbours visit each other
+    if (tod > 0.76 && tod < 0.84) {
+      for (const c of pop.citizens.values()) {
+        if (c.state !== 'home' || c.outing !== undefined || c.age < 16 || Math.random() > 0.015) continue;
+        const f = pop.families.get(c.family);
+        const home = f && buildings.get(f.home);
+        if (!home) continue;
+        const friends = buildings.list.filter((h) => BUILDINGS[h.kind].units && h.id !== home.id && h.city === home.city && Math.hypot(h.x - home.x, h.z - home.z) < 12 && pop.familyAt(h.id));
+        if (!friends.length) continue;
+        const to = pick(friends);
+        if (this.host.planOuting(c, to, Math.min(0.88, tod + 0.06))) this.purpose.set(c.id, 'Visiting friends');
+      }
+    }
+    // lunch: workers nearby buy a coffee or a bun (ice cream in a heatwave sells twice as well)
+    if (tod > 0.48 && tod < 0.53 && this.lunchDay !== eco.day) {
+      this.lunchDay = eco.day;
+      for (const k of buildings.list.filter((b) => (b.kind === 'kiosk' || b.kind === 'bakery') && b.workers > 0)) {
+        let n = 0;
+        for (const c of pop.citizens.values()) {
+          if (n >= 12 || c.state !== 'away' || c.job < 0) continue;
+          const w = buildings.get(c.job);
+          const f = pop.families.get(c.family);
+          if (!w || !f || Math.hypot(w.x - k.x, w.z - k.z) > 8) continue;
+          const price = 3 * (this.host.weatherMood === 'heat' && k.kind === 'kiosk' ? 2 : 1);
+          f.money -= price;
+          k.sales = (k.sales ?? 0) + price;
+          n++;
+        }
+      }
+    }
+  }
+
+  private outings(kinds: string[], who: (c: Citizen) => boolean, chance: number, cap: number, until: number, range: number, purpose?: string) {
     const { pop, buildings } = this.c;
     const places = buildings.list.filter((b) => kinds.includes(b.kind) && b.built >= 1 && (!BUILDINGS[b.kind].jobs || b.workers > 0 || b.kind === 'park' || b.kind === 'townhall'));
     if (!places.length) return;
@@ -174,12 +220,15 @@ export class Leisure {
         if (d < bd) { bd = d; best = p; }
       }
       if (!best) continue;
-      if (this.host.planOuting(c, best, until)) this.visits.set(best.id, (this.visits.get(best.id) ?? 0) + 1);
+      if (this.host.planOuting(c, best, until)) {
+        this.visits.set(best.id, (this.visits.get(best.id) ?? 0) + 1);
+        if (purpose) this.purpose.set(c.id, purpose);
+      }
     }
   }
 
   /** Where a visitor stands and what they look at, in world space. */
-  spot(b: Building): { at: Point; face: Point; anim: 'play' | 'cheer' | 'sit'; lift?: number } {
+  spot(b: Building): { at: Point; face: Point; anim: 'play' | 'cheer' | 'sit' | 'none'; lift?: number } {
     const s = BUILDINGS[b.kind].size;
     const local = (x: number, z: number): Point => {
       const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
@@ -216,6 +265,19 @@ export class Leisure {
     c.activity = b.kind === 'bench' || ((b.kind === 'park' || b.kind === 'fountain') && c.age >= 14) ? pick(BENCH_LIFE) : b.kind === 'townhall' && !this.host.festival ? 'Listening to a street musician' : b.kind === 'cinema' ? 'Watching a film' : b.kind === 'stadium' ? 'Watching football' : b.kind === 'townhall' ? 'Celebrating' : 'Playing';
     const sp = this.spot(b);
     if (BENCH_LIFE.includes(c.activity)) sp.anim = 'sit';
+    const why = this.purpose.get(c.id);
+    if (why) {
+      this.purpose.delete(c.id);
+      c.activity = why;
+      sp.anim = why === 'Playing chess in the park' ? 'sit' : why === 'Weekend family walk' && c.age < 12 ? 'play' : 'none';
+      if (BUILDINGS[b.kind].units) {
+        // visitors stand in the front yard with their hosts
+        const cr = Math.cos(b.rot), sr = Math.sin(b.rot), x = rnd(-0.25, 0.25), z = 0.32;
+        sp.at = { x: b.mesh.position.x + x * cr + z * sr, z: b.mesh.position.z - x * sr + z * cr };
+        sp.face = b.mesh.position;
+        sp.lift = 0;
+      }
+    }
     // the first ten young people at a match play in it
     if (b.kind === 'stadium' && this.c.buildings.matchOn && c.age >= 15 && c.age < 40 && (this.players.get(b.id)?.length ?? 0) < 10) {
       const team = this.players.get(b.id) ?? [];

@@ -61,6 +61,13 @@ export class Weather {
   }
 
   /** Roll the natural weather for a new day: a few clouds in random places. */
+  /** Make today's weather `kind` all day long (a blizzard). */
+  allDay(kind: 'rain' | 'snow') {
+    this.kind = kind;
+    this.from = 0;
+    this.to = 1;
+  }
+
   newDay(season: Season) {
     if (this.drought > 0) this.drought--;
     const chance = this.drought > 0 ? 0 : season === 'summer' ? 0.25 : season === 'winter' ? 0.5 : 0.45;

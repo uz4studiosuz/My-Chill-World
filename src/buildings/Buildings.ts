@@ -15,6 +15,7 @@ import {
   lamppostGeometry, playgroundGeometry, saplingGeometry, signGeometry, stadiumGeometry, statueGeometry,
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
+import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
 import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
 import { box, hash2, merge } from '../utils/voxel';
 
@@ -69,6 +70,8 @@ export interface Building {
   trash?: number;
   /** Goods made since the last delivery truck left (chains, for show). */
   cargoAcc?: number;
+  /** Game time until which bricks / steel speed up this construction site. */
+  boost?: Record<string, number>;
   /** Game time until which planks speed up this construction site. */
   planked?: number;
   /** Part of today's sales already taxed at the till. */
@@ -167,6 +170,15 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'sapling': return saplingGeometry(variant);
     case 'roadsign': return signGeometry();
     case 'airport': return airportGeometry();
+    case 'pharmacy': return pharmacyGeometry();
+    case 'dairy': return dairyGeometry();
+    case 'supermarket': return supermarketGeometry();
+    case 'brickworks': return brickworksGeometry();
+    case 'steelmill': return steelmillGeometry();
+    case 'sewage': return sewageGeometry();
+    case 'coalmine': return coalmineGeometry();
+    case 'coalplant': return coalplantGeometry();
+    case 'hydro': return hydroGeometry();
     case 'military': return militaryGeometry();
     case 'landfill': return landfillGeometry();
     case 'recycling': return recyclingGeometry();
@@ -237,6 +249,8 @@ export class Buildings {
     const cx = x + (def.size >> 1), cz = z + (def.size >> 1);
     if ((kind === 'quarry' || kind === 'ironmine') && this.map.mountainsNear(x, z, 3) < 3) return { ok: false, reason: 'A quarry must be next to mountains' };
     if (kind === 'fishery' && !this.footprint(kind, x, z).some((tl) => this.map.isShore(tl.x, tl.z))) return { ok: false, reason: 'A fishing hut must stand on the shore' };
+    if (kind === 'hydro' && !this.footprint(kind, x, z).some((tl) => this.map.isShore(tl.x, tl.z))) return { ok: false, reason: 'A dam must stand on the bank of a river or lake' };
+    if (kind === 'coalmine' && this.map.mountainsNear(x, z, 3) < 3) return { ok: false, reason: 'A coal mine must be next to mountains' };
     if (kind === 'woodcutter' && this.ctx.treesNear(cx, cz, 7) < 6) return { ok: false, reason: 'A woodcutter needs a forest nearby' };
     if (def.needsRoad && this.findAccess(kind, x, z).access < 0) return { ok: false, reason: 'Needs a road next to it' };
     return { ok: true };

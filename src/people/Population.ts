@@ -44,6 +44,8 @@ export interface Citizen {
   paid?: boolean;
   /** 100 = rested, 0 = exhausted. Work and walking tire, home, benches and meals restore it. */
   energy?: number;
+  /** Days left of the flu. */
+  flu?: number;
   /** Works the night shift (better pay). */
   night?: boolean;
   /** Life story: day, age, English text key and its parameters. */
@@ -101,6 +103,10 @@ export interface DailyOptions {
   taxRate: number;
   /** Calm mode: no crime and no accidents. */
   calm?: boolean;
+  /** Water supply of one home (0..1), if known per home. */
+  waterAt?: (homeId: number) => number;
+  /** Food price compared to normal. */
+  foodPrice?: number;
   /** Academies speed up learning (0 = normal, 0.3 = 30% faster). */
   eduBoost?: number;
 }
@@ -417,8 +423,8 @@ export class Population {
         if (foodLeft >= 1) {
           foodLeft--;
           r.foodEaten++;
-          r.foodSales += FOOD_PRICE;
-          earned -= FOOD_PRICE;
+          r.foodSales += FOOD_PRICE * (opts.foodPrice ?? 1);
+          earned -= FOOD_PRICE * (opts.foodPrice ?? 1);
           c.hunger = 100;
           c.energy = Math.min(100, (c.energy ?? 80) + 10);
         }
@@ -462,7 +468,7 @@ export class Population {
       if (!cf || !belongs(cf)) continue;
       let cause: DeathCause = 'old age';
       if (c.hunger < 25) { c.health -= 30; cause = 'starvation'; }
-      if (Math.random() > water) { c.health -= 22; cause = c.hunger < 25 ? cause : 'thirst'; }
+      if (Math.random() > (opts.waterAt ? opts.waterAt(cf.home) : water)) { c.health -= 22; cause = c.hunger < 25 ? cause : 'thirst'; }
       if (c.age > 60) c.health -= Math.max(0, (c.age - 60) * 0.35 - opts.heal * 0.04);
       else if (c.hunger >= 25) c.health = Math.min(100, c.health + 12 + opts.heal);
       c.age += PER_YEAR;

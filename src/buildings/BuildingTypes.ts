@@ -3,7 +3,8 @@ export type BuildingKind =
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
-  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk';
+  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk'
+  | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro';
 
 
 /** How a building's workers behave while at work. */
@@ -101,6 +102,15 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   factory: def({ kind: 'factory', name: 'Factory', size: 3, money: 2500, iron: 20, stone: 60, wood: 30, jobs: 14, salary: 16, energy: 8, revenue: 280 }),
   carfactory: def({ kind: 'carfactory', name: 'Car Factory', size: 3, money: 4500, iron: 40, stone: 90, wood: 40, jobs: 18, salary: 20, energy: 12, revenue: 450 }),
   construction: def({ kind: 'construction', name: 'Construction Company', size: 2, money: 700, stone: 15, wood: 20, jobs: 6, salary: 14, energy: 2, revenue: 90, work: 'builder' }),
+  pharmacy: def({ kind: 'pharmacy', name: 'Pharmacy', size: 1, money: 700, stone: 10, wood: 8, jobs: 2, salary: 14, energy: 2 }),
+  dairy: def({ kind: 'dairy', name: 'Dairy', size: 2, money: 1100, stone: 20, wood: 15, iron: 5, jobs: 4, salary: 13, energy: 3 }),
+  supermarket: def({ kind: 'supermarket', name: 'Supermarket', size: 2, money: 2000, stone: 40, wood: 15, iron: 8, jobs: 8, salary: 13, energy: 5, slots: [[-0.6, 0.72, 0], [-0.3, 0.72, 0], [0.3, 0.72, 0], [0.6, 0.72, 0]] }),
+  brickworks: def({ kind: 'brickworks', name: 'Brickworks', size: 2, money: 1200, stone: 20, wood: 10, iron: 5, jobs: 5, salary: 14, energy: 4 }),
+  steelmill: def({ kind: 'steelmill', name: 'Steel Mill', size: 2, money: 2600, stone: 40, iron: 20, jobs: 6, salary: 18, energy: 8 }),
+  sewage: def({ kind: 'sewage', name: 'Sewage Treatment', size: 2, money: 1500, stone: 30, iron: 10, jobs: 3, salary: 14, publicJob: true, upkeep: 6, energy: 4 }),
+  coalmine: def({ kind: 'coalmine', name: 'Coal Mine', size: 2, money: 1000, wood: 15, jobs: 6, salary: 15, upkeep: 4, needsRoad: false }),
+  coalplant: def({ kind: 'coalplant', name: 'Coal Power Plant', size: 2, money: 2200, stone: 40, iron: 20, jobs: 5, salary: 17, publicJob: true, upkeep: 7, power: 160 }),
+  hydro: def({ kind: 'hydro', name: 'Hydro Dam', size: 2, money: 4000, stone: 80, iron: 30, jobs: 3, salary: 17, publicJob: true, upkeep: 6, power: 90 }),
   military: def({ kind: 'military', name: 'Military Base', size: 3, money: 5000, stone: 80, wood: 20, iron: 40, jobs: 12, salary: 20, publicJob: true, upkeep: 15, energy: 6 }),
   landfill: def({ kind: 'landfill', name: 'Landfill', size: 2, money: 600, wood: 5, jobs: 3, salary: 12, publicJob: true, upkeep: 3 }),
   recycling: def({ kind: 'recycling', name: 'Recycling Plant', size: 2, money: 2200, stone: 30, iron: 10, jobs: 5, salary: 16, publicJob: true, upkeep: 6, energy: 5 }),
@@ -130,9 +140,9 @@ export const BUSINESS_TAX = 0.2;
 export const CEMETERY_UPGRADE = { money: 500, stone: 25, wood: 10, maxLevel: 3 };
 export const CAR_PRICE = 700;
 /** Plants that burn no wood (the wind blows, the sun shines — solar only by day). */
-export const CLEAN_POWER: Partial<Record<BuildingKind, boolean>> = { windturbine: true, solarfarm: true };
+export const CLEAN_POWER: Partial<Record<BuildingKind, boolean>> = { windturbine: true, solarfarm: true, hydro: true };
 /** Air pollution sources: strength and reach in tiles. */
-export const POLLUTERS: Partial<Record<BuildingKind, number>> = { factory: 3, carfactory: 4, powerplant: 3, ironmine: 2, quarry: 1.5, landfill: 3, sawmill: 1 };
+export const POLLUTERS: Partial<Record<BuildingKind, number>> = { factory: 3, carfactory: 4, powerplant: 3, ironmine: 2, quarry: 1.5, landfill: 3, sawmill: 1, coalplant: 6, coalmine: 2.5, steelmill: 4, brickworks: 2 };
 export const POLLUTION_RANGE = 8;
 /** Decorations: how much they cheer up homes within DECOR_RANGE tiles (happiness points per item, capped). */
 export const DECOR: Partial<Record<BuildingKind, number>> = { fountain: 1.5, flowerbed: 0.6, statue: 1.2, bench: 0.5, lamppost: 0.4, sapling: 0.5, roadsign: 0.2, playground: 1.0 };
@@ -158,6 +168,20 @@ export const CHAIN = {
   /** Units a truck carries between chain buildings (only for show — goods are pooled). */
   load: 15,
 };
+/** More chains: dairy (milk → cheese, ice cream), brickworks (stone → bricks), steel mill (iron → steel), coal. */
+export const CHAIN2 = {
+  dairy: 40, foodPerMilk: 1.5, milkShareOfRanch: 0.6,
+  bricks: 30, stonePerBrick: 1, steel: 12, ironPerSteel: 1.5,
+  coalPerDay: 18, energyPerCoal: 12,
+  /** Construction boost from each delivered material, and how much a delivery uses. */
+  brickBoost: 1.3, steelBoost: 1.3, perSite: 3,
+};
+/** Pensions paid by the town hall per retired citizen per day. */
+export const PENSION = 4;
+/** Flu: daily chance of an outbreak in winter, days ill, spread. */
+export const FLU = { outbreak: 0.2, days: 3, spread: 0.12 };
+/** Water reaches homes through mains under the roads and through pipes; per pipe tile cost. */
+export const PIPE_COST = { money: 6, iron: 1 };
 /** Garbage: per person per day, a full bin, what a truck collects per stop, recycling yield. */
 export const TRASH = { perPerson: 0.35, full: 6, ironPerTrash: 0.12, moneyPerTrash: 0.5, range: 22 };
 /** Military base: how far its patrols reach, how much safer the city gets. */
@@ -199,7 +223,7 @@ export const CARS = { perDay: 3, iron: 6, truckLoad: 2, factoryMax: 8, marketMax
 /** Fuel: a trip uses ~8%, below this the car must be refuelled; price per percent of tank. */
 export const FUEL = { low: 40, empty: 12, price: 0.15 };
 /** What a visit to a shop costs (min, max). */
-export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], clothes: [6, 16], market: [3, 10], kiosk: [2, 5], bakery: [2, 6] };
+export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], clothes: [6, 16], market: [3, 10], kiosk: [2, 5], bakery: [2, 6], supermarket: [5, 14], pharmacy: [4, 12] };
 /** Shops: what each person spends there per day. */
 export const SHOP_SPEND = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 export type ShopKind = keyof typeof SHOP_SPEND;

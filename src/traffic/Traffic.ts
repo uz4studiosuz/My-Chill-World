@@ -539,7 +539,8 @@ export class Traffic {
       this.p.set(v.x, ROAD_Y, v.z);
       this.sc.set(s, s, s);
       this.m.compose(this.p, this.q, this.sc);
-      if (v.trip.siren && nbe < 64) {
+      // emergency vehicles flash their lights; police patrol cars too, at night
+      if ((v.trip.siren || (this.night > 0.5 && v.trip.purpose === 'Police patrol route')) && nbe < 64) {
         // the two halves swap places so the red and blue lights alternate
         if (flash) this.beaconMesh.setMatrixAt(nbe++, this.m);
         else {

@@ -48,6 +48,7 @@ export interface WorldSave {
   rails?: number[];
   calm?: boolean;
   leisure?: LeisureSave;
+  pipes?: number[];
 }
 
 /** Multiple worlds: a small index + one key per world. */

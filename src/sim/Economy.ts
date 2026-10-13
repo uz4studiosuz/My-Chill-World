@@ -1,5 +1,5 @@
 import { DAY_SECONDS } from '../config';
-import { ENERGY_PER_WOOD } from '../buildings/BuildingTypes';
+import { CHAIN2, ENERGY_PER_WOOD } from '../buildings/BuildingTypes';
 
 export interface Balance { incomeTax: number; foodSales: number; propertyTax: number; businessTax: number; utilities: number; publicWages: number; upkeep: number; net: number; fares?: number; services?: number }
 
@@ -18,6 +18,14 @@ export interface City {
   grain: number;
   flour: number;
   planks: number;
+  milk: number;
+  bricks: number;
+  steel: number;
+  coal: number;
+  /** Price of food compared to normal (scarce food is dearer). */
+  priceFactor: number;
+  /** Share of homes supplied with water through mains and pipes. */
+  piped: number;
   /** Energy stored in batteries. */
   stored: number;
   /** Energy per day: demand of grid-connected buildings and what the plants could make. */
@@ -65,14 +73,14 @@ export interface City {
 export type PromiseKind = 'tax' | 'park' | 'hospital' | 'school' | 'jobs';
 
 /** Resources that are counted in the city's books. */
-export type Res = 'money' | 'stone' | 'wood' | 'iron' | 'food' | 'grain' | 'flour' | 'planks';
+export type Res = 'money' | 'stone' | 'wood' | 'iron' | 'food' | 'grain' | 'flour' | 'planks' | 'milk' | 'bricks' | 'steel' | 'coal';
 /** Where each resource came from / went to: reason (English key) → signed amount. */
 export type Ledger = Record<Res, Record<string, number>>;
-export const blankLedger = (): Ledger => ({ money: {}, stone: {}, wood: {}, iron: {}, food: {}, grain: {}, flour: {}, planks: {} });
+export const blankLedger = (): Ledger => ({ money: {}, stone: {}, wood: {}, iron: {}, food: {}, grain: {}, flour: {}, planks: {}, milk: {}, bricks: {}, steel: {}, coal: {} });
 export const LEDGER_DAYS = 7;
 
 export interface CitySave {
-  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; grain?: number; flour?: number; planks?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
+  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; grain?: number; flour?: number; planks?: number; milk?: number; bricks?: number; steel?: number; coal?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
   jobPriority?: Record<string, 'high' | 'low'>; campaign?: City['campaign']; promise?: City['promise'];
 }
 
@@ -90,7 +98,7 @@ function blankCity(id: number, name: string, founded: number, g: Grant = { money
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
     foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25, mayor: -1, elected: 0,
     jobPriority: {}, pollution: 0, tourists: 0, smart: false, railLink: false,
-    ledger: blankLedger(), ledgerDays: [], mood: [], grain: 0, flour: 0, planks: 0, stored: 0,
+    ledger: blankLedger(), ledgerDays: [], mood: [], grain: 0, flour: 0, planks: 0, stored: 0, milk: 0, bricks: 0, steel: 0, coal: 0, priceFactor: 1, piped: 1,
   };
 }
 
@@ -191,7 +199,7 @@ export class Economy {
    * Burn wood for the energy the grid needs right now. Returns how much energy per day is really available
    * (plant capacity, limited by wood); the caller decides which buildings get it.
    */
-  updateEnergy(dt: number, demand: number, plants: { city: City; power: number }[]) {
+  updateEnergy(dt: number, demand: number, plants: { city: City; power: number; coal?: boolean }[]) {
     const capacity = plants.reduce((a, p) => a + p.power, 0);
     if (capacity <= 0) return 0;
     const served = Math.min(demand, capacity);
@@ -199,6 +207,13 @@ export class Economy {
     if (need <= 0) return capacity;
     let supplied = 0;
     for (const p of plants) {
+      if (p.coal) {
+        const burnt = Math.min(Math.max(0, p.city.coal), (need * (p.power / capacity)) / CHAIN2.energyPerCoal);
+        p.city.coal -= burnt;
+        this.note(p.city, 'coal', -burnt, 'Burnt in coal power plants');
+        supplied += burnt * CHAIN2.energyPerCoal;
+        continue;
+      }
       const burnt = Math.min(Math.max(0, p.city.wood), (need * (p.power / capacity)) / ENERGY_PER_WOOD);
       p.city.wood -= burnt;
       this.note(p.city, 'wood', -burnt, 'Burnt in power plants');
@@ -211,7 +226,7 @@ export class Economy {
     return {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
-        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), grain: Math.round(c.grain), flour: Math.round(c.flour), planks: Math.round(c.planks), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
+        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), grain: Math.round(c.grain), flour: Math.round(c.flour), planks: Math.round(c.planks), milk: Math.round(c.milk), bricks: Math.round(c.bricks), steel: Math.round(c.steel), coal: Math.round(c.coal), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
         jobPriority: c.jobPriority, campaign: c.campaign, promise: c.promise,
       })),
     };
@@ -227,6 +242,10 @@ export class Economy {
       city.grain = c.grain ?? 0;
       city.flour = c.flour ?? 0;
       city.planks = c.planks ?? 0;
+      city.milk = c.milk ?? 0;
+      city.bricks = c.bricks ?? 0;
+      city.steel = c.steel ?? 0;
+      city.coal = c.coal ?? 0;
       city.loan = c.loan ?? 0;
       city.happiness = c.happiness ?? 65;
       city.taxRate = c.taxRate ?? 0.25;
