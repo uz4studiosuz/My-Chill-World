@@ -235,6 +235,11 @@ export class Traffic {
   }
 
   /** Can this trip be driven at all? */
+  /** Road tiles of the shortest route, or null. */
+  route(from: number, to: number) {
+    return findPath(this.net, from, to);
+  }
+
   canRoute(from: number, to: number) {
     const p = findPath(this.net, from, to);
     return !!p && p.length >= 2;
@@ -651,7 +656,7 @@ export class Traffic {
       const dIn = i > 0 ? dirBetween(tiles[i - 1], k) : null;
       const dOut = i < n - 1 ? dirBetween(k, tiles[i + 1]) : null;
       tileStart.push(len);
-      moves.push(((dIn?.bit ?? 0) << 4) | (dOut?.bit ?? 0));
+      moves.push(((dIn?.bit ?? dOut?.bit ?? 0) << 4) | (dOut?.bit ?? dIn?.bit ?? 0));
 
       if (!dIn) {
         const r = right(dOut!);

@@ -3,7 +3,18 @@ import { drawChart, Series } from './Chart';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
 
+/** A block of a statistics page built by the game (key figures, rows, shares). */
+export interface StatSection {
+  title: string;
+  kpis?: [string, string, string, boolean?][];
+  rows?: [string, string, boolean?][];
+  bars?: [string, number, string][];
+  note?: string;
+}
+
 export interface StatsSnapshot {
+  /** Extra pages and blocks (production, energy, finance…). */
+  pages: Partial<Record<Tab, StatSection[]>>;
   labour: { kind: string; name: string; workers: number; jobs: number; prio: 'high' | 'normal' | 'low' }[];
   unemployed: number;
   cityName: string;
@@ -43,12 +54,15 @@ export interface StatsSnapshot {
   history: Sample[];
 }
 
-type Tab = 'overview' | 'people' | 'jobs' | 'economy' | 'cities' | 'traffic' | 'nature';
+type Tab = 'overview' | 'people' | 'jobs' | 'economy' | 'production' | 'energy' | 'finance' | 'cities' | 'traffic' | 'nature';
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'overview', label: 'Overview', icon: 'stats' },
   { id: 'people', label: 'People', icon: 'people' },
   { id: 'jobs', label: 'Jobs', icon: 'jobs' },
   { id: 'economy', label: 'Economy', icon: 'coin' },
+  { id: 'production', label: 'Production', icon: 'production' },
+  { id: 'energy', label: 'Energy & water', icon: 'energy' },
+  { id: 'finance', label: 'Bank & trade', icon: 'globe' },
   { id: 'cities', label: 'Cities', icon: 'buildings' },
   { id: 'traffic', label: 'Traffic', icon: 'roads' },
   { id: 'nature', label: 'Nature', icon: 'cow' },
@@ -273,6 +287,12 @@ export class StatsPanel {
         break;
       }
     }
+    for (const sec of s.pages[this.tab] ?? []) {
+      if (sec.kpis) { if (sec.title) this.heading(sec.title); this.kpis(sec.kpis); }
+      if (sec.bars?.length) this.bars(sec.kpis ? '' : sec.title, sec.bars);
+      if (sec.rows?.length) this.rows(sec.kpis || sec.bars?.length ? '' : sec.title, sec.rows);
+      if (sec.note) { const n = el('div', 'snote'); n.textContent = sec.note; this.body.appendChild(n); }
+    }
     this.body.scrollTop = scroll;
     requestAnimationFrame(() => charts.forEach(([c, ser, f]) => drawChart(c, ser, f)));
   }
@@ -295,6 +315,12 @@ export class StatsPanel {
     }
   }
 
+  private heading(text: string) {
+    const h = el('div', 'stats-h');
+    h.textContent = text;
+    this.body.appendChild(h);
+  }
+
   private kpis(items: [string, string, string, boolean?][]) {
     const grid = el('div', 'kpis');
     for (const [label, value, sub, good] of items) {
@@ -309,7 +335,7 @@ export class StatsPanel {
     const box = el('div', 'srows');
     const tt = el('div', 'srows-title');
     tt.textContent = title;
-    box.appendChild(tt);
+    if (title) box.appendChild(tt);
     for (const [k, v, good] of rows) {
       const r = el('div', 'info-row');
       r.innerHTML = `<span>${k}</span><span class="${good === undefined ? '' : good ? 'pos' : 'neg'}">${v}</span>`;
@@ -323,6 +349,7 @@ export class StatsPanel {
     const box = el('div', 'srows');
     const tt = el('div', 'srows-title');
     tt.textContent = title;
+    if (!title) tt.style.display = 'none';
     const bar = el('div', 'stack');
     const legend = el('div', 'stack-legend');
     for (const [label, v, color] of items) {

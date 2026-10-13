@@ -443,7 +443,7 @@ export class Editor {
       c.setRGB(col.getX(i), col.getY(i), col.getZ(i), THREE.LinearSRGBColorSpace);
       this.parts.push({ id: this.nextId++, w: round(x1 - x0), h: round(y1 - y0), d: round(z1 - z0), x: round((x0 + x1) / 2), y: round((y0 + y1) / 2), z: round((z0 + z1) / 2), color: `#${c.getHexString()}` });
     }
-    this.size = BUILDINGS[kind].size;
+    this.size = Math.min(3, BUILDINGS[kind].size) as 1 | 2 | 3;
     this.ui.size.value = `${this.size}`;
     this.name = `${kind}_custom`;
     this.ui.name.value = this.name;

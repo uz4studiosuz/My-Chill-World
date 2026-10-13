@@ -95,6 +95,13 @@ export const ITEMS: ToolItem[] = [
   b('farm', 'production', '+90 food/day', 'Crop field (3×3). Needs water from a canal or rain. Grows March–October.', 'farm'),
   b('orchard', 'production', '+30 food/day', 'Fruit trees — best harvest in summer and autumn.', 'orchard'),
   b('ranch', 'production', '+35 food/day', 'Fenced pasture with cattle (3×3). Produces all year.', 'ranch'),
+  b('bigpark', 'buildings', 'Big green space', 'A 3×3 park with a pond, a pavilion and many trees: heals people, makes homes far around happier.', 'orchard'),
+  b('mosque', 'services', 'Faith', 'Believers come to pray five times a day and on Fridays. The imam and the muezzin work here. Lifts the mood of the whole town.', 'heart'),
+  b('gym', 'business', 'Health', 'Fitness club: people who train fall ill less often and stay healthy longer.', 'heart'),
+  b('teahouse', 'business', 'Choyxona', 'A national teahouse: cooks and waiters serve tea and plov. In the evening people gather here. Earns much more than a coffee cart.', 'food'),
+  b('barber', 'business', 'Haircut', 'A cheap haircut that cheers people up right away.', 'people'),
+  b('casino', 'business', 'Big tax', 'Adults try their luck in the evening. The town takes 40% tax on the stakes. Rich families may build one too.', 'coin'),
+  b('themepark', 'business', 'Rides (4×4)', 'Ferris wheel, carousel and a roller coaster. Families and children come at weekends and after school.', 'ball'),
   b('playground', 'decor', 'Children play', 'Swings, a slide and a sandbox. After school children come here to play.', 'heart'),
   b('fountain', 'decor', 'Beauty +', 'A splashing fountain. Decorations make nearby homes happier.', 'water'),
   b('flowerbed', 'decor', 'Beauty +', 'A colourful flower bed.', 'flower'),
@@ -149,6 +156,8 @@ export interface HudHandlers {
   openPetitions: () => void;
   openDrive: () => void;
   openPhoto: () => void;
+  openTrade: () => void;
+  setLayer: (l: 'power' | 'water' | 'happy') => void;
   /** Details of one readout: where it comes from and where it goes. */
   openResource: (key: string) => void;
   toggleSound: () => boolean;
@@ -174,6 +183,9 @@ export class Hud {
   private cards = new Map<ToolId, HTMLButtonElement>();
   private drawer: HTMLDivElement;
   private drawerCat: Category | null = null;
+  /** How many of a building the current city has (shown on the cards). */
+  countOf: (tool: ToolId) => number = () => 0;
+  private searchText = '';
   private hint: HTMLDivElement;
   private toastEl: HTMLDivElement;
   private stat: Record<string, HTMLSpanElement> = {};
@@ -190,8 +202,25 @@ export class Hud {
   private rotBtn: HTMLButtonElement;
   private descEl?: HTMLDivElement;
 
+  private layerBtns = new Map<string, HTMLButtonElement>();
+
+  /** Highlight the active map layer button. */
+  setLayer(l: string) { this.layerBtns.forEach((b, k) => b.classList.toggle('active', k === l)); }
+
   constructor(parent: HTMLElement, private h: HudHandlers, private thumbs: Map<string, string>) {
     this.root = el('div', 'hud');
+    // map layers: one tap shows electricity, water or happiness over the whole town
+    const layers = el('div', 'layerbar');
+    for (const [k, ic, label] of [['power', 'energy', 'Electricity map'], ['water', 'water', 'Water map'], ['happy', 'heart', 'Happiness map']] as const) {
+      const b = el('button', 'layer-btn');
+      b.innerHTML = icon(ic);
+      b.title = t(label);
+      b.setAttribute('aria-label', t(label));
+      b.addEventListener('click', () => h.setLayer(k));
+      this.layerBtns.set(k, b);
+      layers.appendChild(b);
+    }
+    this.root.appendChild(layers);
 
     const top = el('div', 'topbar');
     const soundBtn = this.iconButton(sound.sfxOn ? 'sound' : 'mute', t('Sound'), () => { soundBtn.innerHTML = icon(h.toggleSound() ? 'sound' : 'mute'); });
@@ -199,7 +228,7 @@ export class Hud {
     const nav = el('div', 'navgroup');
     const more = el('div', 'navmenu');
     const panels: [IconName, string, () => void, boolean][] = [
-      ['stats', 'Statistics', h.openStats, false], ['trophy', 'Goals', h.openGoals, false], ['mail', 'Letters', h.openPetitions, false],
+      ['stats', 'Statistics', h.openStats, false], ['globe', 'Trade', h.openTrade, false], ['trophy', 'Goals', h.openGoals, false], ['mail', 'Letters', h.openPetitions, false],
       ['list', 'Chronicle', h.openLog, true], ['car', 'Drive a car', h.openDrive, true], ['camera', 'Photo mode', h.openPhoto, true], ['book', 'Guide', h.openGuide, true],
     ];
     nav.appendChild(this.iconButton('menu', t('Menu'), h.openMenu));
@@ -389,11 +418,29 @@ export class Hud {
     const info = CATS.find((c) => c.id === cat)!;
     const title = el('div', 'drawer-title');
     title.innerHTML = icon(info.icon) + `<span>${t(info.label)}</span>`;
+    // search over every building, in any category
+    const search = el('input', 'drawer-search') as HTMLInputElement;
+    search.type = 'search';
+    search.placeholder = t('Search buildings…');
+    search.value = this.searchText;
+    title.appendChild(search);
     const row = el('div', 'cards');
     this.descEl = el('div', 'drawer-desc');
     this.descEl.textContent = t(CAT_DESC[cat]);
-    for (const it of ITEMS.filter((i) => i.cat === cat)) row.appendChild(this.card(it));
+    const fill = () => {
+      const q = this.searchText.trim().toLowerCase();
+      row.replaceChildren();
+      this.cards.clear();
+      const list = q ? ITEMS.filter((i) => `${t(i.name)} ${t(i.tag)} ${i.name} ${t(i.desc)}`.toLowerCase().includes(q)) : ITEMS.filter((i) => i.cat === cat);
+      for (const it of list) row.appendChild(this.card(it));
+      if (!list.length) { const e = el('div', 'drawer-empty'); e.textContent = t('Nothing found'); row.appendChild(e); }
+      this.refreshCards();
+    };
+    search.addEventListener('input', () => { this.searchText = search.value; fill(); });
+    search.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') this.closeDrawer(); });
+    fill();
     this.drawer.append(title, row, this.descEl);
+    if (!IS_TOUCH) setTimeout(() => search.focus({ preventScroll: true }), 30);
     this.drawer.classList.add('show');
     this.catBtns.forEach((btn, c) => btn.classList.toggle('open', c === cat));
     this.refreshCards();
@@ -426,7 +473,8 @@ export class Hud {
     const showDesc = () => { if (this.descEl) this.descEl.textContent = t(it.desc); };
     btn.addEventListener('mouseenter', showDesc);
     btn.addEventListener('focus', showDesc);
-    btn.append(img, name, tag, cost);
+    const count = el('span', 'card-count');
+    btn.append(img, name, tag, cost, count);
     btn.addEventListener('click', () => {
       this.h.setTool(it.tool);
       this.closeDrawer();
@@ -441,6 +489,13 @@ export class Hud {
       if (!c) continue;
       c.classList.toggle('poor', this.lastMoney < it.money || this.lastStone < it.stone || this.lastWood < it.wood || this.lastIron < (it.iron ?? 0));
       c.classList.toggle('active', this.tool === it.tool);
+      const n = this.countOf(it.tool);
+      const badge = c.querySelector('.card-count') as HTMLElement | null;
+      if (badge) {
+        const text = n > 0 ? `×${n}` : '';
+        if (badge.textContent !== text) badge.textContent = text;
+        badge.title = t('{n} built in this city', { n });
+      }
     }
   }
 

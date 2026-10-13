@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { N, Tile, idx, inBounds, tileToWorld, worldToTile } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { RoadNetwork, ROAD_RING } from '../roads/RoadNetwork';
-import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY } from './BuildingTypes';
+import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY, CROPS, CropKind } from './BuildingTypes';
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
@@ -15,6 +15,7 @@ import {
   lamppostGeometry, playgroundGeometry, saplingGeometry, signGeometry, stadiumGeometry, statueGeometry,
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
+import { barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
 import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
 import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
 import { box, hash2, merge } from '../utils/voxel';
@@ -89,6 +90,12 @@ export interface Building {
   gravesGroup?: THREE.Group;
   /** Ranch: number of living cattle and hunger level (0..100). */
   cattleCount?: number;
+  /** Power plants: energy per day they make right now. */
+  output?: number;
+  /** Farms: what the field grows. */
+  cropKind?: CropKind;
+  /** Ranch: the cattle ate corn today (they give more). */
+  cornFed?: boolean;
   cattleHunger?: number;
   cattleMeshes?: THREE.Mesh[];
 }
@@ -116,7 +123,7 @@ export const SIDES = [
 ];
 
 const CROP_GREEN = new THREE.Color('#6faa45');
-const CROP_GOLD = new THREE.Color('#e3bf4f');
+const RIPE = new THREE.Color();
 
 export function buildingGeometry(kind: BuildingKind, variant = 0) {
   switch (kind) {
@@ -171,6 +178,13 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'roadsign': return signGeometry();
     case 'airport': return airportGeometry();
     case 'pharmacy': return pharmacyGeometry();
+    case 'casino': return casinoGeometry();
+    case 'mosque': return mosqueGeometry();
+    case 'themepark': return themeparkGeometry();
+    case 'bigpark': return bigparkGeometry();
+    case 'gym': return gymGeometry();
+    case 'teahouse': return teahouseGeometry();
+    case 'barber': return barberGeometry();
     case 'dairy': return dairyGeometry();
     case 'supermarket': return supermarketGeometry();
     case 'brickworks': return brickworksGeometry();
@@ -217,6 +231,8 @@ export class Buildings {
   private headstoneGeo = headstoneGeometry();
   private rotorGeo = rotorGeometry();
   private sailsGeo = millSailsGeometry();
+  private wheelGeo = ferrisWheelGeometry();
+  private carouselGeo = carouselGeometry();
   private cowGeo = cowGeometry();
   private cowMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private animTime = 0;
@@ -322,6 +338,18 @@ export class Buildings {
       sails.position.set(-0.35, 0.95, 0.02);
       sails.name = 'rotor';
       mesh.add(sails);
+    }
+    if (kind === 'themepark') {
+      const wheel = new THREE.Mesh(this.wheelGeo, this.mat);
+      wheel.position.set(-1.1, 1.1, -1.15);
+      wheel.name = 'rotor';
+      wheel.castShadow = true;
+      mesh.add(wheel);
+      const car = new THREE.Mesh(this.carouselGeo, this.mat);
+      car.position.set(1.05, 0, 1.0);
+      car.name = 'spin';
+      car.castShadow = true;
+      mesh.add(car);
     }
     if (kind === 'windturbine') {
       const rotor = new THREE.Mesh(this.rotorGeo, this.mat);
@@ -493,7 +521,8 @@ export class Buildings {
           b.scaffold.scale.set(1 / xz, 1 / sy, 1 / xz);
         }
       }
-      if ((b.kind === 'windturbine' || (b.kind === 'mill' && b.workers > 0)) && b.built >= 1) { const r = b.mesh.getObjectByName('rotor'); if (r) r.rotation.z += dt * (simDt > 0 ? (b.kind === 'mill' ? 1.2 : 3) : 0.5); }
+      if ((b.kind === 'windturbine' || ((b.kind === 'mill' || b.kind === 'themepark') && b.workers > 0)) && b.built >= 1) { const r = b.mesh.getObjectByName('rotor'); if (r) r.rotation.z += dt * (simDt > 0 ? (b.kind === 'mill' ? 1.2 : b.kind === 'themepark' ? 0.35 : 3) : 0.5); }
+      if (b.kind === 'themepark' && b.workers > 0 && b.built >= 1) { const r = b.mesh.getObjectByName('spin'); if (r) r.rotation.y += dt * (simDt > 0 ? 1.1 : 0.3); }
       if (b.kind === 'ranch' && b.cattleMeshes) {
         const count = b.cattleCount ?? 4;
         for (let i = 0; i < b.cattleMeshes.length; i++) {
@@ -528,11 +557,12 @@ export class Buildings {
     }
   }
 
-  private updateCrop(b: Building) {
+  updateCrop(b: Building) {
     const t = b.cropT;
+    const crop = CROPS[b.cropKind ?? 'wheat'];
     b.crop!.visible = t > 0.02 && b.built >= 1;
-    b.crop!.scale.set(1, 0.15 + t * 1.6, 1);
-    (b.crop!.material as THREE.MeshLambertMaterial).color.copy(CROP_GREEN).lerp(CROP_GOLD, Math.max(0, (t - 0.5) * 2));
+    b.crop!.scale.set(1, (0.15 + t * 1.6) * crop.height, 1);
+    (b.crop!.material as THREE.MeshLambertMaterial).color.copy(CROP_GREEN).lerp(RIPE.set(crop.ripe), Math.max(0, (t - 0.5) * 2));
   }
 
   at(k: number): Building | undefined {

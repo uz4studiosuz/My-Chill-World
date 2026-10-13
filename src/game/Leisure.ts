@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { DAY_SECONDS } from '../config';
 import { N, idx, inBounds } from '../world/grid';
 import type { Building, Point } from '../buildings/Buildings';
-import { BUILDINGS, CINEMA, SERVICE_FEE, DECOR, DECOR_RANGE, FOOTBALL } from '../buildings/BuildingTypes';
+import { BUILDINGS, CINEMA, SERVICE_FEE, DECOR, DECOR_RANGE, FOOTBALL, VISIT_PRICE, FAITH_SHARE } from '../buildings/BuildingTypes';
 import type { City } from '../sim/Economy';
 import type { Citizen } from '../people/Population';
 import type { LifeContext } from './Life';
@@ -27,7 +27,14 @@ export interface LeisureHost {
   fullName(c: Citizen): string;
   sendToPoint(c: Citizen, p: Point, until: number, activity: string, arrived: (c: Citizen) => void): boolean;
   weatherMood: string;
+  /** A visitor pays for a service at a business (taxed on the spot). */
+  sell(c: Citizen, b: Building, amount: number): void;
 }
+
+/** About half of the adults are believers (fixed per person). */
+export const believer = (c: Citizen) => ((c.id * 2654435761) >>> 0) / 4294967296 < FAITH_SHARE;
+/** Visitors of these places go inside (the walker disappears until they come out). */
+const INDOOR = new Set(['casino', 'gym', 'barber']);
 
 export type PetitionKind = 'shop' | 'school' | 'light' | 'park' | 'hospital' | 'busstop' | 'playground';
 
@@ -138,6 +145,7 @@ export class Leisure {
       if (tm.t <= 0) { this.timers.splice(i, 1); tm.fn(); }
     }
     const tod = this.c.eco.timeOfDay;
+    const weekend = this.c.eco.day % 7 >= 5;
     this.c.buildings.cinemaOn = tod > 0.79 && tod < 0.97;
     this.c.buildings.matchOn = this.matchDay && tod > 0.55 && tod < 0.76;
     if (this.host.festival !== this.festKind) this.festival(this.host.festival);
@@ -152,7 +160,17 @@ export class Leisure {
     this.tickT = 1.5;
     if (this.visitDay !== this.c.eco.day) { this.visitDay = this.c.eco.day; this.visits.clear(); }
     this.routines(tod);
-    if (tod > 0.63 && tod < 0.76) this.outings(['playground', 'park'], (c) => c.age >= 3 && c.age < 14, 0.1, 6, Math.min(0.8, tod + 0.09), 10);
+    if (tod > 0.63 && tod < 0.76) this.outings(['playground', 'park', 'bigpark'], (c) => c.age >= 3 && c.age < 14, 0.1, 6, Math.min(0.8, tod + 0.09), 10);
+    // prayers: noon (crowded on Fridays) and the evening prayer
+    const friday = this.c.eco.day % 7 === 4;
+    if (tod > 0.5 && tod < 0.54) this.outings(['mosque'], (c) => c.age >= 12 && believer(c), friday ? 0.5 : 0.08, friday ? 60 : 20, tod + 0.05, 20, 'Praying at the mosque');
+    if (tod > 0.72 && tod < 0.75) this.outings(['mosque'], (c) => c.age >= 12 && believer(c), 0.07, 20, tod + 0.04, 16, 'Praying at the mosque');
+    // evening: the teahouse, the gym, the casino; a haircut in the daytime; rides after school
+    if (tod > 0.74 && tod < 0.84) this.outings(['teahouse'], (c) => c.age >= 16, 0.04, 16, Math.min(0.92, tod + 0.08), 18, 'Drinking tea at the choyxona');
+    if (tod > 0.74 && tod < 0.82) this.outings(['gym'], (c) => c.age >= 16 && c.age < 62, 0.03, 10, tod + 0.06, 16, 'Working out at the gym');
+    if (tod > 0.8 && tod < 0.9) this.outings(['casino'], (c) => c.age >= 21, 0.025, 20, 0.97, 24, 'Playing at the casino');
+    if (tod > 0.4 && tod < 0.7) this.outings(['barber'], (c) => c.age >= 5, 0.008, 4, tod + 0.04, 12, 'Getting a haircut');
+    if (!weekend && tod > 0.63 && tod < 0.7) this.outings(['themepark'], (c) => c.age >= 5 && c.age < 16, 0.04, 20, Math.min(0.8, tod + 0.1), 24, 'Riding the attractions');
     // tired people sit down on a bench, in a park or by a fountain for a while
     if (tod > 0.4 && tod < 0.74) this.outings(['bench', 'park', 'fountain'], (c) => c.age >= 14 && c.job < 0 && ((c.energy ?? 80) < 45 || Math.random() < 0.2), 0.15, 6, Math.min(0.78, tod + 0.06), 8);
     if (tod > 0.8 && tod < 0.86) this.outings(['cinema'], (c) => c.age >= 14, 0.08, CINEMA.seats, 0.95, 18);
@@ -169,10 +187,10 @@ export class Leisure {
     const { pop, buildings, eco } = this.c;
     const weekend = eco.day % 7 >= 5;
     const hasToddler = (c: Citizen) => { const f = pop.families.get(c.family); return !!f && pop.members(f).some((m) => m.age >= 3 && m.age < 6 && m.school >= 0); };
-    if (tod > 0.4 && tod < 0.6) this.outings(['park'], (c) => c.age >= 65, 0.06, 6, Math.min(0.7, tod + 0.1), 12, 'Playing chess in the park');
+    if (tod > 0.4 && tod < 0.6) this.outings(['park', 'bigpark', 'teahouse'], (c) => c.age >= 65, 0.06, 6, Math.min(0.7, tod + 0.1), 12, 'Playing chess in the park');
     if (tod > 0.58 && tod < 0.62) this.outings(['kindergarten'], (c) => c.age >= 58 && hasToddler(c), 0.3, 6, tod + 0.05, 15, 'Picking up the grandchildren');
-    if (weekend && tod > 0.42 && tod < 0.6) this.outings(['park', 'market', 'supermarket', 'fountain', 'kiosk'], (c) => c.age >= 3, 0.04, 12, Math.min(0.72, tod + 0.12), 14, 'Weekend family walk');
-    if (this.host.weatherMood === 'heat' && tod > 0.45 && tod < 0.7) this.outings(['fountain', 'park', 'kiosk'], (c) => c.age >= 3, 0.06, 10, Math.min(0.75, tod + 0.08), 12, 'Cooling off by the fountain');
+    if (weekend && tod > 0.42 && tod < 0.6) this.outings(['park', 'bigpark', 'themepark', 'market', 'supermarket', 'fountain', 'kiosk'], (c) => c.age >= 3, 0.04, 12, Math.min(0.72, tod + 0.12), 14, 'Weekend family walk');
+    if (this.host.weatherMood === 'heat' && tod > 0.45 && tod < 0.7) this.outings(['fountain', 'park', 'bigpark', 'kiosk'], (c) => c.age >= 3, 0.06, 10, Math.min(0.75, tod + 0.08), 12, 'Cooling off by the fountain');
     // evening: friends and neighbours visit each other
     if (tod > 0.76 && tod < 0.84) {
       for (const c of pop.citizens.values()) {
@@ -207,7 +225,7 @@ export class Leisure {
 
   private outings(kinds: string[], who: (c: Citizen) => boolean, chance: number, cap: number, until: number, range: number, purpose?: string) {
     const { pop, buildings } = this.c;
-    const places = buildings.list.filter((b) => kinds.includes(b.kind) && b.built >= 1 && (!BUILDINGS[b.kind].jobs || b.workers > 0 || b.kind === 'park' || b.kind === 'townhall'));
+    const places = buildings.list.filter((b) => kinds.includes(b.kind) && b.built >= 1 && (!BUILDINGS[b.kind].jobs || b.workers > 0 || b.kind === 'park' || b.kind === 'bigpark' || b.kind === 'townhall'));
     if (!places.length) return;
     for (const c of pop.citizens.values()) {
       if (c.state !== 'home' || c.outing !== undefined || !who(c) || Math.random() > chance) continue;
@@ -248,6 +266,16 @@ export class Leisure {
       const at = side === 0 ? local(rnd(-1.2, 1.2), -1.1 - row * 0.12) : local((side === 1 ? -1 : 1) * (1.25 + row * 0.08), rnd(-1.0, 0.6));
       return { at, face: local(0, -0.15), anim: 'cheer', lift: 0.1 + row * 0.1 };
     }
+    if (b.kind === 'mosque') {
+      // rows on the courtyard, facing the prayer hall
+      const x = -0.6 + Math.floor(Math.random() * 6) * 0.14, z = 0.35 + Math.floor(Math.random() * 3) * 0.16;
+      return { at: local(x, z), face: local(x, -0.4), anim: 'sit' };
+    }
+    if (b.kind === 'teahouse') {
+      const x = pick([-0.45, 0.45]) + rnd(-0.17, 0.17), z = 0.15 + pick([-0.14, 0.14]);
+      return { at: local(x, z), face: local(pick([-0.45, 0.45]), 0.15), anim: 'sit', lift: 0.13 };
+    }
+    if (b.kind === 'themepark') return { at: local(rnd(-1.5, 1.5), rnd(-0.2, 1.6)), face: local(rnd(-1.5, 1.5), rnd(-1.5, 0)), anim: Math.random() < 0.5 ? 'play' : 'cheer' };
     if (b.kind === 'townhall') {
       const a = Math.random() * Math.PI * 2, r = rnd(0.25, 0.45);
       return { at: local(0.6 + Math.cos(a) * r, 0.62 + Math.sin(a) * r * 0.5), face: local(0.6, 0.62), anim: 'cheer' };
@@ -262,6 +290,17 @@ export class Leisure {
     const f = pop.families.get(c.family);
     const price = b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0;
     if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; }
+    const visit = VISIT_PRICE[b.kind];
+    if (visit && f && f.money > visit[0]) {
+      const stake = Math.round(visit[0] + Math.random() * (visit[1] - visit[0]));
+      this.host.sell(c, b, stake);
+      // at the casino some win back more than their stake; most lose it
+      if (b.kind === 'casino' && Math.random() < 0.3) { const win = Math.round(stake * (1.5 + Math.random())); f.money += win; b.sales = Math.max(0, (b.sales ?? 0) - win * 0.5); pop.note(c, 'Won ${n} at the casino', { n: win }); }
+      if (b.kind === 'gym') { c.health = Math.min(100, c.health + 6); c.fit = eco.day + 6; }
+      if (b.kind === 'barber') c.energy = Math.min(100, (c.energy ?? 80) + 10);
+      if (b.kind === 'teahouse') { c.hunger = Math.min(100, c.hunger + 25); c.energy = Math.min(100, (c.energy ?? 80) + 15); }
+    }
+    if (b.kind === 'mosque') c.energy = Math.min(100, (c.energy ?? 80) + 8);
     c.activity = b.kind === 'bench' || ((b.kind === 'park' || b.kind === 'fountain') && c.age >= 14) ? pick(BENCH_LIFE) : b.kind === 'townhall' && !this.host.festival ? 'Listening to a street musician' : b.kind === 'cinema' ? 'Watching a film' : b.kind === 'stadium' ? 'Watching football' : b.kind === 'townhall' ? 'Celebrating' : 'Playing';
     const sp = this.spot(b);
     if (BENCH_LIFE.includes(c.activity)) sp.anim = 'sit';
@@ -303,6 +342,7 @@ export class Leisure {
     const secs = Math.max(2, (until - eco.timeOfDay) * DAY_SECONDS);
     const w = c.walker;
     if (!w) return;
+    if (INDOOR.has(b.kind)) { walkers.dismiss(w); c.walker = undefined; return; }
     walkers.retarget(w, { points: [{ x: w.x, z: w.z }, sp.at] }, () => {
       w.lift = sp.lift;
       walkers.holdFor(w, secs, sp.anim, () => { w.lift = 0; }, sp.face);
@@ -589,6 +629,7 @@ export class Leisure {
   bonus(cityId: number, own: Building[]) {
     const has = (k: string) => own.some((b) => b.kind === k && (!BUILDINGS[b.kind].jobs || b.workers > 0));
     return Math.min(6, this.beauty.get(cityId) ?? 0) + (has('stadium') ? 3 : 0) + (has('cinema') ? 3 : 0) + (has('academy') ? 2 : 0)
+      + (has('mosque') ? 3 : 0) + (has('themepark') ? 3 : 0) + (has('teahouse') ? 2 : 0) + (has('barber') ? 1.5 : 0) + (has('gym') ? 1 : 0) + (has('casino') ? 1 : 0)
       + (this.trust.get(cityId) ?? 0) + (this.sport.get(cityId) ?? 0);
   }
 

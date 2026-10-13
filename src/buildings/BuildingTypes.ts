@@ -4,7 +4,8 @@ export type BuildingKind =
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
   | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk'
-  | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro';
+  | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
+  | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber';
 
 
 /** How a building's workers behave while at work. */
@@ -17,7 +18,7 @@ export interface BuildingDef {
   kind: BuildingKind;
   /** English name (translated in the UI). */
   name: string;
-  size: 1 | 2 | 3;
+  size: 1 | 2 | 3 | 4;
   money: number;
   stone: number;
   wood: number;
@@ -130,11 +131,18 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   bench: def({ kind: 'bench', name: 'Benches', size: 1, money: 50, wood: 4, needsRoad: false }),
   lamppost: def({ kind: 'lamppost', name: 'Lamp Post', size: 1, money: 80, iron: 1, needsRoad: false }),
   sapling: def({ kind: 'sapling', name: 'Tree', size: 1, money: 30, needsRoad: false }),
+  casino: def({ kind: 'casino', name: 'Casino', size: 2, money: 4000, stone: 50, wood: 10, iron: 15, jobs: 6, salary: 18, energy: 6 }),
+  mosque: def({ kind: 'mosque', name: 'Mosque', size: 2, money: 1800, stone: 40, wood: 15, jobs: 2, salary: 12, publicJob: true, upkeep: 2, energy: 2 }),
+  themepark: def({ kind: 'themepark', name: 'Amusement Park', size: 4, money: 3500, stone: 30, wood: 40, iron: 25, jobs: 6, salary: 13, upkeep: 4, energy: 6 }),
+  bigpark: def({ kind: 'bigpark', name: 'Central Park', size: 3, money: 900, wood: 20, jobs: 2, salary: 10, publicJob: true, upkeep: 4, heal: 8, needsRoad: false }),
+  gym: def({ kind: 'gym', name: 'Gym', size: 1, money: 900, stone: 10, iron: 6, jobs: 2, salary: 13, energy: 2 }),
+  teahouse: def({ kind: 'teahouse', name: 'Teahouse', size: 2, money: 1100, stone: 15, wood: 25, jobs: 4, salary: 12, energy: 2 }),
+  barber: def({ kind: 'barber', name: 'Barber Shop', size: 1, money: 400, stone: 6, wood: 6, jobs: 2, salary: 11, energy: 1 }),
   roadsign: def({ kind: 'roadsign', name: 'Road Signs', size: 1, money: 40, iron: 1, needsRoad: false }),
 };
 
 /** Construction time as a fraction of a day, by building size (before builders speed it up). */
-export const BUILD_DAYS: Record<1 | 2 | 3, number> = { 1: 0.06, 2: 0.1, 3: 0.16 };
+export const BUILD_DAYS: Record<1 | 2 | 3 | 4, number> = { 1: 0.06, 2: 0.1, 3: 0.16, 4: 0.2 };
 /** Business tax on turnover. */
 export const BUSINESS_TAX = 0.2;
 export const CEMETERY_UPGRADE = { money: 500, stone: 25, wood: 10, maxLevel: 3 };
@@ -145,7 +153,7 @@ export const CLEAN_POWER: Partial<Record<BuildingKind, boolean>> = { windturbine
 export const POLLUTERS: Partial<Record<BuildingKind, number>> = { factory: 3, carfactory: 4, powerplant: 3, ironmine: 2, quarry: 1.5, landfill: 3, sawmill: 1, coalplant: 6, coalmine: 2.5, steelmill: 4, brickworks: 2 };
 export const POLLUTION_RANGE = 8;
 /** Decorations: how much they cheer up homes within DECOR_RANGE tiles (happiness points per item, capped). */
-export const DECOR: Partial<Record<BuildingKind, number>> = { fountain: 1.5, flowerbed: 0.6, statue: 1.2, bench: 0.5, lamppost: 0.4, sapling: 0.5, roadsign: 0.2, playground: 1.0 };
+export const DECOR: Partial<Record<BuildingKind, number>> = { bigpark: 3, fountain: 1.5, flowerbed: 0.6, statue: 1.2, bench: 0.5, lamppost: 0.4, sapling: 0.5, roadsign: 0.2, playground: 1.0 };
 export const DECOR_RANGE = 6;
 /** Airport: goods a plane trades (sold above `keep`, bought below `low`), price per unit. */
 export const AIR_TRADE: Record<'food' | 'wood' | 'stone' | 'iron', { keep: number; low: number; price: number }> = {
@@ -176,6 +184,25 @@ export const CHAIN2 = {
   /** Construction boost from each delivered material, and how much a delivery uses. */
   brickBoost: 1.3, steelBoost: 1.3, perSite: 3,
 };
+/** Paid leisure and services: what a visit costs. Casino stakes are taxed at a higher rate. */
+export const VISIT_PRICE: Partial<Record<BuildingKind, [number, number]>> = { casino: [15, 70], themepark: [5, 9], gym: [3, 5], teahouse: [6, 14], barber: [3, 7] };
+export const CASINO_TAX = 0.4;
+/** A share of the adults are believers who go to the mosque to pray. */
+export const FAITH_SHARE = 0.45;
+/** Crops a field can grow: what it gives and how it looks when ripe. */
+export type CropKind = 'wheat' | 'corn' | 'vegetables' | 'cotton' | 'melons';
+export const CROPS: Record<CropKind, { name: string; gives: string; ripe: string; height: number; yield: number }> = {
+  wheat: { name: 'Wheat', gives: 'Grain for the mill and bakery', ripe: '#e3bf4f', height: 1, yield: 1 },
+  corn: { name: 'Corn', gives: 'Feed for the cattle (more milk and meat)', ripe: '#d9b13a', height: 1.8, yield: 1 },
+  vegetables: { name: 'Vegetables', gives: 'Potatoes, tomatoes and carrots straight to the shops', ripe: '#c4553d', height: 0.7, yield: 0.8 },
+  cotton: { name: 'Cotton', gives: 'Cotton for the clothing stores (they sell much more)', ripe: '#f4f4f2', height: 0.9, yield: 0.6 },
+  melons: { name: 'Melons', gives: 'Melons and watermelons: lots of food in summer', ripe: '#9cc95a', height: 0.5, yield: 1.2 },
+};
+/** Bank: interest the bank pays on savings and charges on family loans (per day); share of savings kept in the bank. */
+export const BANKING = { deposit: 0.002, loanRate: 0.006, saveShare: 0.6, maxFamilyLoan: 3000 };
+/** Trade: what a unit is worth (the city buys at this price, sells for 80% of it). */
+export const TRADE_PRICE: Record<string, number> = { food: 2, wood: 4, stone: 5, iron: 9, coal: 5, planks: 7, bricks: 7, steel: 16, grain: 2, flour: 3, milk: 2, cotton: 4 };
+
 /** Pensions paid by the town hall per retired citizen per day. */
 export const PENSION = 4;
 /** Flu: daily chance of an outbreak in winter, days ill, spread. */
@@ -212,7 +239,7 @@ export const POWER_PRIORITY: Partial<Record<BuildingKind, number>> = {
 };
 /** Lower = filled first when people look for work (water, food, energy and materials keep the town alive). */
 export const JOB_PRIORITY: Partial<Record<BuildingKind, number>> = {
-  watertower: 0, farm: 1, orchard: 1, ranch: 1, fishery: 1, powerplant: 1, woodcutter: 2, quarry: 2, ironmine: 2, hospital: 3, townhall: 3, construction: 3, busdepot: 3, police: 3, firestation: 3, hotel: 4,
+  watertower: 0, farm: 1, orchard: 1, ranch: 1, fishery: 1, powerplant: 1, construction: 1, woodcutter: 2, grocery: 2, quarry: 2, ironmine: 2, hospital: 3, townhall: 3, busdepot: 3, police: 3, firestation: 3, hotel: 4,
 };
 /** Emergency purchase of building materials from travelling merchants. */
 export const MERCHANT = { stone: { amount: 10, price: 80 }, wood: { amount: 10, price: 50 }, iron: { amount: 10, price: 140 } };
@@ -228,7 +255,7 @@ export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], c
 export const SHOP_SPEND = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 export type ShopKind = keyof typeof SHOP_SPEND;
 /** Businesses a family can own: they collect a share of the turnover as profit. */
-export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office'];
+export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office', 'casino', 'teahouse', 'barber', 'gym', 'themepark'];
 /** Owner's share of the turnover (after the 20% business tax). */
 export const OWNER_SHARE = 0.25;
 /** Bank loans: size of one loan, the most a city may owe, and the daily interest. */

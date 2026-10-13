@@ -46,6 +46,8 @@ export interface Citizen {
   energy?: number;
   /** Days left of the flu. */
   flu?: number;
+  /** Trains at the gym: falls ill less often until this day. */
+  fit?: number;
   /** Works the night shift (better pay). */
   night?: boolean;
   /** Life story: day, age, English text key and its parameters. */
@@ -78,6 +80,8 @@ export interface Family {
   car: FamilyCar | null;
   members: number[];
   debtDays: number;
+  /** Owed to the bank (taken to build a house or a business). */
+  loan?: number;
 }
 
 export interface DeathReport {
@@ -612,7 +616,7 @@ export class Population {
   serialize() {
     return [...this.families.values()].map((f) => ({
       id: f.id, surname: f.surname, home: f.home, money: Math.round(f.money), income: f.income,
-      car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, debtDays: f.debtDays,
+      car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, debtDays: f.debtDays, loan: f.loan ? Math.round(f.loan) : undefined,
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
@@ -625,7 +629,7 @@ export class Population {
     this.citizens.clear();
     this.families.clear();
     for (const fd of data) {
-      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays };
+      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan };
       this.families.set(f.id, f);
       this.nextFamily = Math.max(this.nextFamily, f.id + 1);
       for (const m of fd.members) {

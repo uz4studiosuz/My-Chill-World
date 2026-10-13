@@ -132,19 +132,25 @@ export class Overlays {
   }
 
   /** Light up the footprints of the given buildings (e.g. everything a power plant feeds). */
-  showGrid(list: Building[], color = '#ffe066') {
-    (this.grid.material as THREE.MeshBasicMaterial).color.set(color);
+  showGrid(list: Building[], color = '#ffe066', colors?: (b: Building) => string) {
+    (this.grid.material as THREE.MeshBasicMaterial).color.set(colors ? '#ffffff' : color);
     const m = new THREE.Matrix4();
+    const c = new THREE.Color();
     let n = 0;
     for (const b of list) {
       if (n >= 600) break;
       const s = BUILDINGS[b.kind].size;
       m.makeScale(s * 0.98, 1, s * 0.98).setPosition(b.mesh.position.x, 0.05, b.mesh.position.z);
+      this.grid.setColorAt(n, c.set(colors ? colors(b) : '#ffffff'));
       this.grid.setMatrixAt(n++, m);
     }
     this.grid.count = n;
     this.grid.instanceMatrix.needsUpdate = true;
+    if (this.grid.instanceColor) this.grid.instanceColor.needsUpdate = true;
+    this.steady = !!colors;
   }
+  /** A map layer is shown: no pulsing. */
+  private steady = false;
 
   set visible(v: boolean) { this.group.visible = v; }
 
@@ -164,6 +170,6 @@ export class Overlays {
       b.sprite.position.set(b.target.x, 0.32 * b.target.scale + 0.08, b.target.z);
       (b.sprite.material as THREE.SpriteMaterial).opacity = Math.min(1, b.t * 2, (3.5 - b.t) * 4);
     }
-    (this.grid.material as THREE.MeshBasicMaterial).opacity = this.grid.count ? 0.5 + Math.sin(this.time * 4) * 0.15 : 0;
+    (this.grid.material as THREE.MeshBasicMaterial).opacity = this.grid.count ? (this.steady ? 0.62 : 0.5 + Math.sin(this.time * 4) * 0.15) : 0;
   }
 }
