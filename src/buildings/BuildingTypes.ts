@@ -2,7 +2,7 @@ export type BuildingKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower'
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
-  | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign';
+  | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport';
 
 
 /** How a building's workers behave while at work. */
@@ -100,6 +100,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   factory: def({ kind: 'factory', name: 'Factory', size: 3, money: 2500, iron: 20, stone: 60, wood: 30, jobs: 14, salary: 16, energy: 8, revenue: 280 }),
   carfactory: def({ kind: 'carfactory', name: 'Car Factory', size: 3, money: 4500, iron: 40, stone: 90, wood: 40, jobs: 18, salary: 20, energy: 12, revenue: 450 }),
   construction: def({ kind: 'construction', name: 'Construction Company', size: 2, money: 700, stone: 15, wood: 20, jobs: 6, salary: 14, energy: 2, revenue: 90, work: 'builder' }),
+  airport: def({ kind: 'airport', name: 'Airport', size: 3, money: 6000, stone: 100, wood: 20, iron: 50, jobs: 10, salary: 22, publicJob: true, upkeep: 14, energy: 8 }),
   stadium: def({ kind: 'stadium', name: 'Football Stadium', size: 3, money: 3000, stone: 60, wood: 20, iron: 15, jobs: 6, salary: 15, publicJob: true, upkeep: 8, energy: 6 }),
   cinema: def({ kind: 'cinema', name: 'Open-air Cinema', size: 2, money: 1200, stone: 15, wood: 20, iron: 5, jobs: 3, salary: 12, energy: 4 }),
   academy: def({ kind: 'academy', name: 'Academy', size: 2, money: 2600, stone: 50, wood: 25, iron: 10, jobs: 6, salary: 24, publicJob: true, upkeep: 8, energy: 4 }),
@@ -127,6 +128,10 @@ export const POLLUTION_RANGE = 8;
 /** Decorations: how much they cheer up homes within DECOR_RANGE tiles (happiness points per item, capped). */
 export const DECOR: Partial<Record<BuildingKind, number>> = { fountain: 1.5, flowerbed: 0.6, statue: 1.2, bench: 0.5, lamppost: 0.4, sapling: 0.5, roadsign: 0.2, playground: 1.0 };
 export const DECOR_RANGE = 6;
+/** Airport: goods a plane trades (sold above `keep`, bought below `low`), price per unit. */
+export const AIR_TRADE: Record<'food' | 'wood' | 'stone' | 'iron', { keep: number; low: number; price: number }> = {
+  food: { keep: 500, low: 30, price: 3 }, wood: { keep: 300, low: 20, price: 4 }, stone: { keep: 300, low: 20, price: 5 }, iron: { keep: 150, low: 10, price: 9 },
+};
 /** Football: ticket price per fan; match day is Sunday. */
 export const FOOTBALL = { ticket: 3, fans: 30 };
 /** Open-air cinema ticket price and seats per evening. */

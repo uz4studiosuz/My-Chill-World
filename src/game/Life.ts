@@ -325,6 +325,7 @@ export class Life {
 
   private newDay() {
     const { pop, eco, buildings, terrain, weather } = this.c;
+    pop.day = eco.day;
     const cities = [...eco.cities.values()];
     const roadShare = this.roadUpkeep() / Math.max(1, cities.length);
     const homeCity = (f: Family) => buildings.get(f.home)?.city;
@@ -446,8 +447,10 @@ export class Life {
       if (r.carsBought) say(t('{n} families bought a car', { n: r.carsBought }));
     });
 
-    for (const c of pop.citizens.values()) if (c.state !== 'home') this.teleportHome(c);
+    // midnight: everyone is home — except the night shift, still at work
+    for (const c of pop.citizens.values()) if (c.state !== 'home' && !(c.night && c.state === 'away' && c.at === c.job)) this.teleportHome(c);
     for (const w of [...this.c.walkers.list]) if (!w.leaving) this.c.walkers.dismiss(w);
+    for (const c of pop.citizens.values()) if (c.walker?.leaving) c.walker = undefined;
     this.porters.clear();
     this.meals.clear();
     this.crews.clear();
@@ -1014,7 +1017,8 @@ export class Life {
       const parks = Math.min(1, own.filter((b) => b.kind === 'park').length * 0.25);
       // every town has something to see; nature, parks, mood, festivals and the railway add more
       const sights = Math.min(0.6, own.filter((b) => b.kind === 'stadium' || b.kind === 'cinema' || b.kind === 'fountain' || b.kind === 'statue').length * 0.15);
-      const attract = 0.6 + nature + parks + sights + city.happiness / 100 + (this.festival ? 0.5 : 0) + (city.railLink ? 0.3 : 0);
+      const airport = own.some((b) => b.kind === 'airport' && b.workers > 0) ? 0.6 : 0;
+      const attract = 0.6 + airport + nature + parks + sights + city.happiness / 100 + (this.festival ? 0.5 : 0) + (city.railLink ? 0.3 : 0);
       const staff = h.workers > 0 ? 0.35 + 0.65 * Math.min(1, h.workers / BUILDINGS.hotel.jobs) : 0;
       const guests = Math.max(staff > 0 ? 1 : 0, Math.round(TOURISM.rooms * Math.min(1, attract / 2.5) * staff));
       this.attraction.set(h.id, attract / 2.5);
@@ -1152,12 +1156,17 @@ export class Life {
     const tod = eco.timeOfDay;
     for (const c of pop.citizens.values()) {
       if (c.state === 'home') {
-        c.activity = tod < 0.25 || tod > 0.9 ? 'Sleeping' : 'At home';
-        if (tod < c.leaveAt || tod >= c.returnAt - 0.03 || c.age < 3) continue;
+        if (c.night) {
+          c.activity = tod > 0.32 && tod < 0.62 ? 'Sleeping after the night shift' : 'At home';
+          if (tod < c.leaveAt || tod > 0.97) continue;
+        } else {
+          c.activity = tod < 0.25 || tod > 0.9 ? 'Sleeping' : 'At home';
+          if (tod < c.leaveAt || tod >= c.returnAt - 0.03 || c.age < 3) continue;
+        }
         const dest = this.destination(c);
         c.leaveAt = 2;
         if (dest) this.goTo(c, dest);
-      } else if (c.state === 'away' && (tod >= c.returnAt || tod > 0.92)) {
+      } else if (c.state === 'away' && (c.night ? tod >= c.returnAt && tod < 0.5 : tod >= c.returnAt || tod > 0.92)) {
         this.goHome(c);
       }
     }

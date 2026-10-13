@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DAY_SECONDS, IS_TOUCH, MAP_SIZE } from '../config';
+import { DAY_SECONDS, DAYS_PER_YEAR, IS_TOUCH, MAP_SIZE } from '../config';
 import { DIRS, N, Tile, idx, inBounds, tileToWorld } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { generateWorld } from '../world/WorldGen';
@@ -9,7 +9,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -32,6 +32,9 @@ import { Weather } from '../fx/Weather';
 import { Life, PROMISE_TEXT } from './Life';
 import { nightLevel } from '../fx/NightGlow';
 import { PetitionsPanel } from '../ui/Petitions';
+import { LifeBook } from '../ui/LifeBook';
+import { Airports } from './Airports';
+import { DriveMode } from './DriveMode';
 import { CameraRig } from '../camera/CameraRig';
 import { Preview } from '../build/Preview';
 import { BuildTool, CheckResult, LineKind, PlaceKind, ToolHost, ToolId } from '../build/BuildTool';
@@ -74,7 +77,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], busstop: ['🚏', '#3a6fd1'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
-  stadium: ['⚽', '#4f9a3e'], cinema: ['🎬', '#b0478f'], academy: ['🏛️', '#2d4f8a'], playground: ['🛝', '#e85a3a'], fountain: ['⛲', '#4fa3d1'],
+  airport: ['✈️', '#3a6fd1'], stadium: ['⚽', '#4f9a3e'], cinema: ['🎬', '#b0478f'], academy: ['🏛️', '#2d4f8a'], playground: ['🛝', '#e85a3a'], fountain: ['⛲', '#4fa3d1'],
   flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
 };
 
@@ -84,7 +87,7 @@ const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
   farm: ['Farmer'], orchard: ['Fruit grower'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
   powerplant: ['Power operator', 'Power engineer'], watertower: ['Water technician'], weddinghall: ['Registrar'], park: ['Gardener'],
-  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], stadium: ['Groundskeeper', 'Football coach'], cinema: ['Projectionist'], academy: ['Coach', 'Academician'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
+  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], airport: ['Airport staff', 'Pilot'], stadium: ['Groundskeeper', 'Football coach'], cinema: ['Projectionist'], academy: ['Coach', 'Academician'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -123,6 +126,11 @@ export class Game implements ToolHost {
   private goalsPanel?: GoalsPanel;
   private eventLog?: EventLog;
   private petitions?: PetitionsPanel;
+  private lifeBook?: LifeBook;
+  private airports!: Airports;
+  private drive!: DriveMode;
+  /** Flights and trade per airport today (for the inspector). */
+  private airLog = new Map<number, { flights: number; last: string }>();
   private petitionTick = 0;
   /** Family opened inside an apartment block's panel. */
   private aptFamily: number | null = null;
@@ -257,6 +265,15 @@ export class Game implements ToolHost {
       return o === 'high' ? 0 : o === 'low' ? 7 : JOB_PRIORITY[b.kind] ?? 5;
     };
     this.railway.onArrive = (from, to) => this.trainArrived(from, to);
+    this.airports = new Airports(this.buildings);
+    this.airports.onLanded = (b) => this.planeLanded(b);
+    this.drive = new DriveMode({ map: this.map, net: this.net, buildings: this.buildings, traffic: this.traffic });
+    this.drive.onExit = () => {
+      if (this.input) this.input.enabled = true;
+      document.body.classList.remove('pov-mode');
+      this.cam.apply();
+    };
+    this.pop.jobKind = (id) => this.buildings.get(id)?.kind;
     this.calm = !!(opts.save?.calm ?? opts.create?.calm);
     this.life.calm = this.calm;
     if (opts.save) this.loadSave(opts.save);
@@ -267,7 +284,7 @@ export class Game implements ToolHost {
     this.scene.add(
       this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
       this.walkers.group, this.lights.group, this.railway.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker, this.ring, this.beam,
-      this.life.leisure.group, this.povCam,
+      this.life.leisure.group, this.povCam, this.airports.group, this.drive.group,
     );
     this.pop.assign(this.buildings);
     this.networkChanged(false);
@@ -312,6 +329,7 @@ export class Game implements ToolHost {
       openGoals: () => { this.stats?.hide(); this.eventLog?.hide(); this.goalsPanel?.toggle(); },
       openLog: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.toggle(); },
       openGuide: () => this.guide?.toggle(),
+      openDrive: () => (this.drive.active ? this.drive.stop() : this.startDrive()),
       openPetitions: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.toggle(); },
       toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setNature(on); return on; },
       cycleCity: () => this.cycleCity(),
@@ -331,6 +349,7 @@ export class Game implements ToolHost {
     this.eventLog = new EventLog(this.hud.root, (d) => `${t('Day {n}', { n: d })} · ${t(MONTHS[monthOf(d)]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(d) })}`);
     this.eventLog.load(keep);
     this.guide = new Guide(this.hud.root);
+    this.lifeBook = new LifeBook(this.hud.root, (d) => `${t(MONTHS[monthOf(d)])}, ${t('Year {n}', { n: yearOf(d) })}`);
     this.petitions = new PetitionsPanel(this.hud.root, () => ({
       petitions: this.life.leisure.petitions, city: this.eco.active, day: this.eco.day,
       cityName: (id) => this.eco.cities.get(id)?.name ?? '',
@@ -357,11 +376,37 @@ export class Game implements ToolHost {
   resize(w: number, h: number) {
     this.cam.resize(w, h);
     this.povCam.aspect = w / Math.max(1, h);
+    this.drive?.resize(w / Math.max(1, h));
     this.povCam.updateProjectionMatrix();
   }
 
   /** The camera to render with (first-person view or the normal map view). */
-  get viewCamera(): THREE.Camera { return this.pov ? this.povCam : this.cam.camera; }
+  get viewCamera(): THREE.Camera { return this.drive?.active ? this.drive.camera : this.pov ? this.povCam : this.cam.camera; }
+
+  /** Take the wheel: from a vehicle on the road, or on a street next to the active Town Hall. */
+  startDrive(from?: { x: number; z: number; heading: number; color?: THREE.Color }) {
+    if (!this.hud) return;
+    if (!from) {
+      const hall = this.buildings.townHall(this.eco.active) ?? this.buildings.list.find((b) => b.kind === 'townhall');
+      let best = -1, bd = Infinity;
+      for (let k = 0; k < this.net.type.length; k++) {
+        if (!this.net.type[k] || this.net.isIntersection(k)) continue;
+        const x = k % N, z = (k / N) | 0;
+        const d = hall ? Math.abs(x - hall.x) + Math.abs(z - hall.z) : Math.abs(x - N / 2) + Math.abs(z - N / 2);
+        if (d < bd) { bd = d; best = k; }
+      }
+      if (best < 0) { this.hud.toast(t('Build a road first')); return; }
+      const x = best % N, z = (best / N) | 0;
+      const ns = (this.net.conn[best] & 5) !== 0;
+      from = { x: tileToWorld(x) + (ns ? 0.19 : 0), z: tileToWorld(z) + (ns ? 0 : -0.19), heading: ns ? 0 : Math.PI / 2 };
+    }
+    this.exitPov();
+    this.select(null);
+    this.setTool('pan');
+    if (this.input) this.input.enabled = false;
+    document.body.classList.add('pov-mode');
+    this.drive.start(from.x, from.z, from.heading, this.hud.root, from.color);
+  }
 
   get inPov() { return !!this.pov; }
 
@@ -496,6 +541,7 @@ export class Game implements ToolHost {
       this.traffic.update(sdt);
       this.walkers.update(sdt);
       this.railway.update(sdt);
+      this.airports.update(sdt);
       this.buildings.update(i === 0 ? dt : 0, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)), (b) => this.life.buildSpeed(b));
     }
     this.festivities(dt);
@@ -515,6 +561,11 @@ export class Game implements ToolHost {
     this.input?.update(dt);
     this.cam.update(dt);
     if (this.pov) this.updatePov(dt);
+    if (this.drive.active) {
+      this.drive.update(dt);
+      this.cam.target.set(this.drive.pos.x, 0, this.drive.pos.z);
+      this.cam.apply();
+    }
     this.lights.update(dt, this.cam.target.x, this.cam.target.z);
     this.followSun();
 
@@ -854,6 +905,7 @@ export class Game implements ToolHost {
   }
 
   private onNewDay() {
+    for (const v of this.airLog.values()) v.flights = 0;
     this.lastDay = this.eco.day;
     this.goals.newDay([...this.eco.cities.values()].some((c) => c.money < 0));
     this.morningPaper();
@@ -1024,6 +1076,47 @@ export class Game implements ToolHost {
     }
   }
 
+  /** A plane stopped at the terminal: tourists get off, surplus goods fly out, missing goods fly in. */
+  private planeLanded(b: Building) {
+    const city = this.cityOf(b);
+    const tourists = 8 + Math.floor(Math.random() * 12);
+    city.tourists += tourists;
+    const deals: string[] = [];
+    for (const [res, rule] of Object.entries(AIR_TRADE) as [keyof typeof AIR_TRADE, (typeof AIR_TRADE)['food']][]) {
+      if (city[res] > rule.keep) {
+        const n = Math.min(25, Math.floor(city[res] - rule.keep));
+        city[res] -= n;
+        city.money += n * rule.price;
+        deals.push(t('sold {n} {what} (+${m})', { n, what: t(res), m: n * rule.price }));
+      } else if (city[res] < rule.low && city.money > 1500) {
+        const n = 15, cost = n * rule.price * 2;
+        city[res] += n;
+        city.money -= cost;
+        deals.push(t('bought {n} {what} (−${m})', { n, what: t(res), m: cost }));
+      }
+    }
+    const log = this.airLog.get(b.id) ?? { flights: 0, last: '' };
+    log.flights++;
+    log.last = `${t('{n} tourists', { n: tourists })}${deals.length ? ' · ' + deals.join(', ') : ''}`;
+    this.airLog.set(b.id, log);
+    if (Math.random() < 0.12) this.life.events.push(t('A plane landed in {city}: {n} tourists arrived', { city: city.name, n: tourists }) + (deals.length ? ` — ${deals.join(', ')}` : ''));
+  }
+
+  private openLifeBook(c: Citizen) {
+    const f = this.pop.families.get(c.family);
+    this.lifeBook?.open({
+      name: `${c.name} ${f?.surname ?? ''}`.trim(),
+      subtitle: `${t('{n} years', { n: Math.floor(c.age) })} · ${this.professionOf(c)}`,
+      icon: this.personIcon(c),
+      // citizens from older saves have no diary yet: start it with their birth and current job
+      story: c.story?.length ? c.story : [
+        { d: this.eco.day - Math.floor(c.age * DAYS_PER_YEAR), a: 0, k: 'Born' },
+        ...(c.job >= 0 && this.buildings.get(c.job) ? [{ d: this.eco.day, a: Math.floor(c.age), k: 'Started working at the {place}', p: { place: BUILDINGS[this.buildings.get(c.job)!.kind].name } }] : []),
+      ],
+      now: `${t(c.activity)} · ${this.roleText(c)}`,
+    });
+  }
+
   private personIcon(c: Citizen) {
     if (c.age < 3) return '👶';
     if (c.age < 18) return c.sex === 'm' ? '👦' : '👧';
@@ -1121,6 +1214,7 @@ export class Game implements ToolHost {
         onClick: () => { this.following = !this.following; this.refreshInspector(); },
       },
       { label: t("Driver's eyes"), icon: 'eye', onClick: () => this.enterPov({ type: 'vehicle', id: v.id }) },
+      { label: t('Take the wheel'), icon: 'car', onClick: () => this.startDrive({ x: v.x, z: v.z, heading: Math.atan2(v.hx, v.hz), color: v.color }) },
     ];
     if (isBus && busPassengers.length > 0) {
       actions.unshift({
@@ -1276,6 +1370,7 @@ export class Game implements ToolHost {
       rows: [
         [t('Doing'), t(c.activity)],
         [t('Profession'), this.professionOf(c)],
+        ...(c.night ? [[t('Shift'), t('Night shift (+50% pay)')] as [string, string]] : []),
         [t('Home'), f ? t('{name} family', { name: f.surname }) : '—'],
         [t('City'), home ? this.cityOf(home).name : '—'],
         [c.school >= 0 ? t('School') : t('Workplace'), job ? t(BUILDINGS[job.kind].name) : '—'],
@@ -1284,6 +1379,7 @@ export class Game implements ToolHost {
       actions: [
         { label: this.following ? t('Stop following') : t('Follow'), icon: 'follow', active: this.following, onClick: () => { this.following = !this.following; this.refreshInspector(); } },
         { label: t("Citizen's eyes"), icon: 'eye', onClick: () => this.enterPov({ type: 'person', id: c.id }) },
+        { label: t('Life story'), icon: 'book', onClick: () => this.openLifeBook(c) },
         ...(veh ? [{ label: t('Show car on road'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: veh.id }); this.following = true; } }] : []),
         ...(busVeh ? [{ label: t('Show bus'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: busVeh.id }); this.following = true; } }] : []),
         ...(waiter ? [{ label: t('Show bus stop'), icon: 'roads' as const, onClick: () => {
@@ -1459,6 +1555,12 @@ export class Game implements ToolHost {
       rows.push([t('Next match'), lz.matchDay ? t('Today at 17:00') : t('Tomorrow')], [t('Ticket'), `$${FOOTBALL.ticket}`]);
       for (const m of lz.matches.slice(0, 4)) rows.push([`${t('Day {n}', { n: m.day })}`, `${m.home} ${m.hs}:${m.as} ${m.away}`]);
       if (!lz.matches.length) rows.push([t('Results'), t('No matches yet')]);
+    }
+    if (b.kind === 'airport') {
+      const log = this.airLog.get(b.id);
+      rows.push([t('Flights today'), `${log?.flights ?? 0}`], [t('Last plane'), log?.last ?? t('No flights yet')]);
+      rows.push([t('Effect'), t('Tourists fly in, surplus goods are sold abroad, missing goods are bought')]);
+      if (!b.workers) rows.push([t('Status'), t('Closed — no staff'), 'bad']);
     }
     if (b.kind === 'cinema') rows.push([t('Show time'), '19:00 – 23:00'], [t('Ticket'), `$${CINEMA.ticket}`], [t('Seats'), `${CINEMA.seats}`]);
     if (b.kind === 'academy') rows.push([t('Effect'), t('Children learn 30% faster · stronger football team')]);
@@ -2084,6 +2186,7 @@ export class Game implements ToolHost {
     }
     this.pop.deserialize(s.population);
     this.eco.load(s.eco);
+    this.pop.day = this.eco.day;
     this.time = s.time ?? 0;
     this.sandbox = !!s.sandbox;
     this.goals.load(s.goals);

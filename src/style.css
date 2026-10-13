@@ -913,3 +913,34 @@ button.chip:hover { background: var(--raised); }
   .drawer .cards { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); max-height: 40vh; }
   .drawer .card-img { width: 54px; height: 54px; }
 }
+
+/* ---------- life story book ---------- */
+.lifebook { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -48%); width: min(460px, calc(100vw - 32px)); max-height: min(78vh, 640px); display: none; flex-direction: column; background: #f4ecd8; color: #2b2419; border-radius: 12px; border: 1px solid #d8ccb0; pointer-events: auto; z-index: 6; overflow: hidden; }
+.lifebook.show { display: flex; }
+.lb-head { display: flex; align-items: center; gap: 10px; padding: 12px 12px 10px 14px; border-bottom: 2px solid #2b2419; }
+.lb-badge { font-size: 26px; }
+.lb-titles { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.lb-titles b { font-family: Georgia, 'Times New Roman', serif; font-size: 20px; }
+.lb-titles small { font-size: 12px; color: #6b6459; font-weight: 700; }
+.lb-head .info-x { color: #6b6459; }
+.lb-page { overflow-y: auto; padding: 10px 16px 16px; scrollbar-width: none; }
+.lb-page::-webkit-scrollbar { display: none; }
+.lb-chapter { font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 14px; color: #6b6459; margin: 2px 0 8px; }
+.lb-entry { display: grid; grid-template-columns: 112px 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px dashed #d8ccb0; }
+.lb-entry:last-child { border-bottom: 0; }
+.lb-when { font-size: 11px; font-weight: 800; color: #8a6b3a; line-height: 1.35; }
+.lb-text { font-family: Georgia, 'Times New Roman', serif; font-size: 14.5px; line-height: 1.4; }
+.lb-entry.now .lb-when { color: #2b2419; }
+.lb-empty { font-family: Georgia, serif; font-style: italic; color: #6b6459; }
+@media (max-width: 520px) { .lb-entry { grid-template-columns: 1fr; gap: 2px; } }
+
+/* ---------- drive mode ---------- */
+.drive-ui { position: absolute; inset: 0; pointer-events: none; }
+.drive-bar { gap: 8px; }
+.btn-mini.ghost { background: var(--raised); color: var(--text); }
+.drive-pads { position: absolute; bottom: calc(var(--safe-bottom) + 70px); display: flex; gap: 10px; pointer-events: auto; }
+.drive-pads.left { left: 16px; }
+.drive-pads.right { right: 16px; flex-direction: column-reverse; }
+.drive-pad { width: 64px; height: 64px; border-radius: 16px; border: 1px solid var(--line); background: var(--base); color: var(--text); font-size: 22px; touch-action: none; user-select: none; }
+.drive-pad:active { background: var(--accent); color: var(--on-accent); }
+@media (pointer: fine) { .drive-pads { display: none; } }

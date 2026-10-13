@@ -65,6 +65,7 @@ export const ITEMS: ToolItem[] = [
   b('construction', 'business', 'Builders', 'Builders work here: they walk to every construction site and build it. Without a construction company nothing can be built (it can build itself and a Town Hall slowly).', 'quarry'),
   b('windturbine', 'production', '+30 clean energy', 'Clean power from the wind — no wood, no smoke.', 'energy'),
   b('solarfarm', 'production', '+45 clean energy', 'Solar panels — clean power during the day.', 'energy'),
+  b('airport', 'production', 'Flights', 'Planes bring tourists from far away and trade goods: surplus food, wood, stone and iron is sold, missing goods are bought.', 'globe'),
   b('trainstation', 'production', 'Railway', 'Connect two stations with a railway: trains share goods between cities and bring visitors.', 'rail'),
   b('factory', 'production', 'Industry', 'Many jobs and a high turnover — a big business tax payer. Needs lots of power.', 'production'),
   b('carfactory', 'production', 'Cars', 'Assembles cars: the best-paying workplace and the largest business tax payer.', 'car'),
@@ -128,6 +129,7 @@ export interface HudHandlers {
   openLog: () => void;
   openGuide: () => void;
   openPetitions: () => void;
+  openDrive: () => void;
   toggleSound: () => boolean;
   cycleCity: () => void;
   confirmBuild: () => void;
@@ -168,7 +170,7 @@ export class Hud {
 
     const top = el('div', 'topbar');
     const soundBtn = this.iconButton(sound.sfxOn ? 'sound' : 'mute', t('Sound'), () => { soundBtn.innerHTML = icon(h.toggleSound() ? 'sound' : 'mute'); });
-    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats), this.iconButton('trophy', t('Goals'), h.openGoals), this.iconButton('list', t('Chronicle'), h.openLog), this.iconButton('mail', t('Letters'), h.openPetitions), this.iconButton('book', t('Guide'), h.openGuide), soundBtn);
+    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats), this.iconButton('trophy', t('Goals'), h.openGoals), this.iconButton('list', t('Chronicle'), h.openLog), this.iconButton('mail', t('Letters'), h.openPetitions), this.iconButton('car', t('Drive a car'), h.openDrive), this.iconButton('book', t('Guide'), h.openGuide), soundBtn);
     const chips = el('div', 'chips');
     // grouped, colour-coded resource readouts: city · materials · utilities · people · time
     const GROUPS: [string, IconName, string][][] = [

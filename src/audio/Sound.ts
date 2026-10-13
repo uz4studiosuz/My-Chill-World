@@ -4,7 +4,7 @@
  */
 
 export type SoundName =
-  | 'click' | 'place' | 'build' | 'demolish' | 'error' | 'coin' | 'toast' | 'thunder' | 'complete' | 'achieve' | 'fire' | 'siren' | 'cheer' | 'goal' | 'wedding' | 'water';
+  | 'click' | 'place' | 'build' | 'demolish' | 'error' | 'coin' | 'toast' | 'thunder' | 'complete' | 'achieve' | 'fire' | 'siren' | 'cheer' | 'goal' | 'wedding' | 'water' | 'plane';
 
 const KEY = 'mcw_audio';
 const SCALE = [0, 2, 4, 7, 9, 12, 14, 16];
@@ -196,6 +196,7 @@ class SoundEngine {
       case 'goal': this.noiseBurst(2.2, 2600, 0.3); [392, 523, 659].forEach((f, i) => this.tone(f, 0.3, 'square', 0.08, undefined, 0.2 + i * 0.12)); break;
       case 'wedding': [523, 659, 784, 659, 1047].forEach((f, i) => this.tone(f, 0.28, 'triangle', 0.14, undefined, i * 0.18)); break;
       case 'water': this.noiseBurst(0.5, 3200, 0.12); break;
+      case 'plane': this.noiseBurst(2.4, 700, 0.25); this.tone(180, 2, 'sawtooth', 0.03, 120); break;
     }
   }
 

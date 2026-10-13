@@ -11,7 +11,7 @@ import {
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
 import {
-  academyGeometry, benchGeometry, cinemaGeometry, cinemaScreenGeometry, flowerbedGeometry, fountainGeometry, fountainJetGeometry, lampHeadGeometry,
+  academyGeometry, airportGeometry, benchGeometry, cinemaGeometry, cinemaScreenGeometry, flowerbedGeometry, fountainGeometry, fountainJetGeometry, lampHeadGeometry,
   lamppostGeometry, playgroundGeometry, saplingGeometry, signGeometry, stadiumGeometry, statueGeometry,
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
@@ -152,6 +152,7 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'lamppost': return lamppostGeometry();
     case 'sapling': return saplingGeometry(variant);
     case 'roadsign': return signGeometry();
+    case 'airport': return airportGeometry();
     default: return townHallGeometry();
   }
 }

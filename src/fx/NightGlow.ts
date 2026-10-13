@@ -4,7 +4,7 @@ import * as THREE from 'three';
 export const nightLevel = { value: 0 };
 
 /** Window colours used by the building models (they glow warm at night). */
-const WINDOWS: [string, number][] = [['#a8d0e6', 1], ['#6f9fc8', 0.55], ['#5a7f9c', 0.8], ['#cfe0ec', 0.6]];
+const WINDOWS: [string, number][] = [['#ffe9a8', 1], ['#a8d0e6', 1], ['#6f9fc8', 0.55], ['#5a7f9c', 0.8], ['#cfe0ec', 0.6]];
 
 /**
  * Lambert material whose window-coloured faces glow at night. About a third of the windows stay dark

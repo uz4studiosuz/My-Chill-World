@@ -33,6 +33,10 @@ const LIFE: [string, string][] = [
   ['Letters from residents', 'Residents write to the Town Hall when something is missing near their home: a shop, a school, street lamps, a park or a bus stop. Do it within 8 days and you get a reward and their trust; ignored letters make people unhappy.'],
   ['Decorations', 'Fountains, flower beds, trees, benches, lamps and monuments make the homes around them happier.'],
   ["Citizen's eyes", "Select a person or a vehicle and press \"Citizen's eyes\" to walk, ride and drive through your town in first person. Drag to look around, Esc to leave."],
+  ['Airport', 'Planes land every little while: tourists arrive and the city sells surplus food, wood, stone and iron abroad and buys what it lacks.'],
+  ['Night shift', 'Factories, hospitals, police, fire stations, power plants and hotels work around the clock. Every third worker takes the night shift for 50% more pay and sleeps during the day.'],
+  ['Life story', 'Every citizen keeps a diary: birth, school, university, jobs, wedding, children, the night shift, a trip in an ambulance. Open it with \"Life story\" in the person panel.'],
+  ['Driving', 'Press the car button at the top (or \"Take the wheel\" on a vehicle) and drive with WASD or the arrow keys — on a phone with the on-screen pedals. C switches the camera, Esc gets you out.'],
   ['Model editor', 'Open /editor (editor.html) to build your own 3D model from boxes, start from any building in the game, import .glb/.gltf/.obj files and export the model as JSON, GLB or code.'],
 ];
 

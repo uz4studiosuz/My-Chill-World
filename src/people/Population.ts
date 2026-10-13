@@ -40,7 +40,19 @@ export interface Citizen {
   walker?: Walker;
   /** Leisure trip planned for today (playground, cinema, stadium, festival square). */
   outing?: number;
+  /** Works the night shift (better pay). */
+  night?: boolean;
+  /** Life story: day, age, English text key and its parameters. */
+  story?: StoryEntry[];
 }
+
+export interface StoryEntry { d: number; a: number; k: string; p?: Record<string, string | number> }
+
+/** Workplaces that keep running at night: a third of the staff works the night shift. */
+export const NIGHT_SHIFT: Partial<Record<string, boolean>> = { factory: true, carfactory: true, hospital: true, police: true, firestation: true, powerplant: true, hotel: true };
+/** Night shift pays this much more. */
+export const NIGHT_BONUS = 1.5;
+const MAX_STORY = 40;
 
 export interface FamilyCar {
   color: string;
@@ -175,6 +187,10 @@ export class Population {
       const maxAge = Math.min(30, dadAge - 19);
       this.addCitizen(f, Math.random() < 0.5 ? 'm' : 'f', Math.max(0, Math.round(rand(0, maxAge))), 'child');
     }
+    for (const c of this.members(f)) {
+      this.note(c, 'Born', undefined, this.day - Math.floor(c.age * DAYS_PER_YEAR));
+      this.note(c, 'Moved to the city with the {family} family', { family: f.surname });
+    }
     return f;
   }
 
@@ -190,6 +206,16 @@ export class Population {
     this.citizens.set(c.id, c);
     f.members.push(c.id);
     return c;
+  }
+
+  /** Today's day number (set by the game) — used to date life stories. */
+  day = 1;
+
+  /** Add a line to someone's life story. */
+  note(c: Citizen, k: string, p?: StoryEntry['p'], d = this.day) {
+    const st = (c.story ??= []);
+    st.push({ d, a: Math.floor(c.age), k, p });
+    if (st.length > MAX_STORY) st.splice(1, 1); // keep the birth, drop the oldest after it
   }
 
   removeCitizen(c: Citizen) {
@@ -214,6 +240,8 @@ export class Population {
       if (d.students) seats.set(b.id, d.students);
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
+    const before = new Map<number, [number, number]>();
+    for (const c of this.citizens.values()) before.set(c.id, [c.job, c.school]);
     const pupil = (c: Citizen) => c.age >= 6 && c.age < ADULT_AGE;
     const toddler = (c: Citizen) => c.age >= 3 && c.age < 6;
     const student = (c: Citizen) => c.age >= ADULT_AGE && c.age < UNI_END && c.edu >= 0.9 && c.skill < 2;
@@ -276,14 +304,44 @@ export class Population {
     for (const c of this.citizens.values()) {
       const b = c.job >= 0 ? buildings.get(c.job) : undefined;
       if (b) b.workers++;
+      // life story: new job, lost job, new school
+      const [job, school] = before.get(c.id) ?? [-1, -1];
+      if (c.job !== job) {
+        if (b) this.note(c, 'Started working at the {place}', { place: BUILDINGS[b.kind].name });
+        else if (job >= 0) this.note(c, 'Lost their job');
+      }
+      if (c.school !== school && c.school >= 0) {
+        const k = buildings.get(c.school)?.kind;
+        this.note(c, k === 'kindergarten' ? 'Started kindergarten' : k === 'university' ? 'Entered university' : 'Started school');
+      }
     }
   }
 
   /** Plan everyone's day as fractions of the day (one second = one hour at 1x). */
+  /** Kind of a workplace (set by the game). */
+  jobKind?: (id: number) => string | undefined;
+
   planDay() {
+    // every third worker of a round-the-clock workplace takes the night shift
+    const nightIds = new Set<number>();
+    const staff = new Map<number, Citizen[]>();
+    for (const c of this.citizens.values()) {
+      if (c.job < 0 || !NIGHT_SHIFT[this.jobKind?.(c.job) ?? '']) continue;
+      const l = staff.get(c.job) ?? [];
+      l.push(c);
+      staff.set(c.job, l);
+    }
+    for (const l of staff.values()) l.sort((a, b) => a.id - b.id).forEach((c, i) => { if (i % 3 === 2) nightIds.add(c.id); });
     for (const c of this.citizens.values()) {
       c.errand = false;
-      if (c.job >= 0) {
+      const was = !!c.night;
+      c.night = nightIds.has(c.id);
+      if (c.night && !was) this.note(c, 'Moved to the night shift (+50% pay)');
+      if (c.night) {
+        // the night shift starts in the evening and ends the next morning
+        c.leaveAt = rand(0.8, 0.84);
+        c.returnAt = rand(0.27, 0.31);
+      } else if (c.job >= 0) {
         c.leaveAt = rand(0.24, 0.33);
         c.returnAt = rand(0.7, 0.78);
       } else if (c.school >= 0) {
@@ -305,7 +363,7 @@ export class Population {
     const d = BUILDINGS[b.kind];
     const power = d.energy > 0 && !b.powered ? 0.5 : 1;
     const skill = c.skill === 2 ? 0.4 : c.skill === 1 ? 0.15 : 0;
-    return d.salary * (1 + 0.5 * c.edu + skill) * power;
+    return d.salary * (1 + 0.5 * c.edu + skill) * power * (c.night ? NIGHT_BONUS : 1);
   }
 
   /** Hunger drops through the day; it's restored at the evening meal. */
@@ -373,6 +431,7 @@ export class Population {
         f.money -= CAR_PRICE;
         f.car = { color: pick(CAR_COLORS), at: 'home', fuel: 100 };
         r.carsBought++;
+        for (const m of people) if (m.age >= 18) this.note(m, 'The family bought a car');
         r.carSales += CAR_PRICE;
       }
     }
@@ -389,8 +448,9 @@ export class Population {
       c.age += PER_YEAR;
       if (c.school >= 0) c.edu = Math.min(1, c.edu + 0.1 * PER_YEAR * (1 + (opts.eduBoost ?? 0)));
       const sb = c.school >= 0 ? buildings.get(c.school) : undefined;
-      if (c.age >= ADULT_AGE && sb?.kind === 'school') c.school = -1;
-      if (sb?.kind === 'university' && c.age >= UNI_END) { c.skill = 2; c.school = -1; }
+      if (c.age >= ADULT_AGE && sb?.kind === 'school') { c.school = -1; this.note(c, 'Finished school'); }
+      if (sb?.kind === 'university' && c.age >= UNI_END) { c.skill = 2; c.school = -1; this.note(c, 'Graduated from university with a degree'); }
+      if (c.age >= RETIRE_AGE && c.age - PER_YEAR < RETIRE_AGE) this.note(c, 'Retired');
       if (c.age >= 20 && c.skill === 0 && c.school < 0) c.skill = 1;
       if (c.role === 'parent' && c.age >= 70) c.role = 'elder';
       if (c.health <= 0) die(c, cause);
@@ -443,8 +503,10 @@ export class Population {
       const dad = people.find((c) => c.role === 'parent' && c.sex === 'm' && c.age < 55);
       const mom = people.find((c) => c.role === 'parent' && c.sex === 'f' && c.age >= 20 && c.age <= 42);
       if (dad && mom && people.length < BUILDINGS.house.housing && mom.hunger > 40 && Math.random() < 0.35 * PER_YEAR) {
-        this.addCitizen(f, Math.random() < 0.5 ? 'm' : 'f', 0, 'child');
+        const baby = this.addCitizen(f, Math.random() < 0.5 ? 'm' : 'f', 0, 'child');
         r.births++;
+        this.note(baby, 'Born into the {family} family', { family: f.surname });
+        for (const p of [dad, mom]) this.note(p, p.sex === 'm' ? 'Became a father: {name} was born' : 'Became a mother: {name} was born', { name: baby.name });
       }
     }
 
@@ -463,6 +525,7 @@ export class Population {
         nf.members.push(c.id);
         f.money -= 100;
         nf.money += 100;
+        this.note(c, 'Moved into a home of their own');
         if (!hasHall) continue;
         const partner = [...this.citizens.values()].find((p) => p.role === 'child' && p.age >= 20 && p.sex !== c.sex && p.family !== f.id && belongs(this.families.get(p.family) ?? f));
         if (partner && Math.random() < 0.7) {
@@ -472,6 +535,8 @@ export class Population {
           partner.role = 'parent';
           nf.members.push(partner.id);
           r.weddings.push([c.name, partner.name]);
+          this.note(c, 'Married {name} at the Wedding Hall', { name: `${partner.name} ${this.families.get(pf.id)?.surname ?? ''}`.trim() });
+          this.note(partner, 'Married {name} at the Wedding Hall', { name: `${c.name} ${f.surname}` });
         }
       }
     }
@@ -512,6 +577,7 @@ export class Population {
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
+        story: c.story, night: c.night,
       })),
     }));
   }

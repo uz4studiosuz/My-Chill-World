@@ -313,6 +313,7 @@ export class Leisure {
               this.calls.delete(patient.id);
               if (this.c.pop.citizens.get(patient.id) !== patient) return;
               patient.health = Math.max(patient.health, 85);
+              this.c.pop.note(patient, 'Taken to hospital by ambulance — the doctors helped');
               this.host.events.push(t('The ambulance took {name} to hospital — doctors saved them', { name }));
             },
             onFail: () => this.calls.delete(patient.id),
