@@ -19,6 +19,7 @@ import { Effects } from '../fx/Effects';
 import { Weather } from '../fx/Weather';
 import { t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
+import { Leisure } from './Leisure';
 
 export interface LifeContext {
   map: WorldMap;
@@ -35,6 +36,8 @@ export interface LifeContext {
   weather: Weather;
   /** A building burnt down. */
   burnDown: (b: Building) => void;
+  /** Does this road tile have street lamps? */
+  isLit?: (k: number) => boolean;
 }
 
 export interface BusPassenger {
@@ -92,6 +95,8 @@ export class Life {
   festival: string | null = null;
   /** Air pollution at each home (building id). */
   pollution = new Map<number, number>();
+  /** Hotel id → how attractive the town is to tourists (0..1+). */
+  attraction = new Map<number, number>();
   private serviceT = 5;
   /** Buses / patrol cars on the road per depot or station. */
   private fleet = new Map<number, number>();
@@ -114,8 +119,13 @@ export class Life {
   private gridIds = new Set<number>();
   private rained = new Set<number>();
   events: string[] = [];
+  /** Playgrounds, cinema, football, festivals, weddings, ambulances and residents' letters. */
+  readonly leisure: Leisure;
+  /** Fire trucks spraying water: building, nozzle position, seconds left. */
+  private sprays: { b: Building; x: number; z: number; t: number; done: () => void }[] = [];
 
   constructor(private c: LifeContext) {
+    this.leisure = new Leisure(c, this);
     const { map, net, footpaths, canals, buildings, traffic } = c;
     // pedestrians cross at signalled junctions only on green for their direction
     c.walkers.gate = (x0, z0, x1, z1) => {
@@ -155,6 +165,19 @@ export class Life {
     if (this.stormT <= 0) { this.stormT = DAY_SECONDS * (0.02 + Math.random() * 0.04); this.storm(); }
     this.immigrationT += dt;
     if (this.immigrationT > IMMIGRATION_INTERVAL) { this.immigrationT = 0; this.immigrate(); }
+    this.leisure.update(dt);
+  }
+
+  isLit(k: number) { return this.c.isLit?.(k) ?? false; }
+
+  /** Send someone who is at home to a leisure place until `until` (time of day). */
+  planOuting(c: Citizen, dest: Building, until: number) {
+    const tod = this.c.eco.timeOfDay;
+    if (c.state !== 'home' || until <= tod + 0.04) return false;
+    c.outing = dest.id;
+    c.leaveAt = tod;
+    c.returnAt = until;
+    return true;
   }
 
   parkedCars() {
@@ -322,6 +345,7 @@ export class Life {
         shops: { market: false, grocery: false, clothes: false },
         taxRate: city.taxRate, calm: this.calm,
         safety: this.policeCover(city.id) * 0.75,
+        eduBoost: own.some((b) => b.kind === 'academy' && b.workers > 0) ? 0.3 : 0,
       });
       city.foodYesterday = { made: Math.round(city.foodMade), eaten: r.foodEaten };
       city.foodMade = 0;
@@ -367,11 +391,11 @@ export class Life {
       city.deaths = r.deaths.length;
 
       if (r.births) say(r.births === 1 ? t('A baby was born!') : t('{n} babies were born!', { n: r.births }));
-      for (const [a, b] of r.weddings) {
+      r.weddings.forEach(([a, b], i) => {
         say(t('{a} and {b} got married!', { a, b }));
-        const hall = buildings.list.find((x) => x.kind === 'weddinghall' && x.city === city.id);
-        if (hall) this.c.effects.hearts(hall.mesh.position.x, hall.mesh.position.z);
-      }
+        // the procession leaves the Wedding Hall in the morning
+        this.leisure.later(4 + i * 8, () => this.leisure.wedding(city.id, a, b));
+      });
       // burials in the city's cemetery
       for (const d of r.deaths) {
         const f = pop.families.get(d.familyId);
@@ -403,6 +427,7 @@ export class Life {
       this.entrepreneurs(city.id, say);
       this.airQuality(city, say);
       this.tourism(city, own, say);
+      this.leisure.daily(city, own, say);
       this.updateHappiness(city, own, r, belongs, say);
       this.smartCity(city, belongs, say);
       this.elect(city, belongs, say);
@@ -778,6 +803,13 @@ export class Life {
 
   private updateFires(dt: number) {
     const { buildings, effects, traffic } = this.c;
+    for (let i = this.sprays.length - 1; i >= 0; i--) {
+      const sp = this.sprays[i];
+      sp.t -= dt;
+      if (dt > 0) effects.spray(sp.x, sp.z, sp.b.mesh.position.x, sp.b.mesh.position.z);
+      if (Math.random() < dt * 2) sound.play('water');
+      if (sp.t <= 0 || sp.b.removed) { this.sprays.splice(i, 1); sp.done(); }
+    }
     this.fireT -= dt;
     const emit = this.fireT <= 0;
     if (emit) this.fireT = 0.15;
@@ -801,15 +833,21 @@ export class Life {
         if (station) {
           b.fireCrew = true;
           const putOut = () => {
+            b.fireCrew = false;
             if (b.removed || b.fire <= 0) return;
             b.fire = 0;
             b.fireCrew = false;
             effects.puff(b.mesh.position.x, b.mesh.position.z, 0.6, 14, ['#bfe3ff', '#ffffff', '#9aa3ab']);
             this.events.push(t('Firefighters put out the fire at the {name}', { name: t(BUILDINGS[b.kind].name) }));
           };
+          const nozzle = buildings.door(b);
+          // firefighters spray water for a few seconds before the flames die
+          const spray = () => { this.sprays.push({ b, x: nozzle.x, z: nozzle.z, t: 3.5, done: putOut }); };
+          sound.play('siren');
           const sent = station.access >= 0 && b.access >= 0 && traffic.spawn({
-            kind: 'truck', from: station.access, to: b.access, color: new THREE.Color('#d9443b'),
-            toPos: buildings.door(b), onArrive: putOut, onFail: () => { b.fireCrew = false; },
+            kind: 'truck', from: station.access, to: b.access, color: new THREE.Color('#d9443b'), siren: true,
+            purpose: 'Fire call', driverName: 'Firefighter', destName: BUILDINGS[b.kind].name,
+            toPos: nozzle, onArrive: spray, onFail: () => { b.fireCrew = false; },
           });
           if (!sent) setTimeout(putOut, 1500);
         }
@@ -837,6 +875,7 @@ export class Life {
     let target = 50;
     if (this.festival) target += 12;
     if (city.railLink) target += 4;
+    target += this.leisure.bonus(city.id, own);
     target -= Math.min(15, city.pollution * 4);
     target += Math.min(1, (parks * 80) / n) * 10;
     if (has('grocery') || has('market')) target += 7;
@@ -968,9 +1007,12 @@ export class Life {
       for (let z = h.z - 8; z <= h.z + 8; z += 2) for (let x = h.x - 8; x <= h.x + 8; x += 2) if (inBounds(x, z) && map.water[idx(x, z)]) water++;
       const nature = Math.min(1, terrain.treesNear(h.x, h.z, 10) / 40) + Math.min(1, water / 12);
       const parks = Math.min(1, own.filter((b) => b.kind === 'park').length * 0.25);
-      const attract = nature + parks + city.happiness / 100 + (this.festival ? 0.5 : 0) + (city.railLink ? 0.3 : 0);
-      const staff = Math.min(1, h.workers / BUILDINGS.hotel.jobs);
-      const guests = Math.round(TOURISM.rooms * Math.min(1, attract / 3) * staff);
+      // every town has something to see; nature, parks, mood, festivals and the railway add more
+      const sights = Math.min(0.6, own.filter((b) => b.kind === 'stadium' || b.kind === 'cinema' || b.kind === 'fountain' || b.kind === 'statue').length * 0.15);
+      const attract = 0.6 + nature + parks + sights + city.happiness / 100 + (this.festival ? 0.5 : 0) + (city.railLink ? 0.3 : 0);
+      const staff = h.workers > 0 ? 0.35 + 0.65 * Math.min(1, h.workers / BUILDINGS.hotel.jobs) : 0;
+      const guests = Math.max(staff > 0 ? 1 : 0, Math.round(TOURISM.rooms * Math.min(1, attract / 2.5) * staff));
+      this.attraction.set(h.id, attract / 2.5);
       h.stored = guests;
       h.sales = (h.sales ?? 0) + guests * TOURISM.spend;
       // tourists also shop in town
@@ -1032,10 +1074,11 @@ export class Life {
     const x = tileToWorld(k % N), z = tileToWorld((k / N) | 0);
     const wreck = effects.wreck(x, z);
     sound.play('demolish');
+    sound.play('siren');
     const police = buildings.list.find((b) => b.kind === 'police' && b.city === cityId && b.built >= 1 && b.workers > 0 && b.access >= 0);
     if (police) {
       traffic.spawn({
-        kind: 'car', from: police.access, to: k, color: new THREE.Color('#1f3f86'), fromPos: buildings.door(police),
+        kind: 'car', from: police.access, to: k, color: new THREE.Color('#1f3f86'), fromPos: buildings.door(police), siren: true,
         purpose: 'Police patrol', driverName: 'Police officer', destName: 'Accident site', homeBuildingId: police.id,
         onArrive: () => {
           effects.clearWreck(wreck);
@@ -1050,11 +1093,13 @@ export class Life {
     const hospital = buildings.list.find((b) => b.kind === 'hospital' && b.city === cityId && b.built >= 1 && b.access >= 0);
     if (hospital) {
       traffic.spawn({
-        kind: 'car', from: hospital.access, to: k, color: new THREE.Color('#ffffff'), fromPos: buildings.door(hospital),
+        kind: 'car', from: hospital.access, to: k, color: new THREE.Color('#ffffff'), fromPos: buildings.door(hospital), siren: true,
         purpose: 'Emergency response', driverName: 'Paramedic', destName: 'Accident site', homeBuildingId: hospital.id,
         onArrive: () => {
+          // the injured driver is carried to the ambulance on a stretcher
+          this.c.walkers.walk(3, 1, { points: [{ x: x + 0.25, z: z + 0.25 }, { x, z }] }, 'stretcher');
           traffic.spawn({
-            kind: 'car', from: k, to: hospital.access, color: new THREE.Color('#ffffff'), toPos: buildings.door(hospital),
+            kind: 'car', from: k, to: hospital.access, color: new THREE.Color('#ffffff'), toPos: buildings.door(hospital), siren: true,
             purpose: 'Returning to hospital', driverName: 'Paramedic', destName: 'Hospital', homeBuildingId: hospital.id,
           });
         },
@@ -1115,6 +1160,11 @@ export class Life {
 
   private destination(c: Citizen): Building | undefined {
     const { buildings } = this.c;
+    if (c.outing !== undefined) {
+      const b = buildings.get(c.outing);
+      if (b && !b.removed) return b;
+      c.outing = undefined;
+    }
     if (c.job >= 0) return buildings.get(c.job);
     if (c.school >= 0) return buildings.get(c.school);
     if (c.errand) {
@@ -1205,6 +1255,11 @@ export class Life {
     if (b.removed) { this.teleportHome(c); return; }
     c.state = 'away';
     c.at = b.id;
+    if (c.outing === b.id) {
+      c.outing = undefined;
+      this.leisure.stay(c, b, c.returnAt);
+      return;
+    }
     const work = c.job === b.id ? BUILDINGS[b.kind].work : 'indoor';
     c.activity = c.job === b.id ? 'At work' : c.school === b.id ? 'At school' : 'Visiting';
     if (c.job !== b.id && c.school !== b.id) this.shop(c, b);
@@ -1222,6 +1277,7 @@ export class Life {
     const at = buildings.get(c.at);
     c.state = 'travel';
     c.activity = 'Going home';
+    c.outing = undefined;
     const done = () => {
       if (!this.alive(c)) return;
       c.state = 'home';

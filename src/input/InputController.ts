@@ -10,6 +10,8 @@ export interface InputActions {
   undo: () => void;
   tap: (t: Tile | null, p?: { x: number; z: number }) => void;
   togglePause: () => void;
+  /** First-person view: a drag turns the head instead of moving the map (returns true when handled). */
+  look?: (dx: number, dy: number) => boolean;
 }
 
 const TOOL_KEYS: Record<string, ToolId> = {
@@ -103,6 +105,7 @@ export class InputController {
     p.x = e.clientX;
     p.y = e.clientY;
     if (Math.hypot(p.x - this.down.x, p.y - this.down.y) > TAP_PX) this.down.moved = true;
+    if (this.actions.look?.(p.x - px, p.y - py)) return;
 
     switch (this.mode) {
       case 'pan': this.cam.pan(px, py, p.x, p.y); break;

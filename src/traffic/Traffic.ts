@@ -5,6 +5,8 @@ import { RING_RADIUS } from '../roads/RoadMesh';
 import { findPath } from './Pathfinder';
 import { busGeometry, carGeometry, cargoGeometry, truckGeometry } from '../models/vehicles';
 import { trafficLampGeometry, trafficPoleGeometry } from '../models/buildings';
+import { beaconGeometry, headlightGeometry, weddingDecorGeometry } from '../models/extras';
+import { glowTexture } from '../fx/NightGlow';
 
 export type VehicleKind = 'car' | 'truck' | 'bus';
 export interface Point { x: number; z: number }
@@ -30,6 +32,10 @@ export interface Trip {
   routeStops?: string[];
   stopIndex?: number;
   passengers?: number[];
+  /** Emergency vehicle: flashing beacon, siren, may pass red lights carefully. */
+  siren?: boolean;
+  /** Wedding car decorated with flowers and ribbons. */
+  wedding?: boolean;
   onArrive?: (color: THREE.Color) => void;
   /** The vehicle gave up (route destroyed or hopelessly stuck). */
   onFail?: () => void;
@@ -99,12 +105,20 @@ export class Traffic {
   private busMesh: THREE.InstancedMesh;
   private poleMesh: THREE.InstancedMesh;
   private lampMesh: THREE.InstancedMesh;
+  private beaconMesh: THREE.InstancedMesh;
+  private decorMesh: THREE.InstancedMesh;
+  private beamMesh: THREE.InstancedMesh;
+  private beamMat = new THREE.MeshBasicMaterial({ map: glowTexture(), color: '#fff2c8', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  private night = 0;
   private lamps: { tile: number; travelBit: number }[] = [];
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private up = new THREE.Vector3(0, 1, 0);
   private p = new THREE.Vector3();
   private sc = new THREE.Vector3();
+  private e = new THREE.Euler();
+  private q2 = new THREE.Quaternion();
+  private m2 = new THREE.Matrix4();
 
   constructor(private net: RoadNetwork) {
     const vc = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -117,6 +131,19 @@ export class Traffic {
     this.lampMesh = this.makeMesh(trafficLampGeometry(), new THREE.MeshBasicMaterial(), 1024);
     this.lampMesh.setColorAt(0, RED);
     this.lampMesh.castShadow = false;
+    this.beaconMesh = this.makeMesh(beaconGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true }), 64);
+    this.beaconMesh.castShadow = false;
+    this.decorMesh = this.makeMesh(weddingDecorGeometry(), vc, 16);
+    this.beamMesh = this.makeMesh(headlightGeometry(), this.beamMat, MAX_CARS + MAX_TRUCKS + MAX_BUSES);
+    this.beamMesh.castShadow = false;
+    this.beamMesh.renderOrder = 4;
+  }
+
+  /** 0 = day, 1 = night: headlights fade in. */
+  setNight(v: number) {
+    this.night = v;
+    this.beamMat.opacity = v * 0.4;
+    this.beamMesh.visible = v > 0.05;
   }
 
   private makeMesh(geo: THREE.BufferGeometry, mat: THREE.Material, max: number) {
@@ -333,7 +360,7 @@ export class Traffic {
       if (this.net.isIntersection(next) && !v.held.includes(ni) && dist < 0.6) {
         const travel = v.moves[ni] >> 4;
         const sig = this.light(next, travel);
-        const mayGo = sig === 'green' || (sig === 'yellow' && dist < 0.2);
+        const mayGo = sig === 'green' || (sig === 'yellow' && dist < 0.2) || !!v.trip.siren;
         // don't enter unless the light allows it, nothing conflicting is inside and the exit has room
         if (mayGo && this.exitClear(v, ni) && this.tryReserve(next, v.id, v.moves[ni])) v.held.push(ni);
         else target = Math.min(target, stopAt(dist));
@@ -497,13 +524,26 @@ export class Traffic {
   }
 
   private render() {
-    let nc = 0, nt = 0, ng = 0, nb = 0;
+    let nc = 0, nt = 0, ng = 0, nb = 0, nbe = 0, nd = 0, nl = 0;
+    const flash = Math.sin(this.clock * 14) > 0;
     for (const v of this.vehicles) {
       const s = easeOut(Math.max(0, v.scale));
       this.q.setFromAxisAngle(this.up, Math.atan2(v.hx, v.hz));
       this.p.set(v.x, ROAD_Y, v.z);
       this.sc.set(s, s, s);
       this.m.compose(this.p, this.q, this.sc);
+      if (v.trip.siren && nbe < 64) {
+        // the two halves swap places so the red and blue lights alternate
+        if (flash) this.beaconMesh.setMatrixAt(nbe++, this.m);
+        else {
+          this.e.set(0, Math.atan2(v.hx, v.hz) + Math.PI, 0);
+          this.q2.setFromEuler(this.e);
+          this.m2.compose(this.p, this.q2, this.sc);
+          this.beaconMesh.setMatrixAt(nbe++, this.m2);
+        }
+      }
+      if (v.trip.wedding && nd < 16) this.decorMesh.setMatrixAt(nd++, this.m);
+      if (this.night > 0.05) this.beamMesh.setMatrixAt(nl++, this.m);
       if (v.trip.kind === 'bus') {
         this.busMesh.setMatrixAt(nb++, this.m);
       } else if (v.trip.kind === 'car') {
@@ -525,6 +565,10 @@ export class Traffic {
       this.carMesh.setColorAt(nc, p.color);
       nc++;
     }
+    this.beaconMesh.count = nbe;
+    this.decorMesh.count = nd;
+    this.beamMesh.count = nl;
+    for (const m of [this.beaconMesh, this.decorMesh, this.beamMesh]) m.instanceMatrix.needsUpdate = true;
     this.carMesh.count = nc;
     this.truckMesh.count = nt;
     this.cargoMesh.count = ng;

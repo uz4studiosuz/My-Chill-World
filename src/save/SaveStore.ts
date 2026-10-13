@@ -4,6 +4,7 @@ import { BuildingKind } from '../buildings/BuildingTypes';
 import { Sample } from '../sim/History';
 import { PopulationSave } from '../people/Population';
 import type { GoalsSave } from '../sim/Goals';
+import type { LeisureSave } from '../game/Leisure';
 
 /** v5 = multiple cities (one per Town Hall) on a 192×192 map. Older worlds are hidden (incompatible). */
 export const SAVE_VERSION = 5;
@@ -46,6 +47,7 @@ export interface WorldSave {
   lit?: number[];
   rails?: number[];
   calm?: boolean;
+  leisure?: LeisureSave;
 }
 
 /** Multiple worlds: a small index + one key per world. */

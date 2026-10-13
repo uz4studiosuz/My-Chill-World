@@ -10,6 +10,11 @@ import {
   carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
+import {
+  academyGeometry, benchGeometry, cinemaGeometry, cinemaScreenGeometry, flowerbedGeometry, fountainGeometry, fountainJetGeometry, lampHeadGeometry,
+  lamppostGeometry, playgroundGeometry, saplingGeometry, signGeometry, stadiumGeometry, statueGeometry,
+} from '../models/extras';
+import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
 import { box, hash2, merge } from '../utils/voxel';
 
 export interface Point { x: number; z: number }
@@ -133,6 +138,17 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'factory': return factoryGeometry();
     case 'carfactory': return carFactoryGeometry();
     case 'construction': return constructionGeometry();
+    case 'stadium': return stadiumGeometry();
+    case 'cinema': return cinemaGeometry();
+    case 'academy': return academyGeometry();
+    case 'playground': return playgroundGeometry();
+    case 'fountain': return fountainGeometry();
+    case 'flowerbed': return flowerbedGeometry(variant);
+    case 'statue': return statueGeometry();
+    case 'bench': return benchGeometry();
+    case 'lamppost': return lamppostGeometry();
+    case 'sapling': return saplingGeometry(variant);
+    case 'roadsign': return signGeometry();
     default: return townHallGeometry();
   }
 }
@@ -144,7 +160,21 @@ export class Buildings {
   private byId = new Map<number, Building>();
   private nextId = 1;
   private geoCache = new Map<string, THREE.BufferGeometry>();
-  private mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  /** Windows glow warm at night; unpowered or unfinished buildings use the dark copy. */
+  private mat = windowMaterial();
+  private darkMat = windowMaterial(false);
+  private jetGeo = fountainJetGeometry();
+  private jetMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.85 });
+  private lampHeadGeo = lampHeadGeometry();
+  private lampHeadMat = new THREE.MeshBasicMaterial({ color: '#c9c4b6' });
+  private poolGeo = new THREE.PlaneGeometry(1.5, 1.5).rotateX(-Math.PI / 2).translate(0, 0.03, 0);
+  private poolMat = new THREE.MeshBasicMaterial({ map: glowTexture(), color: '#ffcf7a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  private screenGeo = cinemaScreenGeometry();
+  private screenMat = new THREE.MeshBasicMaterial({ color: '#2a2f36' });
+  private floodMat = new THREE.MeshBasicMaterial({ map: glowTexture(), color: '#fff6dd', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  /** Set by the game: is a film showing tonight / a match on today? */
+  cinemaOn = false;
+  matchOn = false;
   private cropGeo = cropGeometry();
   private headstoneGeo = headstoneGeometry();
   private rotorGeo = rotorGeometry();
@@ -221,6 +251,23 @@ export class Buildings {
       const gGroup = new THREE.Group();
       b.gravesGroup = gGroup;
       mesh.add(gGroup);
+    }
+    if (kind === 'fountain') {
+      const jet = new THREE.Mesh(this.jetGeo, this.jetMat);
+      jet.name = 'jet';
+      mesh.add(jet);
+    }
+    if (kind === 'lamppost') {
+      mesh.add(new THREE.Mesh(this.lampHeadGeo, this.lampHeadMat));
+      const pool = new THREE.Mesh(this.poolGeo, this.poolMat);
+      pool.renderOrder = 4;
+      mesh.add(pool);
+    }
+    if (kind === 'cinema') mesh.add(new THREE.Mesh(this.screenGeo, this.screenMat));
+    if (kind === 'stadium') {
+      const flood = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.6).rotateX(-Math.PI / 2).translate(0, 0.04, -0.15), this.floodMat);
+      flood.renderOrder = 4;
+      mesh.add(flood);
     }
     if (kind === 'windturbine') {
       const rotor = new THREE.Mesh(this.rotorGeo, this.mat);
@@ -318,7 +365,29 @@ export class Buildings {
   /** Grow / shrink animations and crop growth (only in the growing season, with farmers and water). */
   update(dt: number, simDt: number, dayLength: number, growing: boolean, buildSpeed: (b: Building) => number = () => 1) {
     this.animTime += dt;
+    const night = nightLevel.value;
+    this.lampHeadMat.color.set('#c9c4b6').lerp(LAMP_ON, night);
+    this.poolMat.opacity = night * 0.5;
+    this.floodMat.opacity = this.matchOn ? Math.max(0.15, night) * 0.45 : 0;
+    if (this.cinemaOn && night > 0.3) {
+      // the film: slowly shifting scenes
+      const tt = this.animTime * 0.35;
+      this.screenMat.color.setHSL((Math.sin(tt) * 0.5 + 0.5) * 0.7, 0.45, 0.45 + Math.sin(tt * 3.1) * 0.1);
+    } else this.screenMat.color.set('#2a2f36');
     for (const b of this.list) {
+      const body = b.mesh.children[0] as THREE.Mesh | undefined;
+      if (body) {
+        const want = b.built >= 1 && b.powered && b.fire <= 0 ? this.mat : this.darkMat;
+        if (body.material !== want) body.material = want;
+      }
+      if (b.kind === 'fountain') {
+        const jet = b.mesh.getObjectByName('jet');
+        if (jet) {
+          jet.visible = b.built >= 1;
+          jet.scale.set(1, 0.85 + Math.sin(this.animTime * 6) * 0.15, 1);
+          jet.rotation.y += dt * 0.8;
+        }
+      }
       if (b.built < 1 && simDt > 0) {
         b.built = Math.min(1, b.built + (simDt / (dayLength * BUILD_DAYS[BUILDINGS[b.kind].size])) * buildSpeed(b));
         if (b.built >= 1) this.onBuilt(b);
@@ -481,7 +550,7 @@ export class Buildings {
   }
 
   private geometry(kind: BuildingKind, x: number, z: number) {
-    const variant = kind === 'house' ? hash2(x, z) % 16 : 0;
+    const variant = kind === 'house' ? hash2(x, z) % 16 : kind === 'flowerbed' || kind === 'sapling' ? hash2(x, z) % 3 : 0;
     const key = `${kind}:${variant}`;
     let g = this.geoCache.get(key);
     if (!g) {
@@ -491,6 +560,8 @@ export class Buildings {
     return g;
   }
 }
+
+const LAMP_ON = new THREE.Color('#ffe2a0');
 
 function easeOutBack(t: number) {
   const c1 = 1.70158, c3 = c1 + 1;

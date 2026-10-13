@@ -27,6 +27,13 @@ const LIFE: [string, string][] = [
   ['Traffic', 'Cars stop at traffic lights and give way at junctions. Pedestrians walk on sidewalks and footpaths and cross only on zebra crossings when their light is green. A bus depot gives a ride to people without a car.'],
   ['Weather and seasons', 'Each day is one month. Crops grow from March to October; winter brings snow and cold snaps, summer can bring droughts. Thunderstorms may set buildings on fire — fire stations send trucks.'],
   ['Incidents', 'Now and then people fight, cars crash and, rarely, a murder happens. Police make the city safer and hospitals heal the injured.'],
+  ['Emergency services', 'When someone falls seriously ill, an ambulance drives over with its siren on, paramedics carry the patient out on a stretcher and the hospital treats them. Fire trucks race to fires and spray water until the flames are out.'],
+  ['Leisure', 'After school children play on playgrounds and in parks. In the evening people go to the open-air cinema. Every other day the city football team plays at the stadium — fans fill the stands and a win cheers up the whole city.'],
+  ['Weddings and festivals', 'Newly-weds leave the Wedding Hall in a white car decorated with flowers, followed by their relatives. At Navruz a flower mound with a sumalak cauldron appears by the Town Hall, at New Year a decorated fir — people gather there and fireworks light up the night.'],
+  ['Letters from residents', 'Residents write to the Town Hall when something is missing near their home: a shop, a school, street lamps, a park or a bus stop. Do it within 8 days and you get a reward and their trust; ignored letters make people unhappy.'],
+  ['Decorations', 'Fountains, flower beds, trees, benches, lamps and monuments make the homes around them happier.'],
+  ["Citizen's eyes", "Select a person or a vehicle and press \"Citizen's eyes\" to walk, ride and drive through your town in first person. Drag to look around, Esc to leave."],
+  ['Model editor', 'Open /editor (editor.html) to build your own 3D model from boxes, start from any building in the game, import .glb/.gltf/.obj files and export the model as JSON, GLB or code.'],
 ];
 
 /** In-game encyclopedia: what every building does, what it needs and how the systems connect. */

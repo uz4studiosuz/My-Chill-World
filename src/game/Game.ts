@@ -9,7 +9,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -30,6 +30,8 @@ import { Animals } from '../animals/Animals';
 import { Effects } from '../fx/Effects';
 import { Weather } from '../fx/Weather';
 import { Life, PROMISE_TEXT } from './Life';
+import { nightLevel } from '../fx/NightGlow';
+import { PetitionsPanel } from '../ui/Petitions';
 import { CameraRig } from '../camera/CameraRig';
 import { Preview } from '../build/Preview';
 import { BuildTool, CheckResult, LineKind, PlaceKind, ToolHost, ToolId } from '../build/BuildTool';
@@ -60,6 +62,9 @@ const SKY_NIGHT = new THREE.Color('#1f2b3f');
 const SKY_RAIN = new THREE.Color('#7d8a96');
 const SUN_DAY = new THREE.Color('#fff3df');
 const SUN_LOW = new THREE.Color('#ffb070');
+const MOON = new THREE.Color('#8fa8e8');
+const HEMI_DAY = new THREE.Color('#e4f1ff');
+const HEMI_NIGHT = new THREE.Color('#6d80b8');
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const SEASON_ICON = { spring: '🌸', summer: '☀️', autumn: '🍂', winter: '❄️' };
 const KIND_BADGE: Record<BuildingKind, [string, string]> = {
@@ -69,6 +74,8 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], busstop: ['🚏', '#3a6fd1'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
+  stadium: ['⚽', '#4f9a3e'], cinema: ['🎬', '#b0478f'], academy: ['🏛️', '#2d4f8a'], playground: ['🛝', '#e85a3a'], fountain: ['⛲', '#4fa3d1'],
+  flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
 };
 
 const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
@@ -77,7 +84,7 @@ const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
   farm: ['Farmer'], orchard: ['Fruit grower'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
   powerplant: ['Power operator', 'Power engineer'], watertower: ['Water technician'], weddinghall: ['Registrar'], park: ['Gardener'],
-  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
+  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], stadium: ['Groundskeeper', 'Football coach'], cinema: ['Projectionist'], academy: ['Coach', 'Academician'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -115,6 +122,16 @@ export class Game implements ToolHost {
   private goals = new Goals();
   private goalsPanel?: GoalsPanel;
   private eventLog?: EventLog;
+  private petitions?: PetitionsPanel;
+  private petitionTick = 0;
+  /** First-person view: whose eyes we look through. */
+  private pov: Selection = null;
+  readonly povCam = new THREE.PerspectiveCamera(72, 1, 0.01, 90);
+  private povBar?: HTMLDivElement;
+  private povLook = { yaw: 0, pitch: -0.05 };
+  private povSaved?: { view: number };
+  private povPos = new THREE.Vector3(NaN, 0, 0);
+  private povDir = new THREE.Vector3(0, 0, 1);
   private guide?: Guide;
   private savedLog: LogEntry[] = [];
   private lights: StreetLights;
@@ -193,6 +210,7 @@ export class Game implements ToolHost {
       map: this.map, terrain: this.terrain, net: this.net, footpaths: this.footpaths, canals: this.canals,
       buildings: this.buildings, eco: this.eco, pop: this.pop, walkers: this.walkers, traffic: this.traffic,
       effects: this.effects, weather: this.weather, burnDown: (b) => this.destroyBuilding(b, false),
+      isLit: (k) => this.lights.lit[k] === 1,
     });
     this.grid = new THREE.GridHelper(MAP_SIZE, MAP_SIZE, '#2d3a22', '#2d3a22');
     const gm = this.grid.material as THREE.LineBasicMaterial;
@@ -241,6 +259,7 @@ export class Game implements ToolHost {
     this.scene.add(
       this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
       this.walkers.group, this.lights.group, this.railway.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.grid, this.marker, this.ring, this.beam,
+      this.life.leisure.group, this.povCam,
     );
     this.pop.assign(this.buildings);
     this.networkChanged(false);
@@ -262,7 +281,9 @@ export class Game implements ToolHost {
       undo: () => this.undo(),
       tap: (tile, p) => this.tap(tile, p),
       togglePause: () => this.setSpeed(this.speed === 0 ? this.lastSpeed : 0),
+      look: (dx, dy) => { if (!this.pov) return false; this.povTurn(dx, dy); return true; },
     }, this.abort.signal);
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.pov) this.exitPov(); }, { signal: this.abort.signal });
 
     const signal = this.abort.signal;
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(); }, { signal });
@@ -283,6 +304,7 @@ export class Game implements ToolHost {
       openGoals: () => { this.stats?.hide(); this.eventLog?.hide(); this.goalsPanel?.toggle(); },
       openLog: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.toggle(); },
       openGuide: () => this.guide?.toggle(),
+      openPetitions: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.toggle(); },
       toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setNature(on); return on; },
       cycleCity: () => this.cycleCity(),
       confirmBuild: () => this.tool?.confirm(),
@@ -301,6 +323,16 @@ export class Game implements ToolHost {
     this.eventLog = new EventLog(this.hud.root, (d) => `${t('Day {n}', { n: d })} · ${t(MONTHS[monthOf(d)]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(d) })}`);
     this.eventLog.load(keep);
     this.guide = new Guide(this.hud.root);
+    this.petitions = new PetitionsPanel(this.hud.root, () => ({
+      petitions: this.life.leisure.petitions, city: this.eco.active, day: this.eco.day,
+      cityName: (id) => this.eco.cities.get(id)?.name ?? '',
+    }), (p) => {
+      this.petitions?.hide();
+      this.cam.setState(tileToWorld(p.x), tileToWorld(p.z), this.cam.yaw, Math.min(this.cam.viewHalf, 9));
+      const b = this.buildings.at(idx(p.x, p.z));
+      if (b) this.select({ type: 'building', id: b.id });
+    });
+    this.povBar = undefined;
     this.news?.dispose();
     this.news = new Newspaper(this.hud.root);
     if (this.wantTutorial && !this.tutorial?.finished) {
@@ -316,7 +348,106 @@ export class Game implements ToolHost {
 
   resize(w: number, h: number) {
     this.cam.resize(w, h);
+    this.povCam.aspect = w / Math.max(1, h);
+    this.povCam.updateProjectionMatrix();
   }
+
+  /** The camera to render with (first-person view or the normal map view). */
+  get viewCamera(): THREE.Camera { return this.pov ? this.povCam : this.cam.camera; }
+
+  get inPov() { return !!this.pov; }
+
+  /** Turn the head in first-person view (drag on the screen). */
+  povTurn(dx: number, dy: number) {
+    this.povLook.yaw -= dx * 0.005;
+    this.povLook.pitch = Math.max(-0.9, Math.min(0.6, this.povLook.pitch - dy * 0.004));
+  }
+
+  /** Look through the eyes of a citizen or a driver. */
+  enterPov(s: Selection) {
+    if (!s || s.type === 'building') return;
+    this.pov = s;
+    this.povLook = { yaw: 0, pitch: -0.05 };
+    this.povSaved ??= { view: this.cam.viewHalf };
+    this.cam.viewHalf = 7;
+    this.following = false;
+    this.selection = null;
+    this.inspector?.hide();
+    this.setTool('pan');
+    document.body.classList.add('pov-mode');
+    if (!this.povBar && this.hud) {
+      const bar = document.createElement('div');
+      bar.className = 'pov-bar';
+      const label = document.createElement('span');
+      const exit = document.createElement('button');
+      exit.className = 'btn-mini';
+      exit.textContent = t('Exit citizen view');
+      exit.addEventListener('click', () => this.exitPov());
+      bar.append(label, exit);
+      this.hud.root.appendChild(bar);
+      this.povBar = bar;
+    }
+    this.povPos.set(NaN, 0, 0);
+  }
+
+  exitPov() {
+    if (!this.pov) return;
+    const s = this.pov;
+    this.pov = null;
+    document.body.classList.remove('pov-mode');
+    this.povBar?.remove();
+    this.povBar = undefined;
+    if (this.povSaved) { this.cam.viewHalf = this.povSaved.view; this.povSaved = undefined; }
+    this.cam.apply();
+    if (s.type === 'vehicle' ? this.traffic.getVehicle(s.id) : s.type === 'person' && this.pop.citizens.get(s.id)) this.select(s);
+  }
+
+  /** Place the first-person camera at the eyes of the person / driver we follow. */
+  private updatePov(dt: number) {
+    const s = this.pov!;
+    let x = 0, z = 0, y = 0.16, hx = 0, hz = 1, label = '';
+    if (s.type === 'vehicle') {
+      const v = this.traffic.getVehicle(s.id);
+      if (!v || v.leaving) return this.exitPov();
+      x = v.x - v.hx * 0.02; z = v.z - v.hz * 0.02; hx = v.hx; hz = v.hz;
+      y = v.trip.kind === 'bus' ? 0.2 : v.trip.kind === 'truck' ? 0.22 : 0.15;
+      label = `${t(v.trip.driverName ?? 'Driver')} · ${t(v.trip.purpose ?? 'Driving')}`;
+    } else if (s.type === 'person') {
+      const c = this.pop.citizens.get(s.id);
+      if (!c) return this.exitPov();
+      label = `${c.name} · ${t(c.activity)}`;
+      const v = this.traffic.vehicleForDriver(c.id) ?? this.traffic.vehicleForPassenger(c.id);
+      if (v && !v.leaving) {
+        x = v.x; z = v.z; hx = v.hx; hz = v.hz; y = v.trip.kind === 'bus' ? 0.2 : 0.15;
+      } else if (c.walker && !c.walker.leaving) {
+        const w = c.walker;
+        const sc = w.scale;
+        x = w.x + w.hx * 0.025 * sc; z = w.z + w.hz * 0.025 * sc; hx = w.hx; hz = w.hz; y = 0.165 * sc + 0.005;
+      } else {
+        // indoors: stand at the door and look out to the street
+        const b = this.buildings.get(c.at);
+        if (!b) return this.exitPov();
+        const d = this.buildings.door(b);
+        const dx = d.x - b.mesh.position.x, dz = d.z - b.mesh.position.z, l = Math.hypot(dx, dz) || 1;
+        hx = dx / l; hz = dz / l; x = d.x + hx * 0.05; z = d.z + hz * 0.05;
+      }
+    } else return this.exitPov();
+    if (Number.isNaN(this.povPos.x)) { this.povPos.set(x, y, z); this.povDir.set(hx, 0, hz); }
+    this.povPos.lerp(this.povTmp.set(x, y, z), Math.min(1, dt * 8));
+    this.povDir.lerp(this.povTmp.set(hx, 0, hz), Math.min(1, dt * 4)).normalize();
+    const yaw = Math.atan2(this.povDir.x, this.povDir.z) + this.povLook.yaw;
+    const cp = Math.cos(this.povLook.pitch);
+    this.povCam.position.copy(this.povPos);
+    this.povCam.lookAt(this.povPos.x + Math.sin(yaw) * cp, this.povPos.y + Math.sin(this.povLook.pitch), this.povPos.z + Math.cos(yaw) * cp);
+    this.povCam.updateMatrixWorld();
+    // keep the sun's shadows, lamps and the ambience around us
+    this.cam.target.set(this.povPos.x, 0, this.povPos.z);
+    this.cam.apply();
+    const span = this.povBar?.firstChild as HTMLSpanElement | null;
+    if (span && span.textContent !== label) span.textContent = label;
+  }
+
+  private povTmp = new THREE.Vector3();
 
   update(dt: number) {
     // fast speeds are split into small steps so cars, walkers and the economy stay stable
@@ -360,6 +491,8 @@ export class Game implements ToolHost {
     if (this.demo) this.cam.rotate(dt * 0.04, false);
     this.input?.update(dt);
     this.cam.update(dt);
+    if (this.pov) this.updatePov(dt);
+    this.lights.update(dt, this.cam.target.x, this.cam.target.z);
     this.followSun();
 
     if (this.hud) {
@@ -734,13 +867,18 @@ export class Game implements ToolHost {
     const season = seasonBlend(this.eco.day, tod);
     const day = smooth(0.22, 0.3, tod) * (1 - smooth(0.74, 0.84, tod));
     this.nightness = 1 - day;
-    this.lights.setNight(Math.max(0, (0.85 - day) / 0.85), this.life.lampsLit);
+    const dark = Math.max(0, (0.85 - day) / 0.85);
+    nightLevel.value = dark;
+    this.traffic.setNight(dark);
+    this.lights.setNight(dark, this.life.lampsLit);
     const low = Math.max(0, 1 - Math.abs(tod - 0.26) * 12) + Math.max(0, 1 - Math.abs(tod - 0.79) * 12);
     const rain = this.weather.rainingAt(this.cam.target.x, this.cam.target.z) ? 0.35 : 0;
     const winter = season.snow * 0.15;
-    this.sun.intensity = (0.35 + 1.9 * day) * (1 - rain - winter) + this.weather.flash * 4;
-    this.sun.color.copy(SUN_DAY).lerp(SUN_LOW, Math.min(1, low));
-    this.hemi.intensity = (0.6 + 0.95 * day) * (1 - rain * 0.5) + this.weather.flash * 2;
+    // nights are dark and bluish (moonlight) so windows, lamps and headlights stand out
+    this.sun.intensity = (0.16 + 2.09 * day) * (1 - rain - winter) + this.weather.flash * 4;
+    this.sun.color.copy(SUN_DAY).lerp(SUN_LOW, Math.min(1, low)).lerp(MOON, 1 - day);
+    this.hemi.intensity = (0.32 + 1.23 * day) * (1 - rain * 0.5) + this.weather.flash * 2;
+    this.hemi.color.copy(HEMI_DAY).lerp(HEMI_NIGHT, 1 - day);
     const bg = this.scene.background as THREE.Color;
     bg.copy(SKY_NIGHT).lerp(SKY_DAY, day);
     if (rain) bg.lerp(SKY_RAIN, 0.5 * day);
@@ -762,6 +900,7 @@ export class Game implements ToolHost {
   // ---------- selection & inspector ----------
 
   private tap(tile: Tile | null, p?: { x: number; z: number }) {
+    if (this.pov) return;
     if (p) {
       const veh = this.traffic.vehicleNear(p.x, p.z, 0.55);
       if (veh) return this.select({ type: 'vehicle', id: veh.id });
@@ -952,6 +1091,7 @@ export class Game implements ToolHost {
         active: this.following,
         onClick: () => { this.following = !this.following; this.refreshInspector(); },
       },
+      { label: t("Driver's eyes"), icon: 'eye', onClick: () => this.enterPov({ type: 'vehicle', id: v.id }) },
     ];
     if (isBus && busPassengers.length > 0) {
       actions.unshift({
@@ -1114,6 +1254,7 @@ export class Game implements ToolHost {
       ],
       actions: [
         { label: this.following ? t('Stop following') : t('Follow'), icon: 'follow', active: this.following, onClick: () => { this.following = !this.following; this.refreshInspector(); } },
+        { label: t("Citizen's eyes"), icon: 'eye', onClick: () => this.enterPov({ type: 'person', id: c.id }) },
         ...(veh ? [{ label: t('Show car on road'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: veh.id }); this.following = true; } }] : []),
         ...(busVeh ? [{ label: t('Show bus'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: busVeh.id }); this.following = true; } }] : []),
         ...(waiter ? [{ label: t('Show bus stop'), icon: 'roads' as const, onClick: () => {
@@ -1264,6 +1405,25 @@ export class Game implements ToolHost {
       bars.push({ label: t('Waiting passengers'), value: Math.min(1, waiters.length / 8), color: '#d9a92a', text: `${waiters.length} ${t('people')}` });
       rows.push([t('Public transport'), t('Active bus stop')]);
     }
+    if (b.kind === 'hotel') {
+      const attract = this.life.attraction.get(b.id) ?? 0;
+      bars.push({ label: t('Guests'), value: b.stored / TOURISM.rooms, color: '#6fb6ff', text: `${Math.round(b.stored)}/${TOURISM.rooms}` });
+      bars.push({ label: t('Attraction'), value: Math.min(1, attract), color: '#7be08f' });
+      if (!b.workers) rows.push([t('Status'), t('Closed — no staff. Raise the hotel priority in Statistics → Jobs'), 'bad']);
+      rows.push([t('Room price'), `$${TOURISM.spend}/${t('day')}`]);
+    }
+    if (b.kind === 'stadium') {
+      const lz = this.life.leisure;
+      rows.push([t('Next match'), lz.matchDay ? t('Today at 17:00') : t('Tomorrow')], [t('Ticket'), `$${FOOTBALL.ticket}`]);
+      for (const m of lz.matches.slice(0, 4)) rows.push([`${t('Day {n}', { n: m.day })}`, `${m.home} ${m.hs}:${m.as} ${m.away}`]);
+      if (!lz.matches.length) rows.push([t('Results'), t('No matches yet')]);
+    }
+    if (b.kind === 'cinema') rows.push([t('Show time'), '19:00 – 23:00'], [t('Ticket'), `$${CINEMA.ticket}`], [t('Seats'), `${CINEMA.seats}`]);
+    if (b.kind === 'academy') rows.push([t('Effect'), t('Children learn 30% faster · stronger football team')]);
+    if (DECOR[b.kind]) {
+      rows.push([t('Beauty'), `+${DECOR[b.kind]}`], [t('Range'), t('{n} tiles', { n: DECOR_RANGE })]);
+      rows.push([t('Neighbourhood beauty'), `${(this.life.leisure.beautyOf.get(b.city) ?? 0).toFixed(1)}`]);
+    }
     if (b.kind === 'busdepot') {
       const routeStops = this.life.getRouteStops(b);
       const activeBuses = this.traffic.vehicles.filter((v) => !v.leaving && v.trip.homeBuildingId === b.id).length;
@@ -1316,6 +1476,7 @@ export class Game implements ToolHost {
 
   private refreshHud() {
     const e = this.eco;
+    if (this.petitions?.visible && ++this.petitionTick % 12 === 0) this.petitions.render();
     const mine = (c: Citizen) => this.cityOfCitizen(c) === e.active;
     const counts = this.pop.counts(mine);
     this.hud!.setStats({
@@ -1877,6 +2038,7 @@ export class Game implements ToolHost {
     this.time = s.time ?? 0;
     this.sandbox = !!s.sandbox;
     this.goals.load(s.goals);
+    this.life.leisure.deserialize(s.leisure);
     this.savedLog = s.log ?? [];
     this.history.samples = s.history ?? [];
     this.cam.setState(s.cam.x, s.cam.z, s.cam.yaw, s.cam.view);
@@ -1914,6 +2076,7 @@ export class Game implements ToolHost {
       lit: [...this.lights.lit.keys()].filter((k) => this.lights.lit[k]),
       rails: this.railway.serialize(),
       calm: this.calm,
+      leisure: this.life.leisure.serialize(),
       log: (this.eventLog?.entries ?? this.savedLog).slice(-80),
     };
   }

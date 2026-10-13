@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { PERSON_VARIANTS, babyGeometry, logGeometry, personGeometry } from '../models/people';
 import type { Point } from '../buildings/Buildings';
+import { stretcherGeometry } from '../models/extras';
 
-export type Carry = 'none' | 'log' | 'baby';
+export type Carry = 'none' | 'log' | 'baby' | 'stretcher';
 
 export interface Walker {
   id: number;
@@ -23,7 +24,10 @@ export interface Walker {
   leaving: boolean;
   /** Seconds left standing still (working); `anim` says how it looks. */
   hold: number;
-  anim: 'none' | 'chop' | 'farm';
+  /** play: children jumping about; cheer: fans jumping; sit: watching a film. */
+  anim: 'none' | 'chop' | 'farm' | 'play' | 'cheer' | 'sit';
+  /** Standing raised above the ground (stadium stands, benches). */
+  lift?: number;
   phase: number;
   onArrive?: (w: Walker) => void;
   onHoldEnd?: (w: Walker) => void;
@@ -44,6 +48,7 @@ export class Walkers {
   private meshes: THREE.InstancedMesh[] = [];
   private baby: THREE.InstancedMesh;
   private log: THREE.InstancedMesh;
+  private stretcher: THREE.InstancedMesh;
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private e = new THREE.Euler();
@@ -64,6 +69,7 @@ export class Walkers {
     for (let v = 0; v < PERSON_VARIANTS; v++) this.meshes.push(make(personGeometry(v)));
     this.baby = make(babyGeometry());
     this.log = make(logGeometry());
+    this.stretcher = make(stretcherGeometry());
   }
 
   walk(variant: number, scale: number, route: WalkRoute, carry: Carry = 'none', onArrive?: (w: Walker) => void): Walker {
@@ -82,6 +88,9 @@ export class Walkers {
     this.setRoute(w, route);
     w.onArrive = onArrive;
     w.leaving = false;
+    w.hold = 0;
+    w.anim = 'none';
+    w.onHoldEnd = undefined;
     if (carry) w.carry = carry;
   }
 
@@ -196,24 +205,28 @@ export class Walkers {
 
   private render() {
     const counts = new Array(PERSON_VARIANTS).fill(0);
-    let nb = 0, nl = 0;
+    let nb = 0, nl = 0, ns = 0;
     for (const w of this.list) {
       const tt = this.time * 9 + w.phase;
       const walking = w.hold <= 0 && !w.leaving;
-      const bob = walking ? Math.abs(Math.sin(tt)) * 0.008 : 0;
+      let bob = walking ? Math.abs(Math.sin(tt)) * 0.008 : 0;
+      if (w.anim === 'play') bob = Math.abs(Math.sin(tt * 0.8)) * 0.05;
+      if (w.anim === 'cheer') bob = Math.max(0, Math.sin(tt * 0.7 + w.phase)) * 0.04;
+      if (w.anim === 'sit') bob = -0.02;
       let tilt = 0;
       if (w.anim === 'chop') tilt = Math.max(0, Math.sin(tt * 0.7)) * 0.5;
       if (w.anim === 'farm') tilt = 0.35 + Math.sin(tt * 0.3) * 0.1;
       this.e.set(tilt, Math.atan2(w.hx, w.hz), walking ? Math.sin(tt) * 0.06 : 0, 'YXZ');
       this.q.setFromEuler(this.e);
       const s = w.scale * w.fade;
-      this.p.set(w.x, 0.02 + bob, w.z);
+      this.p.set(w.x, 0.02 + bob + (w.hold > 0 ? w.lift ?? 0 : 0), w.z);
       this.sc.set(s, s, s);
       this.m.compose(this.p, this.q, this.sc);
       const mesh = this.meshes[w.variant];
       if (counts[w.variant] < MAX_PER_VARIANT) mesh.setMatrixAt(counts[w.variant]++, this.m);
       if (w.carry === 'baby' && nb < MAX_PER_VARIANT) this.baby.setMatrixAt(nb++, this.m);
       if (w.carry === 'log' && nl < MAX_PER_VARIANT) this.log.setMatrixAt(nl++, this.m);
+      if (w.carry === 'stretcher' && ns < MAX_PER_VARIANT) this.stretcher.setMatrixAt(ns++, this.m);
     }
     this.meshes.forEach((m, i) => {
       m.count = counts[i];
@@ -221,6 +234,8 @@ export class Walkers {
     });
     this.baby.count = nb;
     this.log.count = nl;
+    this.stretcher.count = ns;
+    this.stretcher.instanceMatrix.needsUpdate = true;
     this.baby.instanceMatrix.needsUpdate = true;
     this.log.instanceMatrix.needsUpdate = true;
   }

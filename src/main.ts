@@ -10,10 +10,19 @@ import { renderThumbnails } from './models/catalog';
 import { getLang, setLang, t } from './i18n/i18n';
 import { sound } from './audio/Sound';
 
-const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry', 'townhall', 'apartment', 'kindergarten', 'hotel', 'windturbine', 'solarfarm', 'trainstation', 'grocery', 'clothes', 'ironmine', 'fishery', 'police', 'firestation', 'busdepot', 'busstop', 'park', 'hospital', 'university', 'market', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'cemetery'];
+const THUMB_IDS = ['road', 'roundabout', 'path', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry', 'townhall', 'apartment', 'kindergarten', 'hotel', 'windturbine', 'solarfarm', 'trainstation', 'grocery', 'clothes', 'ironmine', 'fishery', 'police', 'firestation', 'busdepot', 'busstop', 'park', 'hospital', 'university', 'market', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'cemetery', 'stadium', 'cinema', 'academy', 'playground', 'fountain', 'flowerbed', 'statue', 'bench', 'lamppost', 'sapling', 'roadsign'];
+
+/** /editor (or editor.html, #editor) opens the model editor instead of the game. */
+const isEditor = () => /\/editor(\.html)?\/?$/.test(location.pathname) || location.hash === '#editor';
 
 async function boot() {
   setLang(getLang());
+  if (isEditor()) {
+    const { Editor } = await import('./editor/Editor');
+    new Editor(document.getElementById('app')!);
+    document.getElementById('loading')?.classList.add('done');
+    return;
+  }
   await Platform.init();
   Platform.loadingStart();
 
@@ -138,7 +147,7 @@ async function boot() {
     }
     if (!game) return;
     game.update(dt);
-    renderer.render(game.scene, game.cam.camera);
+    renderer.render(game.scene, game.viewCamera);
   });
 
   document.getElementById('loading')!.classList.add('done');

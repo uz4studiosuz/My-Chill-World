@@ -7,7 +7,7 @@ import { t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
 import { VERSION } from '../version';
 
-type Category = 'roads' | 'buildings' | 'services' | 'business' | 'production';
+type Category = 'roads' | 'buildings' | 'services' | 'business' | 'production' | 'decor';
 
 export interface ToolItem {
   tool: ToolId;
@@ -50,7 +50,10 @@ export const ITEMS: ToolItem[] = [
   b('busstop', 'services', 'Bus Stop', 'Shelter where passengers board and exit buses.', 'car'),
   b('police', 'services', 'Safety', 'Officers cut down fights, accidents and murders in the city.', 'jobs'),
   b('hospital', 'services', 'Heals people', 'Doctors and nurses treat the sick. Reduces deaths from illness, fights and accidents.', 'heart'),
-  b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one.', 'heart'),
+  b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one. Newly-weds drive through town in a decorated car.', 'heart'),
+  b('academy', 'services', 'Science & sport', 'Researchers and coaches: children learn 30% faster and the city football team gets stronger.', 'school'),
+  b('stadium', 'services', 'Football', 'Every other day the city team plays a match. Fans fill the stands — a win makes the whole city happier.', 'ball'),
+  b('cinema', 'business', 'Films at night', 'An open-air cinema: in the evening people sit on benches and watch a film on the big screen.', 'film'),
   b('grocery', 'business', 'Food shop', 'Families buy their everyday food here. A family may buy the shop or build one with its savings.', 'food'),
   b('clothes', 'business', 'Clothes', 'Clothes and shoes: families spend a little every day. Can be owned by a family.', 'people'),
   b('hotel', 'business', 'Tourism', 'Tourists come for nature, lakes, parks and happy towns. They pay for rooms and shop in town.', 'buildings'),
@@ -73,6 +76,14 @@ export const ITEMS: ToolItem[] = [
   b('farm', 'production', '+90 food/day', 'Crop field (3×3). Needs water from a canal or rain. Grows March–October.', 'farm'),
   b('orchard', 'production', '+30 food/day', 'Fruit trees — best harvest in summer and autumn.', 'orchard'),
   b('ranch', 'production', '+35 food/day', 'Fenced pasture with cattle (3×3). Produces all year.', 'ranch'),
+  b('playground', 'decor', 'Children play', 'Swings, a slide and a sandbox. After school children come here to play.', 'heart'),
+  b('fountain', 'decor', 'Beauty +', 'A splashing fountain. Decorations make nearby homes happier.', 'water'),
+  b('flowerbed', 'decor', 'Beauty +', 'A colourful flower bed.', 'flower'),
+  b('sapling', 'decor', 'Plant a tree', 'Plant a plane tree or a fir wherever you like.', 'orchard'),
+  b('bench', 'decor', 'Rest', 'Benches and a litter bin for a quiet rest.', 'flower'),
+  b('lamppost', 'decor', 'Light', 'A decorative lamp that glows at night.', 'energy'),
+  b('statue', 'decor', 'Monument', 'A bronze monument on a stone pedestal.', 'trophy'),
+  b('roadsign', 'decor', 'Signs', 'Road signs with a little flower box.', 'roads'),
   b('quarry', 'production', '8 jobs · stone', 'Must touch mountains. Trucks bring stone to the Town Hall; with no road, miners carry it on foot.', 'quarry'),
 ];
 
@@ -82,6 +93,7 @@ export const CATS: { id: Category; label: string; icon: IconName }[] = [
   { id: 'services', label: 'Services', icon: 'heart' },
   { id: 'business', label: 'Business', icon: 'coin' },
   { id: 'production', label: 'Production', icon: 'production' },
+  { id: 'decor', label: 'Decor', icon: 'flower' },
 ];
 
 const CAT_DESC: Record<Category, string> = {
@@ -90,6 +102,7 @@ const CAT_DESC: Record<Category, string> = {
   services: 'Schools, hospitals and the institutions people need.',
   business: 'Shops and companies earn money and pay business tax.',
   production: 'Food, wood, energy, stone and industry.',
+  decor: 'Fountains, flowers, trees, benches and monuments make homes nearby happier.',
 };
 
 const BASE_HINTS: Partial<Record<ToolId, string>> = {
@@ -114,6 +127,7 @@ export interface HudHandlers {
   openGoals: () => void;
   openLog: () => void;
   openGuide: () => void;
+  openPetitions: () => void;
   toggleSound: () => boolean;
   cycleCity: () => void;
   confirmBuild: () => void;
@@ -154,7 +168,7 @@ export class Hud {
 
     const top = el('div', 'topbar');
     const soundBtn = this.iconButton(sound.sfxOn ? 'sound' : 'mute', t('Sound'), () => { soundBtn.innerHTML = icon(h.toggleSound() ? 'sound' : 'mute'); });
-    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats), this.iconButton('trophy', t('Goals'), h.openGoals), this.iconButton('list', t('Chronicle'), h.openLog), this.iconButton('book', t('Guide'), h.openGuide), soundBtn);
+    top.append(this.iconButton('menu', t('Menu'), h.openMenu), this.iconButton('stats', t('Statistics'), h.openStats), this.iconButton('trophy', t('Goals'), h.openGoals), this.iconButton('list', t('Chronicle'), h.openLog), this.iconButton('mail', t('Letters'), h.openPetitions), this.iconButton('book', t('Guide'), h.openGuide), soundBtn);
     const chips = el('div', 'chips');
     // grouped, colour-coded resource readouts: city · materials · utilities · people · time
     const GROUPS: [string, IconName, string][][] = [

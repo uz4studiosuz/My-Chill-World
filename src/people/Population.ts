@@ -38,6 +38,8 @@ export interface Citizen {
   /** What they're doing right now (English key, translated in the UI). */
   activity: string;
   walker?: Walker;
+  /** Leisure trip planned for today (playground, cinema, stadium, festival square). */
+  outing?: number;
 }
 
 export interface FamilyCar {
@@ -83,6 +85,8 @@ export interface DailyOptions {
   taxRate: number;
   /** Calm mode: no crime and no accidents. */
   calm?: boolean;
+  /** Academies speed up learning (0 = normal, 0.3 = 30% faster). */
+  eduBoost?: number;
 }
 
 export interface DayReport {
@@ -383,7 +387,7 @@ export class Population {
       if (c.age > 60) c.health -= Math.max(0, (c.age - 60) * 0.35 - opts.heal * 0.04);
       else if (c.hunger >= 25) c.health = Math.min(100, c.health + 12 + opts.heal);
       c.age += PER_YEAR;
-      if (c.school >= 0) c.edu = Math.min(1, c.edu + 0.1 * PER_YEAR);
+      if (c.school >= 0) c.edu = Math.min(1, c.edu + 0.1 * PER_YEAR * (1 + (opts.eduBoost ?? 0)));
       const sb = c.school >= 0 ? buildings.get(c.school) : undefined;
       if (c.age >= ADULT_AGE && sb?.kind === 'school') c.school = -1;
       if (sb?.kind === 'university' && c.age >= UNI_END) { c.skill = 2; c.school = -1; }

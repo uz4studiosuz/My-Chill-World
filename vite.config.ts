@@ -10,6 +10,8 @@ export default defineConfig({
     outDir: 'dist',
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 1500,
+    // editor.html opens the model editor (the dev server also serves it at /editor)
+    rollupOptions: { input: { main: 'index.html', editor: 'editor.html' } },
   },
   server: { port: 5173 },
 });

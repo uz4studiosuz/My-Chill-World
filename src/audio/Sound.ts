@@ -4,7 +4,7 @@
  */
 
 export type SoundName =
-  | 'click' | 'place' | 'build' | 'demolish' | 'error' | 'coin' | 'toast' | 'thunder' | 'complete' | 'achieve' | 'fire';
+  | 'click' | 'place' | 'build' | 'demolish' | 'error' | 'coin' | 'toast' | 'thunder' | 'complete' | 'achieve' | 'fire' | 'siren' | 'cheer' | 'goal' | 'wedding' | 'water';
 
 const KEY = 'mcw_audio';
 const SCALE = [0, 2, 4, 7, 9, 12, 14, 16];
@@ -190,6 +190,12 @@ class SoundEngine {
       case 'error': this.tone(200, 0.12, 'square', 0.15, 150); this.tone(150, 0.16, 'square', 0.15, 110, 0.1); break;
       case 'thunder': this.noiseBurst(1.8, 300, 0.9); this.tone(60, 1.2, 'sine', 0.4, 35); break;
       case 'fire': this.noiseBurst(0.6, 1500, 0.25); break;
+      // two-tone emergency siren
+      case 'siren': for (let i = 0; i < 4; i++) this.tone(i % 2 ? 660 : 880, 0.32, 'sawtooth', 0.05, undefined, i * 0.34); break;
+      case 'cheer': this.noiseBurst(1.4, 2400, 0.22); this.noiseBurst(0.8, 900, 0.18); break;
+      case 'goal': this.noiseBurst(2.2, 2600, 0.3); [392, 523, 659].forEach((f, i) => this.tone(f, 0.3, 'square', 0.08, undefined, 0.2 + i * 0.12)); break;
+      case 'wedding': [523, 659, 784, 659, 1047].forEach((f, i) => this.tone(f, 0.28, 'triangle', 0.14, undefined, i * 0.18)); break;
+      case 'water': this.noiseBurst(0.5, 3200, 0.12); break;
     }
   }
 

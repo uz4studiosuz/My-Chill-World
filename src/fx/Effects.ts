@@ -105,6 +105,21 @@ export class Effects {
     }
   }
 
+  /** A jet of water from a fire hose at (x0, z0) onto (x1, z1). */
+  spray(x0: number, z0: number, x1: number, z1: number) {
+    const dx = x1 - x0, dz = z1 - z0, d = Math.max(0.2, Math.hypot(dx, dz));
+    const T = 0.55;
+    for (let i = 0; i < 4; i++) {
+      const tx = x1 + (Math.random() - 0.5) * 0.3, tz = z1 + (Math.random() - 0.5) * 0.3, ty = 0.35 + Math.random() * 0.3;
+      // ballistic arc from the nozzle (y 0.2) to the target in T seconds (the update applies gravity 2.2)
+      this.add({
+        x: x0, y: 0.2, z: z0, vx: (tx - x0) / T, vy: (ty - 0.2) / T + 0.5 * 2.2 * T, vz: (tz - z0) / T,
+        life: 0, max: T * (0.9 + Math.random() * 0.2) * Math.min(1, d), size: 0.035 + Math.random() * 0.02, delay: i * 0.03,
+        color: new THREE.Color(Math.random() < 0.5 ? '#bfe3ff' : '#e8f6ff'), flat: false,
+      });
+    }
+  }
+
   private add(p: Particle) {
     if (this.parts.length < MAX * 2) this.parts.push(p);
   }

@@ -878,3 +878,20 @@ button.chip:hover { background: var(--raised); }
 /* calm mode toggle */
 .calm-toggle { align-self: flex-start; }
 .calm-note { color: var(--muted); font-size: 12px; margin-top: -4px; }
+
+/* ---------- letters from residents ---------- */
+.petition { background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 10px; margin: 6px 0; display: flex; flex-direction: column; gap: 5px; }
+.petition.done { opacity: 0.6; border-color: var(--good); }
+.petition.failed { opacity: 0.5; border-color: var(--bad); }
+.petition-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.petition-state { margin-left: auto; font-size: 11px; font-weight: 800; color: var(--muted); }
+.petition.open .petition-state { color: var(--accent); }
+.petition-text { font-size: 12.5px; line-height: 1.4; color: var(--text); font-style: italic; }
+.petition-foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.btn-mini { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-weight: 800; font-size: 12px; padding: 6px 10px; cursor: pointer; pointer-events: auto; }
+.btn-mini svg { width: 14px; height: 14px; }
+
+/* ---------- first-person view ---------- */
+.pov-bar { position: absolute; left: 50%; bottom: calc(var(--safe-bottom) + 12px); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: var(--base); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px 8px 14px; font-size: 13px; font-weight: 700; pointer-events: auto; max-width: calc(100vw - 32px); }
+.pov-bar span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pov-mode .toolbar, .pov-mode .drawer, .pov-mode .inspector, .pov-mode .hint, .pov-mode .tutorial, .pov-mode .news { display: none !important; }

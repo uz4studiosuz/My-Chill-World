@@ -1,0 +1,451 @@
+import * as THREE from 'three';
+import { DAY_SECONDS } from '../config';
+import { N, idx, inBounds } from '../world/grid';
+import type { Building, Point } from '../buildings/Buildings';
+import { BUILDINGS, CINEMA, DECOR, DECOR_RANGE, FOOTBALL } from '../buildings/BuildingTypes';
+import type { City } from '../sim/Economy';
+import type { Citizen } from '../people/Population';
+import type { LifeContext } from './Life';
+import type { Walker } from '../people/Walkers';
+import { festiveTreeGeometry, navruzGeometry } from '../models/extras';
+import { t } from '../i18n/i18n';
+import { sound } from '../audio/Sound';
+
+/** What Leisure needs from Life. */
+export interface LeisureHost {
+  events: string[];
+  festival: string | null;
+  calm: boolean;
+  planOuting(c: Citizen, dest: Building, until: number): boolean;
+  isLit(k: number): boolean;
+}
+
+export type PetitionKind = 'shop' | 'school' | 'light' | 'park' | 'hospital' | 'busstop' | 'playground';
+
+export interface Petition {
+  id: number;
+  city: number;
+  kind: PetitionKind;
+  /** Family that wrote the letter. */
+  from: string;
+  x: number;
+  z: number;
+  day: number;
+  reward: number;
+  state: 'open' | 'done' | 'failed';
+}
+
+export interface MatchResult { day: number; home: string; away: string; hs: number; as: number }
+
+export interface LeisureSave { petitions: Petition[]; matches: MatchResult[]; trust: [number, number][] }
+
+/** The letter text for each request (English keys, translated in the UI). */
+export const PETITION_TEXT: Record<PetitionKind, string> = {
+  shop: 'There is no shop in our neighbourhood — we walk far for bread. Please build a grocery store!',
+  school: 'Our children have grown up, but there are not enough school places. Please build a school!',
+  light: 'Our street has no lamps and it is dark at night. Please light the street!',
+  park: 'There is nowhere green to walk near our homes. Please build a park!',
+  hospital: 'When someone falls ill there is nowhere to go. Please build a hospital!',
+  busstop: 'We have no car and the bus does not stop near us. Please build a bus stop!',
+  playground: 'Our children have nowhere to play. Please build a playground!',
+};
+
+const PETITION_REWARD: Record<PetitionKind, number> = { shop: 300, school: 500, light: 150, park: 250, hospital: 600, busstop: 150, playground: 150 };
+/** Days a petition stays open before people give up on it. */
+const PETITION_DAYS = 8;
+
+const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+const near = (b: Building, x: number, z: number, r: number) => Math.hypot(b.x - x, b.z - z) <= r;
+const poisson = (l: number) => { let k = 0, p = 1; const L = Math.exp(-l); do { k++; p *= Math.random(); } while (p > L && k < 9); return k - 1; };
+
+/**
+ * Leisure and city life: children on playgrounds, the open-air cinema, football derbies, festival squares,
+ * wedding processions, ambulances with stretchers and the residents' letters to the town hall.
+ */
+export class Leisure {
+  readonly group = new THREE.Group();
+  petitions: Petition[] = [];
+  matches: MatchResult[] = [];
+  private nextId = 1;
+  private timers: { t: number; fn: () => void }[] = [];
+  private tickT = 0;
+  private lastMatch = -1;
+  private festMeshes = new Map<number, THREE.Mesh>();
+  private festKind: string | null = null;
+  private festMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private treeGeo = festiveTreeGeometry();
+  private navruzGeo = navruzGeometry();
+  /** Ambulance already on its way for these citizens. */
+  private calls = new Set<number>();
+  /** Visitors sent today (building id → count). */
+  private visits = new Map<number, number>();
+  private visitDay = -1;
+  /** Happiness from petitions answered or ignored, per city (decays). */
+  private trust = new Map<number, number>();
+  /** Happiness after a won / lost match (decays). */
+  private sport = new Map<number, number>();
+  private beauty = new Map<number, number>();
+  /** Footballers running on each stadium's pitch during a match. */
+  private players = new Map<number, Walker[]>();
+
+  constructor(private c: LifeContext, private host: LeisureHost) {}
+
+  /** Run `fn` after `seconds` of game time. */
+  later(seconds: number, fn: () => void) { this.timers.push({ t: seconds, fn }); }
+
+  get matchDay() { return this.c.eco.day % 2 === 0; }
+
+  update(dt: number) {
+    for (let i = this.timers.length - 1; i >= 0; i--) {
+      const tm = this.timers[i];
+      tm.t -= dt;
+      if (tm.t <= 0) { this.timers.splice(i, 1); tm.fn(); }
+    }
+    const tod = this.c.eco.timeOfDay;
+    this.c.buildings.cinemaOn = tod > 0.79 && tod < 0.97;
+    this.c.buildings.matchOn = this.matchDay && tod > 0.55 && tod < 0.76;
+    if (this.host.festival !== this.festKind) this.festival(this.host.festival);
+    this.footballers();
+    if (dt <= 0) return;
+    this.tickT -= dt;
+    if (this.tickT > 0) return;
+    this.tickT = 1.5;
+    if (this.visitDay !== this.c.eco.day) { this.visitDay = this.c.eco.day; this.visits.clear(); }
+    if (tod > 0.63 && tod < 0.76) this.outings(['playground', 'park'], (c) => c.age >= 3 && c.age < 14, 0.1, 6, Math.min(0.8, tod + 0.09), 10);
+    if (tod > 0.8 && tod < 0.86) this.outings(['cinema'], (c) => c.age >= 14, 0.08, CINEMA.seats, 0.95, 18);
+    if (this.matchDay && tod > 0.54 && tod < 0.62) this.outings(['stadium'], (c) => c.age >= 8, 0.1, FOOTBALL.fans, 0.73, 24);
+    if (this.host.festival && tod > 0.4 && tod < 0.66) this.outings(['townhall'], (c) => c.age >= 5, 0.05, 30, Math.min(0.78, tod + 0.12), 18);
+    if (this.matchDay && tod >= 0.72 && this.lastMatch !== this.c.eco.day) { this.lastMatch = this.c.eco.day; this.playMatches(); }
+  }
+
+  /** Send people who are at home to a leisure place nearby. */
+  private outings(kinds: string[], who: (c: Citizen) => boolean, chance: number, cap: number, until: number, range: number) {
+    const { pop, buildings } = this.c;
+    const places = buildings.list.filter((b) => kinds.includes(b.kind) && b.built >= 1 && (!BUILDINGS[b.kind].jobs || b.workers > 0 || b.kind === 'park' || b.kind === 'townhall'));
+    if (!places.length) return;
+    for (const c of pop.citizens.values()) {
+      if (c.state !== 'home' || c.outing !== undefined || !who(c) || Math.random() > chance) continue;
+      const home = buildings.get(pop.families.get(c.family)?.home ?? -1);
+      if (!home) continue;
+      let best: Building | undefined, bd = range;
+      for (const p of places) {
+        if (p.city !== home.city || (this.visits.get(p.id) ?? 0) >= cap) continue;
+        const d = Math.hypot(p.x - home.x, p.z - home.z);
+        if (d < bd) { bd = d; best = p; }
+      }
+      if (!best) continue;
+      if (this.host.planOuting(c, best, until)) this.visits.set(best.id, (this.visits.get(best.id) ?? 0) + 1);
+    }
+  }
+
+  /** Where a visitor stands and what they look at, in world space. */
+  spot(b: Building): { at: Point; face: Point; anim: 'play' | 'cheer' | 'sit'; lift?: number } {
+    const s = BUILDINGS[b.kind].size;
+    const local = (x: number, z: number): Point => {
+      const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
+      return { x: b.mesh.position.x + x * cr + z * sr, z: b.mesh.position.z - x * sr + z * cr };
+    };
+    if (b.kind === 'cinema') {
+      const z = pick([-0.25, 0.05, 0.35]), x = pick([-1, 1]) * rnd(0.2, 0.7);
+      return { at: local(x, z), face: local(x * 0.6, -0.8), anim: 'sit', lift: 0.06 };
+    }
+    if (b.kind === 'stadium') {
+      // fans stand on one of the three stepped rows of the back or side stands
+      const side = Math.floor(Math.random() * 3), row = Math.floor(Math.random() * 3);
+      const at = side === 0 ? local(rnd(-1.2, 1.2), -1.1 - row * 0.12) : local((side === 1 ? -1 : 1) * (1.25 + row * 0.08), rnd(-1.0, 0.6));
+      return { at, face: local(0, -0.15), anim: 'cheer', lift: 0.1 + row * 0.1 };
+    }
+    if (b.kind === 'townhall') {
+      const a = Math.random() * Math.PI * 2, r = rnd(0.25, 0.45);
+      return { at: local(0.6 + Math.cos(a) * r, 0.62 + Math.sin(a) * r * 0.5), face: local(0.6, 0.62), anim: 'cheer' };
+    }
+    const h = s * 0.36;
+    return { at: local(rnd(-h, h), rnd(-h, h)), face: local(rnd(-h, h), rnd(-h, h)), anim: 'play' };
+  }
+
+  /** Visitor pays for a ticket and stays until `until`. */
+  stay(c: Citizen, b: Building, until: number) {
+    const { walkers, pop, eco } = this.c;
+    const f = pop.families.get(c.family);
+    const price = b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0;
+    if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; }
+    c.activity = b.kind === 'cinema' ? 'Watching a film' : b.kind === 'stadium' ? 'Watching football' : b.kind === 'townhall' ? 'Celebrating' : 'Playing';
+    const sp = this.spot(b);
+    const secs = Math.max(2, (until - eco.timeOfDay) * DAY_SECONDS);
+    const w = c.walker;
+    if (!w) return;
+    walkers.retarget(w, { points: [{ x: w.x, z: w.z }, sp.at] }, () => {
+      w.lift = sp.lift;
+      walkers.holdFor(w, secs, sp.anim, () => { w.lift = 0; }, sp.face);
+    });
+  }
+
+  // ---------- festivals ----------
+
+  private festival(kind: string | null) {
+    this.festKind = kind;
+    for (const m of this.festMeshes.values()) this.group.remove(m);
+    this.festMeshes.clear();
+    if (!kind) return;
+    for (const hall of this.c.buildings.list.filter((b) => b.kind === 'townhall' && b.built >= 1)) {
+      const m = new THREE.Mesh(kind === 'New Year' ? this.treeGeo : this.navruzGeo, this.festMat);
+      m.castShadow = true;
+      m.scale.setScalar(0.5);
+      const cr = Math.cos(hall.rot), sr = Math.sin(hall.rot);
+      m.position.set(hall.mesh.position.x + 0.6 * cr + 0.62 * sr, 0, hall.mesh.position.z - 0.6 * sr + 0.62 * cr);
+      this.group.add(m);
+      this.festMeshes.set(hall.id, m);
+    }
+  }
+
+  // ---------- football ----------
+
+  /** Two teams of five chase the ball while a match is on. */
+  private footballers() {
+    const { buildings, walkers } = this.c;
+    const on = buildings.matchOn;
+    for (const [id, list] of this.players) {
+      const st = buildings.get(id);
+      if (on && st && !st.removed && st.workers > 0) continue;
+      for (const w of list) walkers.dismiss(w);
+      this.players.delete(id);
+    }
+    if (!on) return;
+    for (const st of buildings.list) {
+      if (st.kind !== 'stadium' || st.built < 1 || !st.workers || this.players.has(st.id)) continue;
+      const cr = Math.cos(st.rot), sr = Math.sin(st.rot);
+      const pitch = (): Point => {
+        const x = rnd(-0.95, 0.95), z = rnd(-0.85, 0.55);
+        return { x: st.mesh.position.x + x * cr + z * sr, z: st.mesh.position.z - x * sr + z * cr };
+      };
+      const list: Walker[] = [];
+      for (let i = 0; i < 10; i++) {
+        const run = (w: Walker) => walkers.retarget(w, { points: [{ x: w.x, z: w.z }, pitch()] }, run);
+        const start = pitch();
+        const w = walkers.walk(i < 5 ? 2 : 0, 0.95, { points: [start, pitch()] }, 'none', run);
+        w.speed = 0.9 + Math.random() * 0.4;
+        list.push(w);
+      }
+      this.players.set(st.id, list);
+    }
+  }
+
+  private playMatches() {
+    const { buildings, eco } = this.c;
+    const clubs = [...eco.cities.values()].filter((city) => buildings.list.some((b) => b.kind === 'stadium' && b.city === city.id && b.built >= 1 && b.workers > 0));
+    if (!clubs.length) return;
+    const strength = (city: City) => {
+      const pop = [...this.c.pop.families.values()].filter((f) => buildings.get(f.home)?.city === city.id).length;
+      const academy = buildings.list.some((b) => b.kind === 'academy' && b.city === city.id && b.workers > 0) ? 0.5 : 0;
+      return 0.8 + Math.min(1, pop / 60) * 0.6 + city.happiness / 150 + academy + Math.random() * 0.6;
+    };
+    // pair up the clubs; a lone club plays a visiting team
+    const order = clubs.sort(() => Math.random() - 0.5);
+    for (let i = 0; i < order.length; i += 2) {
+      const a = order[i], b = order[i + 1];
+      const sa = strength(a), sb = b ? strength(b) : 0.9 + Math.random() * 0.9;
+      const hs = poisson(sa * 0.9), as = poisson(sb * 0.9);
+      const res: MatchResult = { day: eco.day, home: a.name, away: b ? b.name : t('Visiting team'), hs, as };
+      this.matches.unshift(res);
+      const swing = (city: City | undefined, won: number) => { if (city) this.sport.set(city.id, won > 0 ? 6 : won < 0 ? -2 : 1); };
+      swing(a, Math.sign(hs - as));
+      swing(b, Math.sign(as - hs));
+      const winner = hs > as ? res.home : as > hs ? res.away : null;
+      this.host.events.push(t('Football: {a} {x}:{y} {b}', { a: res.home, x: hs, y: as, b: res.away }) + (winner ? ` — ${t('{city} wins! The fans are celebrating', { city: winner })}` : ` — ${t('a draw')}`));
+      sound.play(hs + as > 0 ? 'goal' : 'cheer');
+      for (const st of buildings.list.filter((s) => s.kind === 'stadium' && (s.city === a.id || s.city === b?.id))) this.c.effects.firework(st.mesh.position.x, st.mesh.position.z);
+    }
+    this.matches.length = Math.min(this.matches.length, 12);
+  }
+
+  // ---------- weddings ----------
+
+  /** A decorated white car leads the procession from the Wedding Hall, relatives follow. */
+  wedding(cityId: number, a: string, b: string) {
+    const { buildings, traffic, effects } = this.c;
+    const hall = buildings.list.find((x) => x.kind === 'weddinghall' && x.city === cityId && x.built >= 1 && x.access >= 0);
+    if (!hall) return;
+    const homes = buildings.list.filter((h) => BUILDINGS[h.kind].units && h.city === cityId && h.access >= 0 && h.access !== hall.access);
+    if (!homes.length) return;
+    const home = pick(homes);
+    if (!traffic.canRoute(hall.access, home.access)) return;
+    effects.hearts(hall.mesh.position.x, hall.mesh.position.z);
+    sound.play('wedding');
+    const colors = ['#f2f2ee', '#3a3f48', '#c4553d', '#3a6fd1'];
+    for (let i = 0; i < 4; i++) {
+      this.later(i * 1.1, () => {
+        traffic.spawn({
+          kind: 'car', from: hall.access, to: home.access, color: new THREE.Color(colors[i]), fromPos: buildings.door(hall), toPos: buildings.door(home),
+          wedding: i === 0, purpose: i === 0 ? 'Wedding car' : 'Wedding procession', driverName: i === 0 ? `${a} & ${b}` : 'Relatives',
+          fromName: 'Wedding Hall', destName: 'New home',
+          onArrive: () => { if (i === 0) effects.hearts(home.mesh.position.x, home.mesh.position.z); },
+        });
+      });
+    }
+  }
+
+  // ---------- ambulance ----------
+
+  /** Paramedics drive to the patient with the siren on, carry them out on a stretcher and take them to hospital. */
+  ambulance(patient: Citizen, home: Building): boolean {
+    const { buildings, traffic, walkers } = this.c;
+    if (this.calls.has(patient.id) || home.access < 0) return false;
+    const hospital = buildings.list
+      .filter((b) => b.kind === 'hospital' && b.city === home.city && b.built >= 1 && b.workers > 0 && b.access >= 0)
+      .sort((p, q) => Math.hypot(p.x - home.x, p.z - home.z) - Math.hypot(q.x - home.x, q.z - home.z))[0];
+    if (!hospital || !traffic.canRoute(hospital.access, home.access)) return false;
+    this.calls.add(patient.id);
+    const name = `${patient.name} ${this.c.pop.families.get(patient.family)?.surname ?? ''}`.trim();
+    const white = new THREE.Color('#f4f4f2');
+    sound.play('siren');
+    const ok = traffic.spawn({
+      kind: 'car', from: hospital.access, to: home.access, color: white, fromPos: buildings.door(hospital), siren: true,
+      purpose: 'Emergency call', driverName: 'Paramedic', fromName: 'Hospital', destName: BUILDINGS[home.kind].name, homeBuildingId: hospital.id,
+      onArrive: () => {
+        const door = buildings.door(home);
+        const road = buildings.slot(home, 0);
+        const medic = walkers.walk(3, 1, { points: [door, { x: (door.x + road.x) / 2, z: (door.z + road.z) / 2 }] }, 'stretcher', () => {
+          traffic.spawn({
+            kind: 'car', from: home.access, to: hospital.access, color: white, toPos: buildings.door(hospital), siren: true,
+            purpose: 'Taking a patient to hospital', driverName: 'Paramedic', fromName: BUILDINGS[home.kind].name, destName: 'Hospital', homeBuildingId: hospital.id,
+            onArrive: () => {
+              this.calls.delete(patient.id);
+              if (this.c.pop.citizens.get(patient.id) !== patient) return;
+              patient.health = Math.max(patient.health, 85);
+              this.host.events.push(t('The ambulance took {name} to hospital — doctors saved them', { name }));
+            },
+            onFail: () => this.calls.delete(patient.id),
+          });
+        });
+        medic.speed = 0.5;
+      },
+      onFail: () => this.calls.delete(patient.id),
+    });
+    if (!ok) this.calls.delete(patient.id);
+    else this.host.events.push(t('{name} fell ill — an ambulance is on its way', { name }));
+    return ok;
+  }
+
+  // ---------- daily ----------
+
+  /** Called once a day per city: ambulances, decorations, petitions. */
+  daily(city: City, own: Building[], say: (msg: string) => void) {
+    const { pop, buildings } = this.c;
+    // the sick are fetched by ambulance (a couple per day, spread over the morning)
+    let sent = 0;
+    for (const c of pop.citizens.values()) {
+      if (sent >= 3 || c.health >= 35 || c.state !== 'home') continue;
+      const home = buildings.get(pop.families.get(c.family)?.home ?? -1);
+      if (!home || home.city !== city.id) continue;
+      sent++;
+      this.later(rnd(2, 30), () => { if (pop.citizens.get(c.id) === c) this.ambulance(c, home); });
+    }
+    // decorations cheer up the homes around them
+    const homes = own.filter((b) => BUILDINGS[b.kind].units);
+    const decor = own.filter((b) => DECOR[b.kind]);
+    let sum = 0;
+    for (const h of homes) {
+      let v = 0;
+      for (const d of decor) if (near(d, h.x, h.z, DECOR_RANGE)) v += DECOR[d.kind]!;
+      sum += Math.min(6, v);
+    }
+    this.beauty.set(city.id, homes.length ? sum / homes.length : 0);
+    for (const [m, v] of [[this.trust, 0.85], [this.sport, 0.7]] as const) m.set(city.id, (m.get(city.id) ?? 0) * v);
+    this.checkPetitions(city, own, say);
+    if (!this.host.calm || Math.random() < 0.5) this.newPetition(city, own, say);
+  }
+
+  /** Extra happiness target for a city. */
+  bonus(cityId: number, own: Building[]) {
+    const has = (k: string) => own.some((b) => b.kind === k && (!BUILDINGS[b.kind].jobs || b.workers > 0));
+    return Math.min(6, this.beauty.get(cityId) ?? 0) + (has('stadium') ? 3 : 0) + (has('cinema') ? 3 : 0) + (has('academy') ? 2 : 0)
+      + (this.trust.get(cityId) ?? 0) + (this.sport.get(cityId) ?? 0);
+  }
+
+  get beautyOf() { return this.beauty; }
+
+  // ---------- petitions ----------
+
+  private fulfilled(p: Petition, own: Building[]) {
+    const { pop, buildings } = this.c;
+    const built = (kinds: string[], r: number) => own.some((b) => kinds.includes(b.kind) && near(b, p.x, p.z, r));
+    switch (p.kind) {
+      case 'shop': return built(['grocery', 'market'], 12);
+      case 'park': return built(['park'], 10);
+      case 'playground': return built(['playground', 'park'], 8);
+      case 'hospital': return own.some((b) => b.kind === 'hospital');
+      case 'busstop': return built(['busstop'], 8);
+      case 'light': {
+        for (let z = p.z - 4; z <= p.z + 4; z++) for (let x = p.x - 4; x <= p.x + 4; x++) if (inBounds(x, z) && this.host.isLit(idx(x, z))) return true;
+        return false;
+      }
+      case 'school': {
+        const seats = own.filter((b) => b.kind === 'school').length * BUILDINGS.school.students;
+        const pupils = [...pop.citizens.values()].filter((c) => c.age >= 6 && c.age < 18 && buildings.get(pop.families.get(c.family)?.home ?? -1)?.city === p.city).length;
+        return seats >= pupils;
+      }
+    }
+  }
+
+  private checkPetitions(city: City, own: Building[], say: (msg: string) => void) {
+    const day = this.c.eco.day;
+    for (const p of this.petitions) {
+      if (p.city !== city.id || p.state !== 'open') continue;
+      if (this.fulfilled(p, own)) {
+        p.state = 'done';
+        city.money += p.reward;
+        this.trust.set(city.id, Math.min(10, (this.trust.get(city.id) ?? 0) + 4));
+        say(t('The {family} family thanks the town hall for answering their letter: +${n} and more trust', { family: p.from, n: p.reward }));
+        sound.play('coin');
+      } else if (day - p.day >= PETITION_DAYS) {
+        p.state = 'failed';
+        this.trust.set(city.id, Math.max(-10, (this.trust.get(city.id) ?? 0) - 3));
+        say(t('The {family} family is disappointed: nobody answered their letter', { family: p.from }));
+      }
+    }
+    // keep the list short: drop old answered letters
+    this.petitions = this.petitions.filter((p) => p.state === 'open' || day - p.day < PETITION_DAYS + 4).slice(-40);
+  }
+
+  private newPetition(city: City, own: Building[], say: (msg: string) => void) {
+    const { pop, buildings, net } = this.c;
+    if (this.petitions.filter((p) => p.city === city.id && p.state === 'open').length >= 3 || Math.random() > 0.45) return;
+    const homes = own.filter((b) => BUILDINGS[b.kind].units);
+    if (homes.length < 3) return;
+    const home = pick(homes);
+    const fam = [...pop.families.values()].find((f) => f.home === home.id);
+    if (!fam) return;
+    const kids = pop.members(fam).some((c) => c.age >= 3 && c.age < 14);
+    const people = [...pop.families.values()].filter((f) => buildings.get(f.home)?.city === city.id).length * 3;
+    const roadNear = () => { for (let z = home.z - 2; z <= home.z + 2; z++) for (let x = home.x - 2; x <= home.x + 2; x++) if (inBounds(x, z) && net.type[x + z * N]) return true; return false; };
+    const options: PetitionKind[] = (['shop', 'light', 'park', 'school', 'hospital', 'busstop', 'playground'] as PetitionKind[]).filter((k) => {
+      if (this.petitions.some((p) => p.city === city.id && p.kind === k && p.state === 'open')) return false;
+      if (k === 'light' && !roadNear()) return false;
+      if (k === 'hospital' && people < 40) return false;
+      if (k === 'busstop' && !own.some((b) => b.kind === 'busdepot')) return false;
+      if (k === 'playground' && !kids) return false;
+      if (k === 'school' && people < 20) return false;
+      return !this.fulfilled({ id: 0, city: city.id, kind: k, from: '', x: home.x, z: home.z, day: 0, reward: 0, state: 'open' }, own);
+    });
+    if (!options.length) return;
+    const kind = pick(options);
+    const p: Petition = { id: this.nextId++, city: city.id, kind, from: fam.surname, x: home.x, z: home.z, day: this.c.eco.day, reward: PETITION_REWARD[kind], state: 'open' };
+    this.petitions.push(p);
+    say(t('A letter from the {family} family: {text}', { family: p.from, text: t(PETITION_TEXT[kind]) }));
+  }
+
+  // ---------- save ----------
+
+  serialize(): LeisureSave {
+    return { petitions: this.petitions, matches: this.matches, trust: [...this.trust] };
+  }
+
+  deserialize(s?: LeisureSave) {
+    if (!s) return;
+    this.petitions = s.petitions ?? [];
+    this.matches = s.matches ?? [];
+    this.trust = new Map(s.trust ?? []);
+    this.nextId = this.petitions.reduce((m, p) => Math.max(m, p.id + 1), 1);
+  }
+}

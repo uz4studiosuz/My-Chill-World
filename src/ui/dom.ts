@@ -80,6 +80,11 @@ const ICONS = {
   save: '<path d="M5 3h11l3 3v13a2 2 0 01-2 2H7a2 2 0 01-2-2z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
   home: '<path d="M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  flower: '<circle cx="12" cy="8" r="3"/><path d="M12 5a3 3 0 013-3M12 5a3 3 0 00-3-3M9 8H6M18 8h-3M12 11v10M12 16c-2-2-5-2-6 0M12 18c2-2 5-2 6 0"/>',
+  ball: '<circle cx="12" cy="12" r="9"/><path d="M12 7l4 3-1.5 5h-5L8 10z"/><path d="M12 3v4M21 10l-5 0M3 10h5M7 20l2-5M17 20l-2-5"/>',
+  film: '<rect x="3" y="5" width="18" height="14" rx="1"/><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4"/>',
   cemetery: '<path d="M6 21V10a6 6 0 0 1 12 0v11zM12 9v6M9 12h6M4 21h16"/>',
 };
 
