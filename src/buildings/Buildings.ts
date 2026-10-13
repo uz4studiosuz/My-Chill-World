@@ -15,6 +15,7 @@ import {
   lamppostGeometry, playgroundGeometry, saplingGeometry, signGeometry, stadiumGeometry, statueGeometry,
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
+import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
 import { box, hash2, merge } from '../utils/voxel';
 
 export interface Point { x: number; z: number }
@@ -64,6 +65,12 @@ export interface Building {
   scaffold?: THREE.LineSegments;
   /** Floating construction status above a building site. */
   label?: THREE.Sprite;
+  /** Garbage waiting at a home. */
+  trash?: number;
+  /** Goods made since the last delivery truck left (chains, for show). */
+  cargoAcc?: number;
+  /** Game time until which planks speed up this construction site. */
+  planked?: number;
   /** Part of today's sales already taxed at the till. */
   salesTaxed?: number;
   labelText?: string;
@@ -160,6 +167,14 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'sapling': return saplingGeometry(variant);
     case 'roadsign': return signGeometry();
     case 'airport': return airportGeometry();
+    case 'military': return militaryGeometry();
+    case 'landfill': return landfillGeometry();
+    case 'recycling': return recyclingGeometry();
+    case 'mill': return millGeometry();
+    case 'bakery': return bakeryGeometry();
+    case 'sawmill': return sawmillGeometry();
+    case 'battery': return batteryGeometry();
+    case 'kiosk': return kioskGeometry();
     default: return townHallGeometry();
   }
 }
@@ -189,6 +204,7 @@ export class Buildings {
   private cropGeo = cropGeometry();
   private headstoneGeo = headstoneGeometry();
   private rotorGeo = rotorGeometry();
+  private sailsGeo = millSailsGeometry();
   private cowGeo = cowGeometry();
   private cowMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private animTime = 0;
@@ -286,6 +302,12 @@ export class Buildings {
       const flood = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.6).rotateX(-Math.PI / 2).translate(0, 0.04, -0.15), this.floodMat);
       flood.renderOrder = 4;
       mesh.add(flood);
+    }
+    if (kind === 'mill') {
+      const sails = new THREE.Mesh(this.sailsGeo, this.mat);
+      sails.position.set(-0.35, 0.95, 0.02);
+      sails.name = 'rotor';
+      mesh.add(sails);
     }
     if (kind === 'windturbine') {
       const rotor = new THREE.Mesh(this.rotorGeo, this.mat);
@@ -457,7 +479,7 @@ export class Buildings {
           b.scaffold.scale.set(1 / xz, 1 / sy, 1 / xz);
         }
       }
-      if (b.kind === 'windturbine' && b.built >= 1) { const r = b.mesh.getObjectByName('rotor'); if (r) r.rotation.z += dt * (simDt > 0 ? 3 : 0.5); }
+      if ((b.kind === 'windturbine' || (b.kind === 'mill' && b.workers > 0)) && b.built >= 1) { const r = b.mesh.getObjectByName('rotor'); if (r) r.rotation.z += dt * (simDt > 0 ? (b.kind === 'mill' ? 1.2 : 3) : 0.5); }
       if (b.kind === 'ranch' && b.cattleMeshes) {
         const count = b.cattleCount ?? 4;
         for (let i = 0; i < b.cattleMeshes.length; i++) {

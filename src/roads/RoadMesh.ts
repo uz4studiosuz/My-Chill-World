@@ -136,12 +136,31 @@ export class RoadMesh {
     } else if (alongZ) {
       parts.push(box(0.04, 0.08, 1, cx - h - 0.09, 0.06, cz, rail), box(0.04, 0.08, 1, cx + h + 0.09, 0.06, cz, rail));
     }
-    if (pillars) {
+    if (alongX || alongZ) {
+      // a stone arch under every span, resting on piers at the tile edges
+      const stone = '#b9b2a4', top = -0.09, foot = WATER_BED + 0.05;
+      const rib = (a: number) => (alongX ? [cx + a, cz] : [cx, cz + a]);
+      for (const side of [-1, 1]) {
+        const off = side * (h + 0.04);
+        for (let i = 0; i < 7; i++) {
+          const a0 = -0.5 + i / 7, a1 = a0 + 1 / 7, am = (a0 + a1) / 2;
+          // the underside of the arch: highest in the middle of the span
+          const lift = Math.sin(((am + 0.5) / 1) * Math.PI);
+          const bottom = foot + (top - 0.04 - foot) * (0.35 + 0.65 * lift);
+          const hgt = top - bottom;
+          const [px, pz] = rib(am);
+          parts.push(alongX ? box(1 / 7 + 0.005, hgt, 0.06, px, bottom + hgt / 2, pz + off, stone) : box(0.06, hgt, 1 / 7 + 0.005, px + off, bottom + hgt / 2, pz, stone));
+        }
+      }
+      if (pillars) {
+        const ph = top - WATER_BED;
+        const [px, pz] = rib(-0.5);
+        parts.push(alongX ? box(0.12, ph, w, px, WATER_BED + ph / 2, pz, '#a9a294') : box(w, ph, 0.12, px, WATER_BED + ph / 2, pz, '#a9a294'));
+      }
+    } else if (pillars) {
       const ph = -0.085 - WATER_BED;
-      const off = h * 0.7;
       const py = WATER_BED + ph / 2;
-      if (alongX) parts.push(box(0.14, ph, 0.14, cx, py, cz - off), box(0.14, ph, 0.14, cx, py, cz + off));
-      else parts.push(box(0.14, ph, 0.14, cx - off, py, cz), box(0.14, ph, 0.14, cx + off, py, cz));
+      parts.push(box(0.14, ph, 0.14, cx, py, cz));
     }
     return parts;
   }

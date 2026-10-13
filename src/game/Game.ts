@@ -9,7 +9,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building, rotToDir } from '../buildings/Buildings';
-import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE } from '../buildings/BuildingTypes';
+import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -33,9 +33,12 @@ import { Life, PROMISE_TEXT } from './Life';
 import { nightLevel } from '../fx/NightGlow';
 import { PetitionsPanel } from '../ui/Petitions';
 import { LifeBook } from '../ui/LifeBook';
+import { uiBusy } from '../ui/dom';
 import { ResourcePanel, ResourceSection, ResourceView } from '../ui/ResourcePanel';
 import type { Res } from '../sim/Economy';
 import { Airports } from './Airports';
+import { Overlays, Problem } from '../fx/Overlays';
+import { WaterLife } from '../fx/WaterLife';
 import { DriveMode } from './DriveMode';
 import { CameraRig } from '../camera/CameraRig';
 import { Preview } from '../build/Preview';
@@ -79,6 +82,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], busstop: ['🚏', '#3a6fd1'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
+  military: ['🪖', '#6b7a4a'], landfill: ['🗑️', '#7a6f5a'], recycling: ['♻️', '#4c9a52'], mill: ['🌾', '#c9b88a'], bakery: ['🍞', '#a65e43'], sawmill: ['🪚', '#8a5a35'], battery: ['🔋', '#3a6fd1'], kiosk: ['☕', '#d9443b'],
   airport: ['✈️', '#3a6fd1'], stadium: ['⚽', '#4f9a3e'], cinema: ['🎬', '#b0478f'], academy: ['🏛️', '#2d4f8a'], playground: ['🛝', '#e85a3a'], fountain: ['⛲', '#4fa3d1'],
   flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
 };
@@ -89,7 +93,7 @@ const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
   farm: ['Farmer'], orchard: ['Fruit grower'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
   powerplant: ['Power operator', 'Power engineer'], watertower: ['Water technician'], weddinghall: ['Registrar'], park: ['Gardener'],
-  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], airport: ['Airport staff', 'Pilot'], stadium: ['Groundskeeper', 'Football coach'], cinema: ['Projectionist'], academy: ['Coach', 'Academician'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
+  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], airport: ['Airport staff', 'Pilot'], military: ['Soldier', 'Officer'], landfill: ['Garbage collector'], recycling: ['Recycling worker', 'Engineer'], mill: ['Miller'], bakery: ['Baker'], sawmill: ['Sawyer'], battery: ['Technician'], kiosk: ['Barista'], stadium: ['Groundskeeper', 'Football coach'], cinema: ['Projectionist'], academy: ['Coach', 'Academician'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -131,6 +135,9 @@ export class Game implements ToolHost {
   private lifeBook?: LifeBook;
   private resPanel?: ResourcePanel;
   private airports!: Airports;
+  private overlays = new Overlays();
+  private waterLife!: WaterLife;
+  private overlayT = 0;
   private drive!: DriveMode;
   /** Flights and trade per airport today (for the inspector). */
   private airLog = new Map<number, { flights: number; last: string }>();
@@ -259,6 +266,7 @@ export class Game implements ToolHost {
       this.life.rebuildGrid();
       this.footpaths.rebuild((k) => this.net.type[k] !== 0);
       this.life.events.push(t('{name} is finished', { name: t(BUILDINGS[b.kind].name) }));
+      if (b.kind === 'fishery' || b.kind === 'townhall') this.waterLife.rebuild();
       sound.play('complete', b.mesh.position);
     };
     this.cam = new CameraRig(canvas);
@@ -268,6 +276,7 @@ export class Game implements ToolHost {
       return o === 'high' ? 0 : o === 'low' ? 7 : JOB_PRIORITY[b.kind] ?? 5;
     };
     this.railway.onArrive = (from, to) => this.trainArrived(from, to);
+    this.railway.canRun = (s) => { for (const c of this.pop.citizens.values()) if (c.job === s.id && c.state === 'away' && c.at === s.id) return true; return false; };
     this.airports = new Airports(this.buildings);
     this.airports.onLanded = (b) => this.planeLanded(b);
     this.drive = new DriveMode({ map: this.map, net: this.net, buildings: this.buildings, traffic: this.traffic });
@@ -284,11 +293,14 @@ export class Game implements ToolHost {
     else this.buildStarterTown();
     this.wantTutorial = !!opts.create && Tutorial.wanted();
 
+    this.waterLife = new WaterLife(this.map, this.walkers,
+      () => this.buildings.list.filter((b) => b.kind === 'townhall').map((b) => ({ x: b.x, z: b.z })),
+      () => this.buildings.list.filter((b) => b.kind === 'fishery').map((b) => ({ x: b.x, z: b.z })));
     this.animals = new Animals(this.map, (k) => this.map.isLand(k) && !this.net.type[k] && !this.net.isIsland(k) && this.buildings.occ[k] === -1);
     this.scene.add(
       this.terrain.group, this.roadMesh.group, this.footpaths.mesh, this.canals.mesh, this.buildings.group, this.traffic.group,
       this.walkers.group, this.lights.group, this.railway.group, this.animals.group, this.effects.group, this.weather.group, this.preview.mesh, this.preview.ghostGroup, this.grid, this.marker, this.ring, this.beam,
-      this.life.leisure.group, this.povCam, this.airports.group, this.drive.group,
+      this.life.leisure.group, this.povCam, this.airports.group, this.drive.group, this.overlays.group, this.waterLife.group,
     );
     this.pop.assign(this.buildings);
     this.networkChanged(false);
@@ -552,6 +564,7 @@ export class Game implements ToolHost {
       this.buildings.update(i === 0 ? dt : 0, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)), (b) => this.life.buildSpeed(b));
     }
     this.festivities(dt);
+    this.waterLife.update(total > 0 ? Math.min(dt * this.speed, 0.5) : 0, this.terrain.frozen, seasonOf(monthOf(this.eco.day)) === 'summer', this.nightness);
     this.effects.update(dt);
     this.weather.update(dt, total, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
     this.seasonT -= dt;
@@ -561,6 +574,7 @@ export class Game implements ToolHost {
     }
     this.updateLighting();
     this.updateMarker(dt);
+    this.updateOverlays(dt);
     this.ambT -= dt;
     if (this.ambT <= 0 && !this.demo) { this.ambT = 0.5; this.updateAmbience(); }
 
@@ -1049,6 +1063,42 @@ export class Game implements ToolHost {
     return { x: b.mesh.position.x, z: b.mesh.position.z, y: 0.5 + BUILDINGS[b.kind].size * 0.3 };
   }
 
+  /** Problem badges over buildings, the reach of the selected service and what a selected power plant feeds. */
+  private updateOverlays(dt: number) {
+    this.overlays.visible = !this.demo && !this.pov && !this.drive?.active;
+    this.overlays.update(dt);
+    this.overlayT -= dt;
+    if (this.overlayT > 0 || this.demo) return;
+    this.overlayT = 1;
+    if (Math.random() < 0.6) this.thoughtBubbles();
+    const sel = this.selection?.type === 'building' ? this.buildings.get(this.selection.id) : undefined;
+    const range = sel ? (sel.kind === 'police' ? [POLICE_RANGE, '#6fb6ff'] : sel.kind === 'firestation' ? [FIRE_RANGE, '#f07167'] : sel.kind === 'military' ? [MILITARY.range, '#7be08f'] : DECOR[sel.kind] ? [DECOR_RANGE, '#7be08f'] : null) : null;
+    this.overlays.showRange(range ? sel : undefined, range ? (range[0] as number) : 0, range ? (range[1] as string) : undefined);
+    this.overlays.showGrid(sel && BUILDINGS[sel.kind].power ? this.life.gridMates(sel) : []);
+    // what each home is missing
+    const homeTrouble = new Map<number, Problem>();
+    for (const f of this.pop.families.values()) {
+      for (const c of this.pop.members(f)) {
+        if (c.hunger < 25) { homeTrouble.set(f.home, 'food'); break; }
+        if (c.health < 30 && !homeTrouble.has(f.home)) homeTrouble.set(f.home, 'sick');
+      }
+    }
+    this.overlays.setProblems(this.buildings.list, (b) => {
+      if (b.built < 1 || b.removed) return undefined;
+      const d = BUILDINGS[b.kind];
+      if (d.needsRoad && b.access < 0) return 'road';
+      if (d.energy && !b.powered) return 'power';
+      if (d.units) {
+        if (b.trash !== undefined && b.trash >= TRASH.full) return 'trash';
+        if (this.cityOf(b).water < 0.95 && this.pop.familyAt(b.id)) return 'water';
+        return homeTrouble.get(b.id);
+      }
+      if (d.jobs && b.workers === 0 && !DECOR[b.kind]) return 'workers';
+      if ((b.kind === 'grocery' || b.kind === 'market' || b.kind === 'bakery') && this.cityOf(b).food < 15) return 'food';
+      return undefined;
+    });
+  }
+
   private updateMarker(dt: number) {
     const s = this.selection;
     const sb = s?.type === 'building' ? this.buildings.get(s.id) : undefined;
@@ -1121,6 +1171,42 @@ export class Game implements ToolHost {
     log.last = `${t('{n} tourists', { n: tourists })}${deals.length ? ' · ' + deals.join(', ') : ''}`;
     this.airLog.set(b.id, log);
     if (log.flights === 1) this.life.events.push(t('A plane landed in {city}: {n} tourists arrived', { city: city.name, n: tourists }) + (deals.length ? ` — ${deals.join(', ')}` : ''));
+  }
+
+  /** What a citizen is thinking about right now: their most pressing need, or how they feel. */
+  thoughtOf(c: Citizen): [string, string] {
+    const f = this.pop.families.get(c.family);
+    const home = f ? this.buildings.get(f.home) : undefined;
+    const city = home ? this.cityOf(home) : this.eco.city;
+    const winter = seasonOf(monthOf(this.eco.day)) === 'winter';
+    if (c.hunger < 30) return ['🍞', city.food < 10 ? 'I am hungry — there is no food in town' : 'I am hungry'];
+    if (c.health < 40) return ['🤒', 'I feel ill — I need a doctor'];
+    if ((c.energy ?? 80) < 30) return ['😴', 'So tired… I need a rest'];
+    if (home && BUILDINGS[home.kind].energy && !home.powered) return ['⚡', 'We have no electricity at home'];
+    if (city.water < 0.95) return ['💧', 'There is not enough clean water'];
+    if (winter && city.wood < 10) return ['🥶', 'Our home is cold — the town has no firewood'];
+    if (home && (home.trash ?? 0) >= TRASH.full) return ['🗑️', 'Our bin is overflowing — where is the garbage truck?'];
+    if (this.pop.canWork(c) && c.job < 0) return ['💼', 'I need a job'];
+    if (f && f.money < 0) return ['💸', 'We are in debt'];
+    if (city.taxRate > 0.32) return ['😠', 'Taxes are too high'];
+    if (c.activity === 'Riding the bus') return ['🚌', 'Nice to ride the bus'];
+    if (c.activity.includes('football')) return ['⚽', 'Come on, our team!'];
+    if (c.activity === 'Playing') return ['🎈', 'Playing is fun!'];
+    if (c.activity.endsWith('on a bench') || c.activity === 'Feeding the pigeons') return ['☕', 'What a lovely day'];
+    if (c.paid) return ['💰', 'Got my wage today'];
+    if (city.happiness > 70) return ['😊', 'Life in this town is good'];
+    if (city.happiness < 40) return ['😟', 'Things are not going well in town'];
+    return ['🙂', 'An ordinary day'];
+  }
+
+  /** Now and then someone walking near the middle of the view says what they think. */
+  private thoughtBubbles() {
+    if (this.demo || this.pov || this.drive?.active || this.cam.viewHalf > 14) return;
+    const tg = this.cam.target, r = this.cam.viewHalf * 0.8;
+    const near = [...this.pop.citizens.values()].filter((c) => c.walker && !c.walker.leaving && Math.abs(c.walker.x - tg.x) < r && Math.abs(c.walker.z - tg.z) < r);
+    if (!near.length) return;
+    const c = near[Math.floor(Math.random() * near.length)];
+    this.overlays.bubble(c.walker!, this.thoughtOf(c)[0]);
   }
 
   private openLifeBook(c: Citizen) {
@@ -1392,6 +1478,7 @@ export class Game implements ToolHost {
       ],
       rows: [
         [t('Doing'), t(c.activity)],
+        [t('Thinks'), `${this.thoughtOf(c)[0]} ${t(this.thoughtOf(c)[1])}`],
         [t('Profession'), this.professionOf(c)],
         ...(c.night ? [[t('Shift'), t('Night shift (+50% pay)')] as [string, string]] : []),
         [t('Home'), f ? t('{name} family', { name: f.surname }) : '—'],
@@ -1479,6 +1566,12 @@ export class Game implements ToolHost {
         ...this.buildings.list.filter((x) => x.owner === f.id).map((x) => [t('Owns'), t(BUILDINGS[x.kind].name), 'good'] as [string, string, ('good' | 'bad')?]),
         [t('Power'), b.powered ? t('Yes') : t('No — not connected to a power plant'), b.powered ? 'good' : 'bad'],
         [t('City'), this.cityOf(b).name],
+        ...(() => {
+          const nd = this.life.homeNeeds(b);
+          const rows: [string, string, ('good' | 'bad')?][] = [[t('Home level'), `${b.level} / 3`]];
+          if (b.kind === 'house' && b.level < 3) rows.push([t('Needed for the next floor'), nd.missing.length ? nd.missing.map((m) => t(m)).join(', ') : t('Everything — it will grow soon'), nd.missing.length ? 'bad' : 'good']);
+          return rows;
+        })(),
         [t('Air'), (this.life.pollution.get(b.id) ?? 0) > 1.5 ? t('Smog — people get sick') : t('Clean'), (this.life.pollution.get(b.id) ?? 0) > 1.5 ? 'bad' : 'good'],
         [t('Water'), this.cityOf(b).water >= 0.99 ? t('Clean water') : t('Not enough water!'), this.cityOf(b).water >= 0.99 ? 'good' : 'bad'],
       ],
@@ -1643,8 +1736,11 @@ export class Game implements ToolHost {
 
   private refreshHud() {
     const e = this.eco;
-    if (this.petitions?.visible && ++this.petitionTick % 12 === 0) this.petitions.render();
-    if (this.resPanel?.visible && this.petitionTick++ % 4 === 0) this.resPanel.render();
+    // never rebuild a panel while the player is pressing one of its buttons
+    const busy = uiBusy();
+    this.hud?.setBadge('mail', this.life.leisure.petitions.filter((p) => p.state === 'open' && p.city === this.eco.active).length);
+    if (this.petitions?.visible && ++this.petitionTick % 12 === 0 && !busy) this.petitions.render();
+    if (this.resPanel?.visible && this.petitionTick++ % 4 === 0 && !busy) this.resPanel.render();
     const mine = (c: Citizen) => this.cityOfCitizen(c) === e.active;
     const counts = this.pop.counts(mine);
     this.hud!.setStats({
@@ -1659,15 +1755,15 @@ export class Game implements ToolHost {
       sound.play('achieve');
       this.life.events.unshift(t('Goal complete: {name} (+${n})', { name: t(g.title), n: g.reward }));
     }
-    if (this.goalsPanel?.visible && this.statsTick % 4 === 0) this.goalsPanel.render();
+    if (this.goalsPanel?.visible && this.statsTick % 4 === 0 && !busy) this.goalsPanel.render();
     this.tutorial?.update(this.tutorialContext());
     const ev = this.life.events.shift();
     if (ev) {
       this.hud!.toast(ev);
       this.eventLog?.add(this.eco.day, ev);
     }
-    if (this.selection) this.refreshInspector();
-    if (this.stats?.visible && ++this.statsTick % 4 === 0) this.stats.render();
+    if (this.selection && !busy) this.refreshInspector();
+    if (this.stats?.visible && ++this.statsTick % 4 === 0 && !busy) this.stats.render();
   }
 
   /** Expected food balance per day: yesterday's harvest (or capacity on day 1) minus what everyone eats. */
@@ -1793,13 +1889,21 @@ export class Game implements ToolHost {
         };
       }
       case 'stone': return { key, icon: 'stone', title: t('Stone'), value: n(city.stone), sections: [...this.ledgerSections(city, 'stone'), producers(['quarry'], (b) => `${staffed(b)} · ${t('{n} ready', { n: Math.floor(b.stored) })}`), { title: t('Used for'), note: t('Roads, bridges and most buildings.') }] };
-      case 'wood': return { key, icon: 'wood', title: t('Wood'), value: n(city.wood), sections: [...this.ledgerSections(city, 'wood'), producers(['woodcutter'], staffed), { title: t('Used for'), note: t('Building material and fuel for the wood power plant.') }] };
+      case 'wood': return { key, icon: 'wood', title: t('Wood'), value: n(city.wood), sections: [...this.ledgerSections(city, 'wood'), producers(['woodcutter'], staffed),
+        { title: t('Planks'), rows: [[t('Planks in stock'), n(city.planks)], [t('Sawmill'), own.some((b) => b.kind === 'sawmill' && b.workers > 0) ? t('Working') : t('None — build one'), own.some((b) => b.kind === 'sawmill' && b.workers > 0) ? 'good' : 'bad']], note: t('Construction sites that get planks are built 40% faster.') }, { title: t('Used for'), note: t('Building material and fuel for the wood power plant.') }] };
       case 'iron': return { key, icon: 'iron', title: t('Iron'), value: n(city.iron), sections: [...this.ledgerSections(city, 'iron'), producers(['ironmine'], staffed), { title: t('Used for'), note: t('Factories, hospitals, big buildings, railways and the car factory.') }] };
       case 'food': {
         const fy = city.foodYesterday;
         return {
           key, icon: 'food', title: t('Food'), value: n(city.food), sub: t('Yesterday: made {a}, eaten {b}', { a: fy.made, b: fy.eaten }),
-          sections: [...this.ledgerSections(city, 'food'), producers(['farm', 'orchard', 'ranch', 'fishery'], staffed)],
+          sections: [
+            ...this.ledgerSections(city, 'food'),
+            { title: t('Bread chain'), rows: [[t('Grain in stock'), n(city.grain)], [t('Flour in stock'), n(city.flour)],
+              [t('Flour Mill'), own.some((b) => b.kind === 'mill' && b.workers > 0) ? t('Working') : t('None — grain is only cooked (70%)'), own.some((b) => b.kind === 'mill' && b.workers > 0) ? 'good' : 'bad'],
+              [t('Bakery'), own.some((b) => b.kind === 'bakery' && b.workers > 0) ? t('Working') : t('None — build one'), own.some((b) => b.kind === 'bakery' && b.workers > 0) ? 'good' : 'bad']],
+              note: t('Farm → tractor → flour mill → bakery → shops. One flour makes 1.4 bread; raw grain only 0.7 food.') },
+            producers(['farm', 'orchard', 'ranch', 'fishery', 'bakery'], staffed),
+          ],
         };
       }
       case 'energy': {
@@ -1809,7 +1913,7 @@ export class Game implements ToolHost {
         return {
           key, icon: 'energy', title: t('Energy'), value: `${Math.round(city.powered * 100)}%`, sub: t('Demand {a} · capacity {b} per day', { a: n(city.energyDemand), b: n(city.energyCapacity) }),
           sections: [
-            { title: t('Supply'), bars: [[t('Demand covered'), city.powered, `${Math.round(city.powered * 100)}%`]] },
+            { title: t('Supply'), bars: [[t('Demand covered'), city.powered, `${Math.round(city.powered * 100)}%`], ...(this.life.batteryCap ? [[t('Batteries charged'), this.life.batteryCharge / this.life.batteryCap, `${Math.round(this.life.batteryCharge)}/${this.life.batteryCap}`] as [string, number, string]] : [])] },
             { title: t('Power plants'), rows: plants.length ? plants.map((b) => [t(BUILDINGS[b.kind].name), `+${BUILDINGS[b.kind].power} · ${staffed(b)}`, b.workers > 0 || BUILDINGS[b.kind].power ? 'good' : 'bad'] as [string, string, ('good' | 'bad')?]) : [[t('None — build one'), '—', 'bad']] },
             { title: t('Biggest users'), rows: [...users.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [t(k), `${n(v)}/${t('day')}`]) },
           ],

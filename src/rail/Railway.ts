@@ -39,6 +39,8 @@ export class Railway {
   private wagonGeo = wagonGeometry();
   private mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   onArrive: (from: Station, to: Station) => void = () => {};
+  /** Is a driver on shift at this station? Trains only leave with a driver. */
+  canRun: (s: Station) => boolean = () => true;
 
   constructor() {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }));
@@ -171,8 +173,11 @@ export class Railway {
 
   update(dt: number) {
     for (const t of this.trains) {
-      if (t.wait > 0) t.wait -= dt;
-      else {
+      if (t.wait > 0) {
+        t.wait -= dt;
+        // no train driver on shift at the station: the train waits for the next shift
+        if (t.wait <= 0 && !this.canRun(t.dir > 0 ? t.a : t.b)) t.wait = 2;
+      } else {
         t.s += t.dir * SPEED * dt;
         if (t.s >= t.len || t.s <= 0) {
           t.s = Math.max(0, Math.min(t.len, t.s));

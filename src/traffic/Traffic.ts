@@ -7,6 +7,7 @@ import { busGeometry, carGeometry, cargoGeometry, truckGeometry } from '../model
 import { trafficLampGeometry, trafficPoleGeometry } from '../models/buildings';
 import { beaconGeometry, headlightGeometry, weddingDecorGeometry } from '../models/extras';
 import { glowTexture } from '../fx/NightGlow';
+import { CARGO_KINDS, CargoKind, cargoOf } from '../models/chains';
 
 export type VehicleKind = 'car' | 'truck' | 'bus';
 export interface Point { x: number; z: number }
@@ -34,6 +35,8 @@ export interface Trip {
   passengers?: number[];
   /** Emergency vehicle: flashing beacon, siren, may pass red lights carefully. */
   siren?: boolean;
+  /** What a truck carries (shown on its bed). */
+  cargo?: CargoKind;
   /** Wedding car decorated with flowers and ribbons. */
   wedding?: boolean;
   onArrive?: (color: THREE.Color) => void;
@@ -102,6 +105,7 @@ export class Traffic {
   private carMesh: THREE.InstancedMesh;
   private truckMesh: THREE.InstancedMesh;
   private cargoMesh: THREE.InstancedMesh;
+  private cargoMeshes = new Map<CargoKind, THREE.InstancedMesh>();
   private busMesh: THREE.InstancedMesh;
   private poleMesh: THREE.InstancedMesh;
   private lampMesh: THREE.InstancedMesh;
@@ -126,6 +130,8 @@ export class Traffic {
     this.carMesh.setColorAt(0, new THREE.Color('#ffffff'));
     this.truckMesh = this.makeMesh(truckGeometry(), vc, MAX_TRUCKS);
     this.cargoMesh = this.makeMesh(cargoGeometry(), vc, MAX_TRUCKS);
+    this.cargoMesh.visible = false;
+    for (const k of CARGO_KINDS) this.cargoMeshes.set(k, this.makeMesh(cargoOf(k), vc, MAX_TRUCKS));
     this.busMesh = this.makeMesh(busGeometry(), vc, MAX_BUSES);
     this.poleMesh = this.makeMesh(trafficPoleGeometry(), vc, 1024);
     this.lampMesh = this.makeMesh(trafficLampGeometry(), new THREE.MeshBasicMaterial(), 1024);
@@ -525,6 +531,7 @@ export class Traffic {
 
   private render() {
     let nc = 0, nt = 0, ng = 0, nb = 0, nbe = 0, nd = 0, nl = 0;
+    const cargoN = new Map<THREE.InstancedMesh, number>();
     const flash = Math.sin(this.clock * 14) > 0;
     for (const v of this.vehicles) {
       const s = easeOut(Math.max(0, v.scale));
@@ -552,8 +559,12 @@ export class Traffic {
         nc++;
       } else {
         this.truckMesh.setMatrixAt(nt++, this.m);
-        this.m.compose(this.p, this.q, v.trip.loaded ? this.sc : this.sc.set(0, 0, 0));
-        this.cargoMesh.setMatrixAt(ng++, this.m);
+        if (v.trip.loaded) {
+          const cm = this.cargoMeshes.get(v.trip.cargo ?? 'stone')!;
+          cm.setMatrixAt(cargoN.get(cm) ?? 0, this.m);
+          cargoN.set(cm, (cargoN.get(cm) ?? 0) + 1);
+        }
+        ng++;
       }
     }
     this.sc.set(1, 1, 1);
@@ -571,7 +582,9 @@ export class Traffic {
     for (const m of [this.beaconMesh, this.decorMesh, this.beamMesh]) m.instanceMatrix.needsUpdate = true;
     this.carMesh.count = nc;
     this.truckMesh.count = nt;
-    this.cargoMesh.count = ng;
+    this.cargoMesh.count = 0;
+    void ng;
+    for (const cm of this.cargoMeshes.values()) { cm.count = cargoN.get(cm) ?? 0; cm.instanceMatrix.needsUpdate = true; }
     this.busMesh.count = nb;
     this.busMesh.instanceMatrix.needsUpdate = true;
     this.carMesh.instanceMatrix.needsUpdate = true;

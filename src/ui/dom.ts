@@ -92,3 +92,16 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS;
 export const icon = (name: IconName) => svg(ICONS[name]);
+
+/**
+ * True while the player is pressing on the interface (and a moment after): panels must not be rebuilt then,
+ * otherwise the button under the finger is replaced between press and release and the click is lost.
+ */
+let pressAt = 0;
+let pressing = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', (e) => { if ((e.target as HTMLElement)?.closest?.('#ui button, #ui .inspector, #ui .respanel, #ui .stats, #ui .goals')) { pressing = true; pressAt = performance.now(); } }, true);
+  window.addEventListener('pointerup', () => { if (pressing) { pressing = false; pressAt = performance.now(); } }, true);
+  window.addEventListener('pointercancel', () => { pressing = false; }, true);
+}
+export const uiBusy = () => pressing || performance.now() - pressAt < 350;

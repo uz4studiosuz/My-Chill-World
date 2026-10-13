@@ -19,6 +19,8 @@ const LEAF_AUTUMN = ['#e0822f', '#e9b23a', '#c95a2b', '#d99a2e', '#b8862f'];
 const AUTUMN_TINT = new THREE.Color('#b7a258');
 const SPRING_TINT = new THREE.Color('#79c04a');
 const BARE = new THREE.Color('#7d6b55');
+const BLOSSOM = new THREE.Color('#f4a9c8');
+const FRESH = new THREE.Color('#9be070');
 const SNOWY = new THREE.Color('#eef3f6');
 const TUFT_GRASS = ['#7da84a', '#6c9a40', '#93b858', '#86ad4e'];
 const TUFT_FLOWER = ['#f2efe2', '#f0d54a', '#b9a3e0', '#e8738f', '#f29b4b'];
@@ -267,6 +269,9 @@ export class Terrain {
     this.buildWater();
   }
 
+  /** Lakes are frozen (winter). */
+  frozen = false;
+
   /** Blend ground, trees and water towards the current season. */
   applySeason(b: { snow: number; autumn: number; bare: number; spring: number }) {
     const key = [b.snow, b.autumn, b.bare, b.spring].map((v) => v.toFixed(2)).join();
@@ -294,12 +299,17 @@ export class Terrain {
       const c = new THREE.Color();
       for (let i = 0; i < this.leafGreen.length; i++) {
         c.copy(this.leafGreen[i]).lerp(this.leafAutumn[i], b.autumn).lerp(BARE, b.bare * 0.85).lerp(SNOWY, b.snow * 0.6);
+        // spring: every fourth leafy tree blossoms pink (cherry / apricot), the rest turn fresh light green
+        if (b.spring > 0) c.lerp(i % 4 === 0 ? BLOSSOM : FRESH, b.spring * (i % 4 === 0 ? 0.75 : 0.25));
         this.canopy.setColorAt(i, c);
       }
       if (this.canopy.instanceColor) this.canopy.instanceColor.needsUpdate = true;
     }
     this.pineMat.emissive.setRGB(0.3 * b.snow, 0.32 * b.snow, 0.34 * b.snow);
-    this.waterMat.emissive.setRGB(0.35 * b.snow, 0.42 * b.snow, 0.48 * b.snow);
+    // lakes and rivers freeze in deep winter: white, opaque ice
+    this.waterMat.emissive.setRGB(0.45 * b.snow, 0.52 * b.snow, 0.58 * b.snow);
+    this.waterMat.opacity = 0.82 + 0.16 * b.snow;
+    this.frozen = b.snow > 0.55;
     if (this.tuftMesh) this.tuftMesh.visible = b.snow < 0.4;
   }
 

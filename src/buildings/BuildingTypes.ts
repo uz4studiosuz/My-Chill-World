@@ -2,7 +2,8 @@ export type BuildingKind =
   | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower'
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
-  | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport';
+  | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
+  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk';
 
 
 /** How a building's workers behave while at work. */
@@ -100,6 +101,14 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   factory: def({ kind: 'factory', name: 'Factory', size: 3, money: 2500, iron: 20, stone: 60, wood: 30, jobs: 14, salary: 16, energy: 8, revenue: 280 }),
   carfactory: def({ kind: 'carfactory', name: 'Car Factory', size: 3, money: 4500, iron: 40, stone: 90, wood: 40, jobs: 18, salary: 20, energy: 12, revenue: 450 }),
   construction: def({ kind: 'construction', name: 'Construction Company', size: 2, money: 700, stone: 15, wood: 20, jobs: 6, salary: 14, energy: 2, revenue: 90, work: 'builder' }),
+  military: def({ kind: 'military', name: 'Military Base', size: 3, money: 5000, stone: 80, wood: 20, iron: 40, jobs: 12, salary: 20, publicJob: true, upkeep: 15, energy: 6 }),
+  landfill: def({ kind: 'landfill', name: 'Landfill', size: 2, money: 600, wood: 5, jobs: 3, salary: 12, publicJob: true, upkeep: 3 }),
+  recycling: def({ kind: 'recycling', name: 'Recycling Plant', size: 2, money: 2200, stone: 30, iron: 10, jobs: 5, salary: 16, publicJob: true, upkeep: 6, energy: 5 }),
+  mill: def({ kind: 'mill', name: 'Flour Mill', size: 2, money: 900, stone: 20, wood: 20, jobs: 3, salary: 12, energy: 2 }),
+  bakery: def({ kind: 'bakery', name: 'Bakery', size: 1, money: 700, stone: 10, wood: 10, jobs: 3, salary: 12, energy: 2 }),
+  sawmill: def({ kind: 'sawmill', name: 'Sawmill', size: 2, money: 1000, stone: 15, iron: 5, jobs: 4, salary: 13, energy: 3 }),
+  battery: def({ kind: 'battery', name: 'Battery Storage', size: 1, money: 1600, stone: 10, iron: 20, jobs: 1, salary: 15, publicJob: true, upkeep: 2 }),
+  kiosk: def({ kind: 'kiosk', name: 'Coffee Cart', size: 1, money: 150, wood: 4, jobs: 1, salary: 8, needsRoad: false }),
   airport: def({ kind: 'airport', name: 'Airport', size: 3, money: 6000, stone: 100, wood: 20, iron: 50, jobs: 10, salary: 22, publicJob: true, upkeep: 14, energy: 8 }),
   stadium: def({ kind: 'stadium', name: 'Football Stadium', size: 3, money: 3000, stone: 60, wood: 20, iron: 15, jobs: 6, salary: 15, publicJob: true, upkeep: 8, energy: 6 }),
   cinema: def({ kind: 'cinema', name: 'Open-air Cinema', size: 2, money: 1200, stone: 15, wood: 20, iron: 5, jobs: 3, salary: 12, energy: 4 }),
@@ -123,7 +132,7 @@ export const CAR_PRICE = 700;
 /** Plants that burn no wood (the wind blows, the sun shines — solar only by day). */
 export const CLEAN_POWER: Partial<Record<BuildingKind, boolean>> = { windturbine: true, solarfarm: true };
 /** Air pollution sources: strength and reach in tiles. */
-export const POLLUTERS: Partial<Record<BuildingKind, number>> = { factory: 3, carfactory: 4, powerplant: 3, ironmine: 2, quarry: 1.5 };
+export const POLLUTERS: Partial<Record<BuildingKind, number>> = { factory: 3, carfactory: 4, powerplant: 3, ironmine: 2, quarry: 1.5, landfill: 3, sawmill: 1 };
 export const POLLUTION_RANGE = 8;
 /** Decorations: how much they cheer up homes within DECOR_RANGE tiles (happiness points per item, capped). */
 export const DECOR: Partial<Record<BuildingKind, number>> = { fountain: 1.5, flowerbed: 0.6, statue: 1.2, bench: 0.5, lamppost: 0.4, sapling: 0.5, roadsign: 0.2, playground: 1.0 };
@@ -136,6 +145,25 @@ export const AIR_TRADE: Record<'food' | 'wood' | 'stone' | 'iron', { keep: numbe
 export const BUS = { fare: 2, driverShare: 0.25, seats: 16, perDepot: 2 };
 /** City services paid on the spot: a hospital treatment, a parking ticket. */
 export const SERVICE_FEE = { hospital: 20, parking: 1 };
+/** Production chains: daily output at full staff. */
+export const CHAIN = {
+  /** Flour mill: grain → flour. */
+  mill: 70,
+  /** Bakery: flour → bread (food), and how much food one flour makes. */
+  bakery: 55, breadPerFlour: 1.4,
+  /** Without a mill, raw grain still feeds people (porridge), but worse. */
+  rawGrainFood: 0.7, rawGrainPerDay: 90,
+  /** Sawmill: wood → planks; planks speed up construction. */
+  sawmill: 30, planksPerSite: 2, plankBoost: 1.4,
+  /** Units a truck carries between chain buildings (only for show — goods are pooled). */
+  load: 15,
+};
+/** Garbage: per person per day, a full bin, what a truck collects per stop, recycling yield. */
+export const TRASH = { perPerson: 0.35, full: 6, ironPerTrash: 0.12, moneyPerTrash: 0.5, range: 22 };
+/** Military base: how far its patrols reach, how much safer the city gets. */
+export const MILITARY = { range: 26, safety: 0.25 };
+/** Battery storage: energy one battery can hold. */
+export const BATTERY = { capacity: 40 };
 /** Football: ticket price per fan; match day is Sunday. */
 export const FOOTBALL = { ticket: 3, fans: 30 };
 /** Open-air cinema ticket price and seats per evening. */
@@ -171,7 +199,7 @@ export const CARS = { perDay: 3, iron: 6, truckLoad: 2, factoryMax: 8, marketMax
 /** Fuel: a trip uses ~8%, below this the car must be refuelled; price per percent of tank. */
 export const FUEL = { low: 40, empty: 12, price: 0.15 };
 /** What a visit to a shop costs (min, max). */
-export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], clothes: [6, 16], market: [3, 10] };
+export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], clothes: [6, 16], market: [3, 10], kiosk: [2, 5], bakery: [2, 6] };
 /** Shops: what each person spends there per day. */
 export const SHOP_SPEND = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 export type ShopKind = keyof typeof SHOP_SPEND;

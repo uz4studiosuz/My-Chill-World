@@ -14,6 +14,12 @@ export interface City {
   wood: number;
   food: number;
   iron: number;
+  /** Intermediate goods of the production chains. */
+  grain: number;
+  flour: number;
+  planks: number;
+  /** Energy stored in batteries. */
+  stored: number;
   /** Energy per day: demand of grid-connected buildings and what the plants could make. */
   energyDemand: number;
   energyCapacity: number;
@@ -57,14 +63,14 @@ export interface City {
 export type PromiseKind = 'tax' | 'park' | 'hospital' | 'school' | 'jobs';
 
 /** Resources that are counted in the city's books. */
-export type Res = 'money' | 'stone' | 'wood' | 'iron' | 'food';
+export type Res = 'money' | 'stone' | 'wood' | 'iron' | 'food' | 'grain' | 'flour' | 'planks';
 /** Where each resource came from / went to: reason (English key) → signed amount. */
 export type Ledger = Record<Res, Record<string, number>>;
-export const blankLedger = (): Ledger => ({ money: {}, stone: {}, wood: {}, iron: {}, food: {} });
+export const blankLedger = (): Ledger => ({ money: {}, stone: {}, wood: {}, iron: {}, food: {}, grain: {}, flour: {}, planks: {} });
 export const LEDGER_DAYS = 7;
 
 export interface CitySave {
-  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
+  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; grain?: number; flour?: number; planks?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
   jobPriority?: Record<string, 'high' | 'low'>; campaign?: City['campaign']; promise?: City['promise'];
 }
 
@@ -82,7 +88,7 @@ function blankCity(id: number, name: string, founded: number, g: Grant = { money
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
     foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25, mayor: -1, elected: 0,
     jobPriority: {}, pollution: 0, tourists: 0, smart: false, railLink: false,
-    ledger: blankLedger(), ledgerDays: [], mood: [],
+    ledger: blankLedger(), ledgerDays: [], mood: [], grain: 0, flour: 0, planks: 0, stored: 0,
   };
 }
 
@@ -203,7 +209,7 @@ export class Economy {
     return {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
-        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
+        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), grain: Math.round(c.grain), flour: Math.round(c.flour), planks: Math.round(c.planks), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
         jobPriority: c.jobPriority, campaign: c.campaign, promise: c.promise,
       })),
     };
@@ -216,6 +222,9 @@ export class Economy {
     for (const c of s.cities) {
       const city = blankCity(c.id, c.name, c.founded, { money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: c.iron ?? 0 });
       city.brokeDays = c.brokeDays;
+      city.grain = c.grain ?? 0;
+      city.flour = c.flour ?? 0;
+      city.planks = c.planks ?? 0;
       city.loan = c.loan ?? 0;
       city.happiness = c.happiness ?? 65;
       city.taxRate = c.taxRate ?? 0.25;

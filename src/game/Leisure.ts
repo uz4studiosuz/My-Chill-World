@@ -8,6 +8,7 @@ import type { Citizen } from '../people/Population';
 import type { LifeContext } from './Life';
 import type { Walker } from '../people/Walkers';
 import { festiveTreeGeometry, navruzGeometry } from '../models/extras';
+import { pigeonGeometry } from '../models/chains';
 import { t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
 
@@ -51,6 +52,9 @@ export const PETITION_TEXT: Record<PetitionKind, string> = {
   playground: 'Our children have nowhere to play. Please build a playground!',
 };
 
+/** What people do on a bench. */
+const BENCH_LIFE = ['Resting on a bench', 'Reading a book on a bench', 'Feeding the pigeons', 'Drinking coffee on a bench'];
+
 const PETITION_REWARD: Record<PetitionKind, number> = { shop: 300, school: 500, light: 150, park: 250, hospital: 600, busstop: 150, playground: 150 };
 /** Days a petition stays open before people give up on it. */
 const PETITION_DAYS = 8;
@@ -73,6 +77,14 @@ export class Leisure {
   private tickT = 0;
   private lastMatch = -1;
   private festMeshes = new Map<number, THREE.Mesh>();
+  /** Soldiers drilling on each military base's parade ground. */
+  private soldiers = new Map<number, Walker[]>();
+  /** A street musician playing on each town hall square in the evening. */
+  private musicians = new Map<number, Walker>();
+  private pigeons: THREE.InstancedMesh;
+  private pigeonSpots: { x: number; z: number; ph: number }[] = [];
+  private pigeonT = 0;
+  private time = 0;
   private festKind: string | null = null;
   private festMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private treeGeo = festiveTreeGeometry();
@@ -90,7 +102,12 @@ export class Leisure {
   /** Footballers running on each stadium's pitch during a match. */
   private players = new Map<number, Walker[]>();
 
-  constructor(private c: LifeContext, private host: LeisureHost) {}
+  constructor(private c: LifeContext, private host: LeisureHost) {
+    this.pigeons = new THREE.InstancedMesh(pigeonGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }), 160);
+    this.pigeons.count = 0;
+    this.pigeons.frustumCulled = false;
+    this.group.add(this.pigeons);
+  }
 
   /** Run `fn` after `seconds` of game time. */
   later(seconds: number, fn: () => void) { this.timers.push({ t: seconds, fn }); }
@@ -108,6 +125,10 @@ export class Leisure {
     this.c.buildings.matchOn = this.matchDay && tod > 0.55 && tod < 0.76;
     if (this.host.festival !== this.festKind) this.festival(this.host.festival);
     this.footballers();
+    this.drill();
+    this.busking(tod);
+    this.time += dt;
+    this.updatePigeons(dt);
     if (dt <= 0) return;
     this.tickT -= dt;
     if (this.tickT > 0) return;
@@ -115,9 +136,11 @@ export class Leisure {
     if (this.visitDay !== this.c.eco.day) { this.visitDay = this.c.eco.day; this.visits.clear(); }
     if (tod > 0.63 && tod < 0.76) this.outings(['playground', 'park'], (c) => c.age >= 3 && c.age < 14, 0.1, 6, Math.min(0.8, tod + 0.09), 10);
     // tired people sit down on a bench, in a park or by a fountain for a while
-    if (tod > 0.4 && tod < 0.74) this.outings(['bench', 'park', 'fountain'], (c) => c.age >= 14 && (c.energy ?? 80) < 45 && c.job < 0, 0.15, 6, Math.min(0.78, tod + 0.06), 8);
+    if (tod > 0.4 && tod < 0.74) this.outings(['bench', 'park', 'fountain'], (c) => c.age >= 14 && c.job < 0 && ((c.energy ?? 80) < 45 || Math.random() < 0.2), 0.15, 6, Math.min(0.78, tod + 0.06), 8);
     if (tod > 0.8 && tod < 0.86) this.outings(['cinema'], (c) => c.age >= 14, 0.08, CINEMA.seats, 0.95, 18);
     if (this.matchDay && tod > 0.54 && tod < 0.62) this.outings(['stadium'], (c) => c.age >= 8, 0.1, FOOTBALL.fans, 0.73, 24);
+    // a few people stop to listen to the street musician
+    if (!this.host.festival && tod > 0.62 && tod < 0.8) this.outings(['townhall'], (c) => c.age >= 8, 0.03, 5, Math.min(0.86, tod + 0.06), 14);
     if (this.host.festival && tod > 0.4 && tod < 0.66) this.outings(['townhall'], (c) => c.age >= 5, 0.05, 30, Math.min(0.78, tod + 0.12), 18);
     if (this.matchDay && tod >= 0.72 && this.lastMatch !== this.c.eco.day) { this.lastMatch = this.c.eco.day; this.playMatches(); }
   }
@@ -177,9 +200,9 @@ export class Leisure {
     const f = pop.families.get(c.family);
     const price = b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0;
     if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; }
-    c.activity = b.kind === 'bench' || ((b.kind === 'park' || b.kind === 'fountain') && c.age >= 14) ? 'Resting on a bench' : b.kind === 'cinema' ? 'Watching a film' : b.kind === 'stadium' ? 'Watching football' : b.kind === 'townhall' ? 'Celebrating' : 'Playing';
+    c.activity = b.kind === 'bench' || ((b.kind === 'park' || b.kind === 'fountain') && c.age >= 14) ? pick(BENCH_LIFE) : b.kind === 'townhall' && !this.host.festival ? 'Listening to a street musician' : b.kind === 'cinema' ? 'Watching a film' : b.kind === 'stadium' ? 'Watching football' : b.kind === 'townhall' ? 'Celebrating' : 'Playing';
     const sp = this.spot(b);
-    if (c.activity === 'Resting on a bench') sp.anim = 'sit';
+    if (BENCH_LIFE.includes(c.activity)) sp.anim = 'sit';
     const secs = Math.max(2, (until - eco.timeOfDay) * DAY_SECONDS);
     const w = c.walker;
     if (!w) return;
@@ -210,6 +233,84 @@ export class Leisure {
   // ---------- football ----------
 
   /** Two teams of five chase the ball while a match is on. */
+  /** Soldiers march up and down the parade ground during the day. */
+  private drill() {
+    const { buildings, walkers, eco } = this.c;
+    const tod = eco.timeOfDay;
+    const on = tod > 0.3 && tod < 0.7;
+    for (const [id, list] of this.soldiers) {
+      const b = buildings.get(id);
+      if (on && b && !b.removed && b.workers > 0) continue;
+      for (const w of list) walkers.dismiss(w);
+      this.soldiers.delete(id);
+    }
+    if (!on) return;
+    for (const b of buildings.list) {
+      if (b.kind !== 'military' || b.built < 1 || !b.workers || this.soldiers.has(b.id)) continue;
+      const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
+      const at = (x: number, z: number): Point => ({ x: b.mesh.position.x + x * cr + z * sr, z: b.mesh.position.z - x * sr + z * cr });
+      const list: Walker[] = [];
+      for (let i = 0; i < 8; i++) {
+        // two ranks of four, marching in step from one end of the ground to the other
+        const z = 0.35 + Math.floor(i / 4) * 0.18, x0 = -0.1 + (i % 4) * 0.12;
+        const a = at(x0, z), c = at(x0 + 0.8, z);
+        let fwd = true;
+        const march = (w: Walker) => { fwd = !fwd; walkers.retarget(w, { points: [{ x: w.x, z: w.z }, fwd ? c : a] }, march); };
+        const w = walkers.walk(i % 2 ? 1 : 3, 1, { points: [a, c] }, 'none', march);
+        w.speed = 0.55;
+        list.push(w);
+      }
+      this.soldiers.set(b.id, list);
+    }
+  }
+
+  /** In the evening a street musician plays on the town hall square. */
+  private busking(tod: number) {
+    const { buildings, walkers } = this.c;
+    const on = !this.host.festival && tod > 0.62 && tod < 0.86;
+    for (const [id, w] of this.musicians) {
+      const b = buildings.get(id);
+      if (on && b && !b.removed) continue;
+      walkers.dismiss(w);
+      this.musicians.delete(id);
+    }
+    if (!on) return;
+    for (const b of buildings.list) {
+      if (b.kind !== 'townhall' || b.built < 1 || this.musicians.has(b.id)) continue;
+      const cr = Math.cos(b.rot), sr = Math.sin(b.rot);
+      const p = { x: b.mesh.position.x + 0.6 * cr + 0.62 * sr, z: b.mesh.position.z - 0.6 * sr + 0.62 * cr };
+      const w = walkers.walk(Math.floor(Math.random() * 4), 1, { points: [p, { x: p.x + 0.01, z: p.z }] }, 'none', (ww) => walkers.holdFor(ww, 9999, 'cheer', () => {}, b.mesh.position));
+      this.musicians.set(b.id, w);
+    }
+  }
+
+  /** Pigeons peck around benches, fountains and town hall squares (they hide at night and in the rain). */
+  private updatePigeons(dt: number) {
+    const { buildings, eco } = this.c;
+    this.pigeonT -= dt;
+    if (this.pigeonT <= 0) {
+      this.pigeonT = 3;
+      this.pigeonSpots = [];
+      for (const b of buildings.list) {
+        if (b.built < 1 || !(b.kind === 'bench' || b.kind === 'fountain' || b.kind === 'townhall' || b.kind === 'park' || b.kind === 'kiosk')) continue;
+        for (let i = 0; i < 4 && this.pigeonSpots.length < 160; i++) this.pigeonSpots.push({ x: b.mesh.position.x + rnd(-0.4, 0.4), z: b.mesh.position.z + rnd(-0.4, 0.4) + (b.kind === 'townhall' ? 0.6 : 0), ph: Math.random() * 10 });
+      }
+    }
+    const day = eco.timeOfDay > 0.27 && eco.timeOfDay < 0.8;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
+    let n = 0;
+    if (day) for (const sp of this.pigeonSpots) {
+      const t = this.time * 1.3 + sp.ph;
+      const hop = Math.max(0, Math.sin(t * 6)) * 0.015;
+      p.set(sp.x + Math.sin(t * 0.7) * 0.06, 0.02 + hop, sp.z + Math.cos(t * 0.5) * 0.06);
+      q.setFromAxisAngle(up, t * 0.9);
+      m.compose(p, q, s);
+      this.pigeons.setMatrixAt(n++, m);
+    }
+    this.pigeons.count = n;
+    this.pigeons.instanceMatrix.needsUpdate = true;
+  }
+
   private footballers() {
     const { buildings, walkers } = this.c;
     const on = buildings.matchOn;

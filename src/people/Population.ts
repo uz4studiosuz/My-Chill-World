@@ -6,7 +6,7 @@ import { clanName, firstName } from './names';
 
 export type Sex = 'm' | 'f';
 export type Role = 'parent' | 'child' | 'elder';
-export type DeathCause = 'old age' | 'starvation' | 'thirst' | 'lightning' | 'accident' | 'murder';
+export type DeathCause = 'old age' | 'starvation' | 'thirst' | 'lightning' | 'accident' | 'murder' | 'illness' | 'cold';
 
 export interface Citizen {
   id: number;
@@ -53,7 +53,7 @@ export interface Citizen {
 export interface StoryEntry { d: number; a: number; k: string; p?: Record<string, string | number> }
 
 /** Workplaces that keep running at night: a third of the staff works the night shift. */
-export const NIGHT_SHIFT: Partial<Record<string, boolean>> = { factory: true, carfactory: true, hospital: true, police: true, firestation: true, powerplant: true, hotel: true };
+export const NIGHT_SHIFT: Partial<Record<string, boolean>> = { factory: true, carfactory: true, hospital: true, police: true, firestation: true, powerplant: true, hotel: true, busdepot: true, trainstation: true, military: true };
 /** Night shift pays this much more. */
 export const NIGHT_BONUS = 1.5;
 const MAX_STORY = 40;
@@ -378,7 +378,7 @@ export class Population {
       const e = c.energy ?? 80;
       let d = 0;
       if (c.state === 'home') d = c.activity.startsWith('Sleeping') ? 150 : 70;
-      else if (c.activity === 'Resting on a bench' || c.activity === 'Watching a film') d = 110;
+      else if (c.activity.endsWith('on a bench') || c.activity === 'Feeding the pigeons' || c.activity === 'Watching a film') d = 110;
       else if (c.state === 'away' && c.job >= 0 && c.at === c.job) d = -95;
       else if (c.state === 'travel') d = -45;
       else d = -25;
@@ -472,6 +472,18 @@ export class Population {
       if (c.age >= RETIRE_AGE && c.age - PER_YEAR < RETIRE_AGE) this.note(c, 'Retired');
       if (c.age >= 20 && c.skill === 0 && c.school < 0) c.skill = 1;
       if (c.role === 'parent' && c.age >= 70) c.role = 'elder';
+      // life is fragile: elderly people pass away, anyone can fall seriously ill (less so with doctors around)
+      if (c.health > 0 && !opts.calm) {
+        const care = 1 - Math.min(0.6, opts.heal / 50);
+        const old = c.age < 55 ? 0 : c.age < 65 ? 0.004 : c.age < 75 ? 0.012 : c.age < 85 ? 0.03 : 0.07;
+        if (Math.random() < old * care) { c.health = 0; cause = 'old age'; }
+        else if (Math.random() < 0.006 * care) {
+          // a sudden illness: often survived (an ambulance comes), sometimes not
+          c.health = Math.max(0, c.health - rand(40, 95));
+          if (c.health <= 0) cause = 'illness';
+          else this.note(c, 'Fell seriously ill');
+        }
+      }
       if (c.health <= 0) die(c, cause);
     }
 
@@ -502,7 +514,8 @@ export class Population {
         if (this.citizens.has(v.id)) {
           v.health -= rand(25, 55);
           r.incidents.push({ kind: 'accident', a: v.name });
-          if (v.health <= 0) die(v, 'accident');
+          // some crashes are fatal
+          if (v.health <= 0 || Math.random() < 0.12) die(v, 'accident');
         }
       }
       if (Math.random() < Math.min(0.05, n * 0.0002) * calm) {

@@ -50,9 +50,14 @@ export const ITEMS: ToolItem[] = [
   b('busstop', 'services', 'Bus Stop', 'Shelter where passengers board and exit buses.', 'car'),
   b('police', 'services', 'Safety', 'Officers cut down fights, accidents and murders in the city.', 'jobs'),
   b('hospital', 'services', 'Heals people', 'Doctors and nurses treat the sick. Reduces deaths from illness, fights and accidents.', 'heart'),
+  b('military', 'services', 'Safety', 'Soldiers keep the whole city safe: much less crime. They drill on the parade ground and march at Navruz.', 'jobs'),
+  b('landfill', 'services', 'Garbage', 'Garbage trucks empty the bins of homes nearby. Cheap, but it smells: homes around it suffer from the pollution.', 'bulldoze'),
+  b('recycling', 'services', 'Recycling', 'Garbage trucks bring rubbish here; it is sorted and iron is recovered. Clean, but costs more.', 'bulldoze'),
   b('weddinghall', 'services', 'Weddings', 'Young couples can only marry and start families if the town has one. Newly-weds drive through town in a decorated car.', 'heart'),
   b('academy', 'services', 'Science & sport', 'Researchers and coaches: children learn 30% faster and the city football team gets stronger.', 'school'),
   b('stadium', 'services', 'Football', 'Every other day the city team plays a match. Fans fill the stands — a win makes the whole city happier.', 'ball'),
+  b('bakery', 'business', 'Bread', 'Bakes flour from the mill into bread: much more food than raw grain. Vans deliver the bread to the shops.', 'food'),
+  b('kiosk', 'business', 'Coffee', 'A coffee and ice-cream cart. People stop by on their walks.', 'food'),
   b('cinema', 'business', 'Films at night', 'An open-air cinema: in the evening people sit on benches and watch a film on the big screen.', 'film'),
   b('grocery', 'business', 'Food shop', 'Families buy their everyday food here. A family may buy the shop or build one with its savings.', 'food'),
   b('clothes', 'business', 'Clothes', 'Clothes and shoes: families spend a little every day. Can be owned by a family.', 'people'),
@@ -63,6 +68,9 @@ export const ITEMS: ToolItem[] = [
   b('gasstation', 'business', 'Fuel', 'Sells fuel to the town\'s drivers and pays business tax.', 'energy'),
   b('office', 'business', '24 jobs', 'Workplace with parking spaces in front.', 'office'),
   b('construction', 'business', 'Builders', 'Builders work here: they walk to every construction site and build it. Without a construction company nothing can be built (it can build itself and a Town Hall slowly).', 'quarry'),
+  b('mill', 'production', 'Grain → flour', 'Farms grow grain; tractors bring it here and the windmill grinds it into flour for the bakery.', 'farm'),
+  b('sawmill', 'production', 'Wood → planks', 'Saws wood into planks. Trucks bring planks to construction sites, which then go up 40% faster.', 'woodcutter'),
+  b('battery', 'production', 'Stores power', 'Stores spare electricity (e.g. from solar panels by day) and gives it back at night.', 'energy'),
   b('windturbine', 'production', '+30 clean energy', 'Clean power from the wind — no wood, no smoke.', 'energy'),
   b('solarfarm', 'production', '+45 clean energy', 'Solar panels — clean power during the day.', 'energy'),
   b('airport', 'production', 'Flights', 'Planes bring tourists from far away and trade goods: surplus food, wood, stone and iron is sold, missing goods are bought.', 'globe'),
@@ -186,6 +194,7 @@ export class Hud {
     nav.appendChild(this.iconButton('menu', t('Menu'), h.openMenu));
     for (const [ic, label, fn, secondary] of panels) {
       const b = this.iconButton(ic, t(label), fn);
+      this.navBtn.set(ic, b);
       if (secondary) b.classList.add('nav-sec');
       nav.appendChild(b);
       if (secondary) {
@@ -304,6 +313,19 @@ export class Hud {
 
     this.root.append(top, corner, this.hint, this.toastEl, this.pendingEl, this.drawer, bar);
     parent.appendChild(this.root);
+  }
+
+  private navBtn = new Map<IconName, HTMLButtonElement>();
+
+  /** A small counter on a top-bar button (e.g. unanswered letters). */
+  setBadge(name: IconName, n: number) {
+    const b = this.navBtn.get(name);
+    if (!b) return;
+    let badge = b.querySelector('.nav-badge') as HTMLSpanElement | null;
+    if (n <= 0) { badge?.remove(); return; }
+    if (!badge) { badge = el('span', 'nav-badge'); b.appendChild(badge); }
+    const text = n > 9 ? '9+' : `${n}`;
+    if (badge.textContent !== text) badge.textContent = text;
   }
 
   private moneyIn = 0;

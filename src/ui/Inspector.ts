@@ -32,7 +32,13 @@ export class Inspector {
     parent.appendChild(this.root);
   }
 
+  private sig = '';
+
   show(v: InspectorView) {
+    // nothing changed: keep the DOM (and the buttons under the cursor) as they are
+    const sig = JSON.stringify(v);
+    if (v.key === this.key && sig === this.sig && this.root.classList.contains('show')) return;
+    this.sig = sig;
     const list = this.root.querySelector('.ins-list') as HTMLDivElement | null;
     const same = v.key === this.key;
     const scroll = same && list ? list.scrollTop : 0;
@@ -146,6 +152,7 @@ export class Inspector {
 
   hide() {
     this.key = '';
+    this.sig = '';
     this.root.classList.remove('show');
   }
 }
