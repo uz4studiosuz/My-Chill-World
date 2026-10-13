@@ -2,7 +2,7 @@ import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
 
 export interface InspectorBar { label: string; value: number; color: string; text?: string }
-export interface InspectorPerson { id: number; icon: string; name: string; detail: string; warn?: boolean }
+export interface InspectorPerson { id: number; icon: string; name: string; detail: string; warn?: boolean; onClick?: () => void }
 export interface InspectorAction { label: string; icon?: IconName; active?: boolean; onClick: () => void }
 
 export interface InspectorView {
@@ -34,7 +34,10 @@ export class Inspector {
 
   show(v: InspectorView) {
     const list = this.root.querySelector('.ins-list') as HTMLDivElement | null;
-    const scroll = v.key === this.key && list ? list.scrollTop : 0;
+    const same = v.key === this.key;
+    const scroll = same && list ? list.scrollTop : 0;
+    // the panel itself scrolls too: keep its position while the same thing refreshes
+    const panelScroll = same ? this.root.scrollTop : 0;
     this.key = v.key;
     this.root.replaceChildren();
 
@@ -120,7 +123,7 @@ export class Inspector {
         d.textContent = p.detail;
         txt.append(n, d);
         row.append(ic, txt);
-        row.addEventListener('click', () => this.onPerson(p.id));
+        row.addEventListener('click', () => (p.onClick ? p.onClick() : this.onPerson(p.id)));
         l.appendChild(row);
       }
       this.root.appendChild(l);
@@ -138,6 +141,7 @@ export class Inspector {
       this.root.appendChild(acts);
     }
     this.root.classList.add('show');
+    this.root.scrollTop = panelScroll;
   }
 
   hide() {

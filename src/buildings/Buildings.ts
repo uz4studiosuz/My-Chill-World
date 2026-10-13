@@ -62,6 +62,9 @@ export interface Building {
   /** Family that owns this business (-1 = owned by the city). */
   owner: number;
   scaffold?: THREE.LineSegments;
+  /** Floating construction status above a building site. */
+  label?: THREE.Sprite;
+  labelText?: string;
   /** Cemetery extension: the cemetery it belongs to. Cemetery: its extensions. */
   parent?: number;
   ext?: number[];
@@ -182,6 +185,9 @@ export class Buildings {
   private cowMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private animTime = 0;
   private dying: { mesh: THREE.Object3D; t: number }[] = [];
+  /** Status shown above a construction site (progress, builders or why it is waiting). */
+  siteLabel?: (b: Building) => { text: string; ok: boolean };
+  private labelT = 0;
   /** Called when a building finishes construction. */
   onBuilt: (b: Building) => void = () => {};
 
@@ -303,6 +309,36 @@ export class Buildings {
     return b;
   }
 
+  private updateLabel(b: Building) {
+    if (b.built >= 1 || b.removed || !this.siteLabel) {
+      if (b.label) {
+        b.mesh.remove(b.label);
+        (b.label.material as THREE.SpriteMaterial).map?.dispose();
+        b.label.material.dispose();
+        b.label = undefined;
+      }
+      return;
+    }
+    const info = this.siteLabel(b);
+    const key = `${Math.floor(b.built * 100)}|${info.text}|${info.ok}`;
+    if (!b.label) {
+      b.label = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: false, transparent: true }));
+      b.label.renderOrder = 20;
+      b.mesh.add(b.label);
+    }
+    // the label must not shrink with the growing building
+    const s = BUILDINGS[b.kind].size;
+    const sy = Math.max(0.05, b.mesh.scale.y);
+    b.label.scale.set(1.9 / b.mesh.scale.x, 0.6 / sy, 1);
+    b.label.position.set(0, (0.9 + s * 0.55) / sy, 0);
+    if (b.labelText === key) return;
+    b.labelText = key;
+    const mat = b.label.material as THREE.SpriteMaterial;
+    mat.map?.dispose();
+    mat.map = drawLabel(b.built, info.text, info.ok);
+    mat.needsUpdate = true;
+  }
+
   /** Cemetery upgrades add a monument and cypresses. */
   setLevel(b: Building, level: number) {
     b.level = level;
@@ -374,7 +410,11 @@ export class Buildings {
       const tt = this.animTime * 0.35;
       this.screenMat.color.setHSL((Math.sin(tt) * 0.5 + 0.5) * 0.7, 0.45, 0.45 + Math.sin(tt * 3.1) * 0.1);
     } else this.screenMat.color.set('#2a2f36');
+    this.labelT -= dt;
+    const relabel = this.labelT <= 0;
+    if (relabel) this.labelT = 0.4;
     for (const b of this.list) {
+      if (relabel) this.updateLabel(b);
       const body = b.mesh.children[0] as THREE.Mesh | undefined;
       if (body) {
         const want = b.built >= 1 && b.powered && b.fire <= 0 ? this.mat : this.darkMat;
@@ -562,6 +602,37 @@ export class Buildings {
 }
 
 const LAMP_ON = new THREE.Color('#ffe2a0');
+
+/** A little sign drawn on a canvas: progress in big letters, the status below, and a progress bar. */
+function drawLabel(progress: number, text: string, ok: boolean) {
+  const c = document.createElement('canvas');
+  c.width = 640; c.height = 200;
+  const g = c.getContext('2d')!;
+  g.fillStyle = 'rgba(26,29,34,0.94)';
+  g.beginPath(); g.roundRect(4, 4, 632, 192, 26); g.fill();
+  g.textBaseline = 'middle';
+  g.fillStyle = ok ? '#f2a93b' : '#f07167';
+  g.font = 'bold 54px Nunito, system-ui, sans-serif';
+  g.fillText(`${Math.floor(progress * 100)}%`, 28, 50);
+  g.fillStyle = '#eceef1';
+  g.font = 'bold 38px Nunito, system-ui, sans-serif';
+  // status on up to two lines
+  const words = text.split(' ');
+  const lines: string[] = [''];
+  for (const w of words) {
+    const tryLine = lines[lines.length - 1] ? `${lines[lines.length - 1]} ${w}` : w;
+    if (g.measureText(tryLine).width > 580 && lines[lines.length - 1]) { if (lines.length === 2) { lines[1] += '…'; break; } lines.push(w); }
+    else lines[lines.length - 1] = tryLine;
+  }
+  lines.forEach((l, i) => g.fillText(l, 28, 102 + i * 38));
+  g.fillStyle = '#343a43';
+  g.beginPath(); g.roundRect(170, 36, 440, 28, 14); g.fill();
+  g.fillStyle = ok ? '#f2a93b' : '#f07167';
+  g.beginPath(); g.roundRect(170, 36, Math.max(28, 440 * progress), 28, 14); g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 
 function easeOutBack(t: number) {
   const c1 = 1.70158, c3 = c1 + 1;

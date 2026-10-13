@@ -62,7 +62,7 @@ export const ITEMS: ToolItem[] = [
   b('bank', 'business', 'Finance', 'Pays business tax to the town and employs skilled people.', 'coin'),
   b('gasstation', 'business', 'Fuel', 'Sells fuel to the town\'s drivers and pays business tax.', 'energy'),
   b('office', 'business', '24 jobs', 'Workplace with parking spaces in front.', 'office'),
-  b('construction', 'business', 'Builders', 'Builders work here. Buildings are completed faster when the city has a construction company.', 'quarry'),
+  b('construction', 'business', 'Builders', 'Builders work here: they walk to every construction site and build it. Without a construction company nothing can be built (it can build itself and a Town Hall slowly).', 'quarry'),
   b('windturbine', 'production', '+30 clean energy', 'Clean power from the wind — no wood, no smoke.', 'energy'),
   b('solarfarm', 'production', '+45 clean energy', 'Solar panels — clean power during the day.', 'energy'),
   b('trainstation', 'production', 'Railway', 'Connect two stations with a railway: trains share goods between cities and bring visitors.', 'rail'),
@@ -308,11 +308,11 @@ export class Hud {
     tag.textContent = t(it.tag);
     const cost = el('div', 'cost');
     const parts = [];
-    if (it.money) parts.push(`${icon('coin')}${it.money}`);
-    if (it.stone) parts.push(`${icon('stone')}${it.stone}`);
-    if (it.wood) parts.push(`${icon('wood')}${it.wood}`);
-    if (it.iron) parts.push(`${icon('iron')}${it.iron}`);
-    cost.innerHTML = parts.length ? parts.join(' ') + (it.perTile ? `<i>/${t('tile')}</i>` : '') : t('Free');
+    if (it.money) parts.push(`<span>${icon('coin')}${it.money}</span>`);
+    if (it.stone) parts.push(`<span>${icon('stone')}${it.stone}</span>`);
+    if (it.wood) parts.push(`<span>${icon('wood')}${it.wood}</span>`);
+    if (it.iron) parts.push(`<span>${icon('iron')}${it.iron}</span>`);
+    cost.innerHTML = parts.length ? parts.join('') + (it.perTile ? `<i>/${t('tile')}</i>` : '') : `<span>${t('Free')}</span>`;
     btn.title = t(it.desc);
     const showDesc = () => { if (this.descEl) this.descEl.textContent = t(it.desc); };
     btn.addEventListener('mouseenter', showDesc);

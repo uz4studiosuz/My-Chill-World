@@ -28,6 +28,8 @@ export interface Walker {
   anim: 'none' | 'chop' | 'farm' | 'play' | 'cheer' | 'sit';
   /** Standing raised above the ground (stadium stands, benches). */
   lift?: number;
+  /** Not drawn (the first-person camera is inside this person's head). */
+  hidden?: boolean;
   phase: number;
   onArrive?: (w: Walker) => void;
   onHoldEnd?: (w: Walker) => void;
@@ -207,6 +209,7 @@ export class Walkers {
     const counts = new Array(PERSON_VARIANTS).fill(0);
     let nb = 0, nl = 0, ns = 0;
     for (const w of this.list) {
+      if (w.hidden) continue;
       const tt = this.time * 9 + w.phase;
       const walking = w.hold <= 0 && !w.leaving;
       let bob = walking ? Math.abs(Math.sin(tt)) * 0.008 : 0;

@@ -13,7 +13,7 @@ import { BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, M
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
-import { Population, Citizen } from '../people/Population';
+import { Population, Citizen, Family } from '../people/Population';
 import { townName } from '../people/names';
 import { sound } from '../audio/Sound';
 import { GoalContext, Goals } from '../sim/Goals';
@@ -24,7 +24,7 @@ import { Guide } from '../ui/Guide';
 import { StreetLights } from '../roads/StreetLights';
 import { Railway, Station } from '../rail/Railway';
 import { Newspaper } from '../ui/Newspaper';
-import { Walkers } from '../people/Walkers';
+import { Walker, Walkers } from '../people/Walkers';
 import { Traffic, Vehicle } from '../traffic/Traffic';
 import { Animals } from '../animals/Animals';
 import { Effects } from '../fx/Effects';
@@ -124,6 +124,8 @@ export class Game implements ToolHost {
   private eventLog?: EventLog;
   private petitions?: PetitionsPanel;
   private petitionTick = 0;
+  /** Family opened inside an apartment block's panel. */
+  private aptFamily: number | null = null;
   /** First-person view: whose eyes we look through. */
   private pov: Selection = null;
   readonly povCam = new THREE.PerspectiveCamera(72, 1, 0.01, 90);
@@ -234,6 +236,12 @@ export class Game implements ToolHost {
     this.beam.visible = false;
     this.footpaths.attach = (k) => this.buildings.occ[k] !== -1 || this.net.type[k] !== 0;
     this.canals.attach = (k) => this.buildings.at(k)?.kind === 'farm';
+    this.buildings.siteLabel = (b) => {
+      const crew = this.life.crewSize(b);
+      if (crew) return { text: t('{n} builders at work', { n: crew }), ok: true };
+      const why = this.life.siteProblem(b);
+      return { text: why ? t(why) : t('Building…'), ok: !why || why === 'Builders are on their way' };
+    };
     this.buildings.onBuilt = (b) => {
       this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.6, 16, ['#f2e6c4', '#ffffff', '#c9b88a']);
       this.pop.assign(this.buildings);
@@ -390,8 +398,16 @@ export class Game implements ToolHost {
     this.povPos.set(NaN, 0, 0);
   }
 
+  /** Hide the person we look through (only one at a time). */
+  private hideInPov(w?: Walker) {
+    if (this.povHidden && this.povHidden !== w) this.povHidden.hidden = false;
+    this.povHidden = w;
+    if (w) w.hidden = true;
+  }
+
   exitPov() {
     if (!this.pov) return;
+    this.hideInPov(undefined);
     const s = this.pov;
     this.pov = null;
     document.body.classList.remove('pov-mode');
@@ -421,19 +437,25 @@ export class Game implements ToolHost {
         x = v.x; z = v.z; hx = v.hx; hz = v.hz; y = v.trip.kind === 'bus' ? 0.2 : 0.15;
       } else if (c.walker && !c.walker.leaving) {
         const w = c.walker;
-        const sc = w.scale;
-        x = w.x + w.hx * 0.025 * sc; z = w.z + w.hz * 0.025 * sc; hx = w.hx; hz = w.hz; y = 0.165 * sc + 0.005;
+        this.hideInPov(w);
+        x = w.x; z = w.z; hx = w.hx; hz = w.hz; y = 0.16 * w.scale;
       } else {
-        // indoors: stand at the door and look out to the street
-        const b = this.buildings.get(c.at);
+        // indoors: stand at the door and look out to the street until they come out again
+        const b = this.buildings.get(c.at) ?? this.buildings.get(this.pop.families.get(c.family)?.home ?? -1);
         if (!b) return this.exitPov();
+        label = `${c.name} · ${t('inside: {name}', { name: t(BUILDINGS[b.kind].name) })} · ${t(c.activity)}`;
+        // stand in the street in front of the building and look at it, like waiting for them to come out
         const d = this.buildings.door(b);
         const dx = d.x - b.mesh.position.x, dz = d.z - b.mesh.position.z, l = Math.hypot(dx, dz) || 1;
-        hx = dx / l; hz = dz / l; x = d.x + hx * 0.05; z = d.z + hz * 0.05;
+        const back = 0.55 + BUILDINGS[b.kind].size * 0.35;
+        hx = -dx / l; hz = -dz / l; x = d.x - hx * back; z = d.z - hz * back; y = 0.17;
       }
     } else return this.exitPov();
-    if (Number.isNaN(this.povPos.x)) { this.povPos.set(x, y, z); this.povDir.set(hx, 0, hz); }
-    this.povPos.lerp(this.povTmp.set(x, y, z), Math.min(1, dt * 8));
+    if (Number.isNaN(this.povPos.x)) this.povDir.set(hx, 0, hz);
+    // the eyes stay exactly on the person (a lagging camera would end up behind their head)
+    const jump = Number.isNaN(this.povPos.x) || this.povPos.distanceTo(this.povTmp.set(x, y, z)) > 1.5;
+    if (jump) this.povPos.set(x, y, z);
+    else this.povPos.lerp(this.povTmp.set(x, y, z), Math.min(1, dt * 30));
     this.povDir.lerp(this.povTmp.set(hx, 0, hz), Math.min(1, dt * 4)).normalize();
     const yaw = Math.atan2(this.povDir.x, this.povDir.z) + this.povLook.yaw;
     const cp = Math.cos(this.povLook.pitch);
@@ -448,6 +470,7 @@ export class Game implements ToolHost {
   }
 
   private povTmp = new THREE.Vector3();
+  private povHidden?: Walker;
 
   update(dt: number) {
     // fast speeds are split into small steps so cars, walkers and the economy stay stable
@@ -644,6 +667,10 @@ export class Game implements ToolHost {
     }
     if (!this.eco.canAfford(def.money, def.stone, def.wood, def.iron)) {
       return { ok: false, reason: t('Needs {cost}', { cost: costText(def.money, def.stone, def.wood, def.iron) }) };
+    }
+    // builders come from a construction company — without one nothing can be built (except the company and a Town Hall)
+    if (kind !== 'townhall' && kind !== 'construction' && !this.buildings.list.some((b) => b.kind === 'construction' && b.city === this.eco.active)) {
+      return { ok: false, reason: t('Build a Construction Company first — its builders build everything else') };
     }
     return { ok: true, money: def.money, stone: def.stone, wood: def.wood, iron: def.iron };
   }
@@ -934,7 +961,7 @@ export class Game implements ToolHost {
   }
 
   private select(s: Selection) {
-    if (s?.type !== this.selection?.type || s?.id !== this.selection?.id) this.following = false;
+    if (s?.type !== this.selection?.type || s?.id !== this.selection?.id) { this.following = false; this.aptFamily = null; }
     this.selection = s;
     if (!s) this.inspector?.hide();
     else this.refreshInspector();
@@ -1032,7 +1059,9 @@ export class Game implements ToolHost {
     const b = this.buildings.get(s.id);
     if (!b) return this.select(null);
     if (b.kind === 'cemeteryext' && b.parent !== undefined) { const p = this.buildings.get(b.parent); if (p) { this.selection = { type: 'building', id: p.id }; return this.refreshInspector(); } }
-    const view = b.kind === 'apartment' ? this.apartmentView(b) : b.kind === 'house' ? this.houseView(b) : b.kind === 'townhall' ? this.cityView(b) : this.buildingView(b);
+    const aptFam = b.kind === 'apartment' && this.aptFamily !== null ? this.pop.families.get(this.aptFamily) : undefined;
+    if (b.kind === 'apartment' && (!aptFam || aptFam.home !== b.id)) this.aptFamily = null;
+    const view = aptFam && aptFam.home === b.id ? this.familyView(aptFam, b) : b.kind === 'apartment' ? this.apartmentView(b) : b.kind === 'house' ? this.houseView(b) : b.kind === 'townhall' ? this.cityView(b) : this.buildingView(b);
     view.actions = [...(view.actions ?? []), ...this.buildingActions(b)];
     this.inspector.show(view);
   }
@@ -1272,7 +1301,6 @@ export class Game implements ToolHost {
   private apartmentView(b: Building): InspectorView {
     const families = [...this.pop.families.values()].filter((f) => f.home === b.id);
     const owner = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
-    const people = families.flatMap((f) => this.pop.members(f));
     return {
       key: `b${b.id}`, badge: '🏢', badgeColor: KIND_BADGE.apartment[1], title: t('Apartment Block'),
       subtitle: t('{a} of {b} flats taken', { a: families.length, b: BUILDINGS.apartment.units }),
@@ -1284,10 +1312,15 @@ export class Game implements ToolHost {
         [t('Rent'), `$${RENT}/${t('day')} ${t('per flat')}`],
         [t('Power'), b.powered ? t('Yes') : t('No'), b.powered ? 'good' : 'bad'],
       ],
-      listTitle: t('Residents'),
-      people: people.map((c) => {
-        const f = this.pop.families.get(c.family);
-        return { id: c.id, icon: this.personIcon(c), name: `${c.name} ${f?.surname ?? ''}`, detail: `${t('{n} years', { n: Math.floor(c.age) })} · ${t(c.activity)}`, warn: c.hunger < 25 || c.health < 50 };
+      listTitle: t('Families'),
+      people: families.map((f, i) => {
+        const m = this.pop.members(f);
+        return {
+          id: -1, icon: '👪', name: t('{name} family', { name: f.surname }),
+          detail: `${t('Flat {n}', { n: i + 1 })} · ${t('{n} people', { n: m.length })} · $${Math.floor(f.money).toLocaleString('en-US')}`,
+          warn: m.some((c) => c.hunger < 25 || c.health < 50),
+          onClick: () => { this.aptFamily = f.id; this.refreshInspector(); },
+        };
       }),
     };
   }
@@ -1300,15 +1333,22 @@ export class Game implements ToolHost {
         rows: [[t('Road'), b.access >= 0 ? t('Connected') : t('No road access'), b.access >= 0 ? 'good' : 'bad'], [t('Power'), b.powered ? t('Yes') : t('No'), b.powered ? 'good' : 'bad']],
       };
     }
+    return this.familyView(f, b);
+  }
+
+  /** A family's panel: in their house, or a flat of an apartment block. */
+  private familyView(f: Family, b: Building): InspectorView {
+    const inFlat = b.kind === 'apartment';
     const people = this.pop.members(f).sort((a, c) => c.age - a.age);
     const avg = (fn: (c: Citizen) => number) => people.reduce((a, c) => a + fn(c), 0) / Math.max(1, people.length);
     const car = f.car ? (f.car.at === 'home' ? t('Parked at home') : f.car.at === 'away' ? t('Parked at work') : t('On the road')) : t('No car — they walk');
     return {
-      key: `b${b.id}`,
-      badge: '🏠',
-      badgeColor: KIND_BADGE.house[1],
+      key: `b${b.id}f${f.id}`,
+      badge: inFlat ? '🏢' : '🏠',
+      badgeColor: KIND_BADGE[b.kind][1],
       title: t('{name} family', { name: f.surname }),
-      subtitle: t('{n} people', { n: people.length }),
+      subtitle: inFlat ? `${t('Apartment Block')} · ${t('{n} people', { n: people.length })}` : t('{n} people', { n: people.length }),
+      actions: inFlat ? [{ label: t('Back to the building'), icon: 'office', onClick: () => { this.aptFamily = null; this.refreshInspector(); } }] : undefined,
       bars: [
         { label: t('Food'), value: avg((c) => c.hunger) / 100, color: barColor(avg((c) => c.hunger) / 100) },
         { label: t('Health'), value: avg((c) => c.health) / 100, color: barColor(avg((c) => c.health) / 100) },
@@ -1348,7 +1388,9 @@ export class Game implements ToolHost {
       tags.push({ text: t('Under construction'), tone: 'info' });
       bars.push({ label: t('Construction'), value: b.built, color: '#f2b33d' });
       const crew = this.life.crewSize(b);
-      rows.push([t('Builders on site'), crew ? `${crew}` : t('None — build a construction company'), crew ? 'good' : undefined]);
+      const why = this.life.siteProblem(b);
+      rows.push([t('Builders on site'), `${crew}`, crew ? 'good' : 'bad']);
+      if (why) rows.push([t('Status'), t(why), why === 'Builders are on their way' ? undefined : 'bad']);
     }
     if (b.fire > 0) tags.push({ text: t('On fire!'), tone: 'bad' });
     if (def.energy) tags.push(b.powered ? { text: t('Powered'), tone: 'good' } : { text: t('No power'), tone: 'bad' });
@@ -1954,6 +1996,13 @@ export class Game implements ToolHost {
       if (this.terrain.treesNear(x, z, 6) >= 10) { best = { x, z }; bestD = d; }
     }
     if (best) put('woodcutter', best.x, best.z);
+    // a construction company: its builders put up everything the player builds
+    let yard: Tile | null = null, yardD = Infinity;
+    for (let z = c - 12; z <= c + 12; z++) for (let x = c - 12; x <= c + 12; x++) {
+      const d = Math.abs(x - c) + Math.abs(z - c);
+      if (d < yardD && this.buildings.check('construction', x, z).ok && !this.terrain.trees.has(idx(x, z))) { yard = { x, z }; yardD = d; }
+    }
+    if (yard) put('construction', yard.x, yard.z);
     let quarry: Tile | null = null, quarryD = Infinity;
     for (let z = c - 34; z <= c + 34; z++) for (let x = c - 34; x <= c + 34; x++) {
       const d = Math.abs(x - c) + Math.abs(z - c);

@@ -73,6 +73,8 @@ const BRIDGE_UPKEEP = 0.5;
 const WORK_FROM = 0.33, WORK_TO = 0.73;
 
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+/** Built without a construction company (slowly). */
+const SELF_BUILT: Partial<Record<string, boolean>> = { townhall: true, construction: true };
 
 export const PROMISE_TEXT: Record<PromiseKind, string> = {
   tax: 'promises lower taxes', park: 'promises a new park', hospital: 'promises a hospital', school: 'promises a new school', jobs: 'promises jobs for everyone',
@@ -485,6 +487,8 @@ export class Life {
     const owners = new Set(buildings.list.map((b) => b.owner));
     const rich = families.filter((f) => !owners.has(f.id));
     if (!rich.length) return;
+    // nobody can build without a working construction company
+    const canBuild = buildings.list.some((b) => b.kind === 'construction' && b.city === cityId && b.built >= 1 && b.workers > 0);
 
     // 1) buy a finished business the city still owns
     if (Math.random() < 0.35) {
@@ -502,6 +506,7 @@ export class Life {
     }
 
     // private construction is slow and only answers a real need: at most one project every few days
+    if (!canBuild) return;
     if (eco.day - (this.privateBuild.get(cityId) ?? -99) < 3 || Math.random() > 0.35) return;
     // 2a) a businessman builds an apartment block to rent out when homes run short in a bigger town
     if (this.freeHomes(cityId).length < 2 && (this.people.get(cityId) ?? 0) >= 60) {
@@ -1893,10 +1898,22 @@ export class Life {
    * Construction speed of one site: slow on its own, much faster while builders from a construction company work on it.
    */
   buildSpeed(b: Building) {
-    const crew = this.crews.get(b.id);
-    let n = 0;
-    if (crew) for (const id of crew) if (this.c.pop.citizens.get(id)?.activity === 'Building') n++;
-    return 0.5 + 0.6 * Math.min(4, n);
+    const n = Math.min(4, this.crewSize(b));
+    // a Town Hall and the construction company itself go up slowly with hired hands; everything else needs builders
+    if (SELF_BUILT[b.kind]) return 0.5 + 0.6 * n;
+    return 0.65 * n;
+  }
+
+  /** Why a construction site is not progressing (null when builders are on it). */
+  siteProblem(b: Building): string | null {
+    if (this.crewSize(b) > 0 || SELF_BUILT[b.kind]) return null;
+    const yards = this.c.buildings.list.filter((y) => y.kind === 'construction' && y.city === b.city);
+    if (!yards.length) return 'No builders — build a Construction Company';
+    if (!yards.some((y) => y.built >= 1)) return 'Waiting for the Construction Company to be finished';
+    if (!yards.some((y) => y.workers > 0)) return 'The Construction Company has no workers';
+    const tod = this.c.eco.timeOfDay;
+    if (tod < 0.3 || tod > 0.75) return 'Builders work from 8:00 to 18:00';
+    return 'Builders are on their way';
   }
 
   crewSize(b: Building) {
