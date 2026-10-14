@@ -791,6 +791,12 @@ export class Life {
       this.elect(city, belongs, say);
       this.upgradeHouses(city.id, say);
       for (const inc of r.incidents) if (inc.kind === 'accident') this.crash(city.id);
+      // the injured of a crash are fetched by an ambulance
+      for (const inc of r.incidents) {
+        const v = inc.kind === 'accident' && inc.id !== undefined ? pop.citizens.get(inc.id) : undefined;
+        const home = v && buildings.get(pop.families.get(v.family)?.home ?? -1);
+        if (v && home) this.leisure.later(5 + Math.random() * 40, () => { if (this.alive(v)) this.leisure.ambulance(v, home); });
+      }
       for (const inc of r.incidents) {
         if (inc.kind === 'fight') say(t('{a} and {b} got into a fight', { a: inc.a, b: inc.b ?? '' }));
         else if (inc.kind === 'accident') say(t('{a} was hurt in a car accident', { a: inc.a }) + (inc.wrecked ? ` — ${t('the car was wrecked')}` : ''));
@@ -2447,6 +2453,7 @@ export class Life {
     if (work === 'woodcutter') this.woodcutterLoop(c, b);
     else if (work === 'farmer') this.farmLoop(c, b);
     else if (work === 'builder') this.builderLoop(c, b);
+    else if (work === 'miner') this.mineLoop(c, b);
     else if (c.walker) { this.c.walkers.dismiss(c.walker); c.walker = undefined; }
   }
 
@@ -3242,6 +3249,49 @@ export class Life {
         }, 'log');
       }, treeCenter);
     }, 'none', stand);
+  }
+
+  /**
+   * Quarrymen and miners work outside at the rock face next to their quarry or mine: they walk to the nearest
+   * mountain tile, hack at it (dust and chips fly — grey stone, black coal, rusty iron), and move on now and then.
+   */
+  private mineLoop(c: Citizen, site: Building) {
+    const { buildings, walkers, eco, effects, map } = this.c;
+    const atWork = () => this.alive(c) && c.state === 'away' && c.at === site.id && !site.removed && eco.timeOfDay < c.returnAt;
+    if (!atWork()) return;
+    const s = BUILDINGS[site.kind].size;
+    // the rock faces around the site: mountain tiles with open ground beside them
+    const faces: { rock: number; stand: { x: number; z: number } }[] = [];
+    for (let z = site.z - 4; z < site.z + s + 4; z++) for (let x = site.x - 4; x < site.x + s + 4; x++) {
+      if (x < 1 || z < 1 || x >= N - 1 || z >= N - 1) continue;
+      const k = z * N + x;
+      if (map.height[k] <= 0) continue;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nk = (z + dz) * N + x + dx;
+        if (map.height[nk] > 0 || map.water[nk] || buildings.occ[nk] !== -1) continue;
+        faces.push({ rock: k, stand: { x: tileToWorld(x + dx) - dx * 0.18, z: tileToWorld(z + dz) - dz * 0.18 } });
+      }
+    }
+    if (!faces.length) { if (c.walker) { walkers.dismiss(c.walker); c.walker = undefined; } c.activity = 'No rock left to dig'; return; }
+    const f = faces[Math.floor(Math.random() * Math.min(faces.length, 8))];
+    const rockAt = { x: tileToWorld(f.rock % N), z: tileToWorld((f.rock / N) | 0) };
+    const dust = site.kind === 'coalmine' ? ['#2a2d31', '#4a4f57', '#8d8a83'] : site.kind === 'ironmine' ? ['#8a4b2e', '#a7a196', '#6b4a3a'] : ['#bdb7aa', '#d8d2c4', '#8d8a83'];
+    const outside = c.walker && !c.walker.leaving;
+    const start = outside ? { x: c.walker!.x, z: c.walker!.z } : buildings.door(site);
+    const startTile = outside ? tileAt(start) : buildings.frontTile(site);
+    c.activity = site.kind === 'quarry' ? 'Walking to the rock face' : 'Walking into the mine';
+    this.walk(c, start, startTile, null, () => {
+      let hits = 3 + Math.floor(Math.random() * 4);
+      const hack = () => {
+        const w = c.walker;
+        if (!w || !atWork()) return;
+        c.activity = site.kind === 'quarry' ? 'Breaking stone' : site.kind === 'coalmine' ? 'Digging coal' : 'Digging iron ore';
+        if (Math.random() < 0.6) effects.puff(f.stand.x + (rockAt.x - f.stand.x) * 0.5, f.stand.z + (rockAt.z - f.stand.z) * 0.5, 0.18, 4, dust);
+        if (--hits <= 0) { this.mineLoop(c, site); return; }
+        walkers.holdFor(w, 1.4, 'chop', hack, rockAt);
+      };
+      hack();
+    }, 'none', f.stand);
   }
 
   /**

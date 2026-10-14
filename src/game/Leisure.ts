@@ -612,11 +612,11 @@ export class Leisure {
     // the sick are fetched by ambulance (a couple per day, spread over the morning)
     let sent = 0;
     for (const c of pop.citizens.values()) {
-      if (sent >= 3 || c.health >= 35 || c.state !== 'home') continue;
+      if (sent >= 4 || c.health >= 45 || this.calls.has(c.id)) continue;
       const home = buildings.get(pop.families.get(c.family)?.home ?? -1);
       if (!home || home.city !== city.id) continue;
       sent++;
-      this.later(rnd(2, 30), () => { if (pop.citizens.get(c.id) === c) this.ambulance(c, home); });
+      this.later(rnd(2, 60), () => { if (pop.citizens.get(c.id) === c && c.state === 'home') this.ambulance(c, home); });
     }
     // decorations cheer up the homes around them
     const homes = own.filter((b) => BUILDINGS[b.kind].units);

@@ -103,7 +103,7 @@ export interface DeathReport {
   age: number;
 }
 
-export interface Incident { kind: 'fight' | 'accident' | 'murder'; a: string; b?: string; /** The family car was wrecked. */ wrecked?: boolean }
+export interface Incident { kind: 'fight' | 'accident' | 'murder'; a: string; b?: string; /** The family car was wrecked. */ wrecked?: boolean; /** The injured person. */ id?: number }
 
 export interface DailyOptions {
   /** Extra daily health recovery from hospitals and parks. */
@@ -588,7 +588,7 @@ export class Population {
           const fam = this.families.get(v.family);
           const wrecked = !!fam?.car && fam.car.at !== 'moving';
           if (wrecked) { fam!.car = null; for (const m of this.members(fam!)) if (m.age >= 18) this.note(m, 'The family car was wrecked in a crash'); }
-          r.incidents.push({ kind: 'accident', a: v.name, wrecked });
+          r.incidents.push({ kind: 'accident', a: v.name, wrecked, id: v.id });
           // some crashes are fatal
           if (v.health <= 0 || Math.random() < 0.12) die(v, 'accident');
         }

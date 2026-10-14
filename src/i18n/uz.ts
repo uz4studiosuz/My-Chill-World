@@ -2632,4 +2632,10 @@ export const UZ: Record<string, string> = {
   "Walking to a road site": "Yo'l qurilishiga ketmoqda",
   "Laying a road": "Yo'l qurmoqda",
   "Roads are laid by builders: build a Construction Company": "Yo'llarni ustalar quradi: Qurilish kompaniyasini quring",
+  "Walking to the rock face": "Tosh qoyasiga ketmoqda",
+  "Walking into the mine": "Konga ketmoqda",
+  "Breaking stone": "Tosh chopmoqda",
+  "Digging coal": "Ko'mir qazimoqda",
+  "Digging iron ore": "Temir rudasi qazimoqda",
+  "No rock left to dig": "Qaziydigan tosh qolmadi",
 };

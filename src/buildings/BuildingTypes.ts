@@ -9,7 +9,7 @@ export type BuildingKind =
 
 
 /** How a building's workers behave while at work. */
-export type WorkStyle = 'indoor' | 'woodcutter' | 'farmer' | 'builder';
+export type WorkStyle = 'indoor' | 'woodcutter' | 'farmer' | 'builder' | 'miner';
 
 /** Parking slot in local model space: x, z, rotation. Models face +z (towards the road). */
 export type Slot = [number, number, number];
@@ -70,7 +70,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   weddinghall: def({ kind: 'weddinghall', name: 'Wedding Hall', size: 1, money: 600, stone: 15, wood: 10, jobs: 1, salary: 14, publicJob: true, upkeep: 2, energy: 1 }),
   watertower: def({ kind: 'watertower', name: 'Water Tower', size: 1, money: 500, stone: 20, jobs: 1, salary: 12, publicJob: true, upkeep: 3, energy: 2, water: 160 }),
   parking: def({ kind: 'parking', name: 'Parking Lot', size: 2, money: 300, stone: 10, upkeep: 2, slots: PARKING_LOT_SLOTS, energy: 1 }),
-  quarry: def({ kind: 'quarry', name: 'Stone Quarry', size: 2, money: 800, wood: 10, jobs: 8, salary: 14, upkeep: 6, needsRoad: false, energy: 3 }),
+  quarry: def({ kind: 'quarry', name: 'Stone Quarry', size: 2, money: 800, wood: 10, jobs: 8, salary: 14, upkeep: 6, needsRoad: false, energy: 3 , work: 'miner' }),
   woodcutter: def({ kind: 'woodcutter', name: 'Woodcutter', size: 1, money: 250, stone: 5, jobs: 3, salary: 11, needsRoad: false, work: 'woodcutter', energy: 1 }),
   powerplant: def({ kind: 'powerplant', name: 'Wood Power Plant', size: 2, money: 1000, stone: 30, wood: 10, jobs: 4, salary: 15, publicJob: true, upkeep: 5, power: 90 }),
   farm: def({ kind: 'farm', name: 'Crop Farm', size: 3, money: 400, wood: 5, jobs: 4, salary: 10, food: 90, needsRoad: false, work: 'farmer', energy: 1 }),
@@ -90,7 +90,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   apartment: def({ kind: 'apartment', name: 'Apartment Block', size: 2, money: 2200, stone: 50, wood: 20, iron: 10, housing: 10, units: 6, upkeep: 2, energy: 8,
     slots: [[-0.75, 0.75, 0], [-0.45, 0.75, 0], [-0.15, 0.75, 0], [0.15, 0.75, 0], [0.45, 0.75, 0], [0.75, 0.75, 0]] }),
   cemeteryext: def({ kind: 'cemeteryext', name: 'Cemetery Extension', size: 2, needsRoad: false, buildable: false }),
-  ironmine: def({ kind: 'ironmine', name: 'Iron Mine', size: 2, money: 900, wood: 15, jobs: 6, salary: 15, upkeep: 4, needsRoad: false, energy: 4 }),
+  ironmine: def({ kind: 'ironmine', name: 'Iron Mine', size: 2, money: 900, wood: 15, jobs: 6, salary: 15, upkeep: 4, needsRoad: false, energy: 4 , work: 'miner' }),
   fishery: def({ kind: 'fishery', name: 'Fishing Hut', size: 1, money: 350, wood: 10, jobs: 2, salary: 10, food: 25, needsRoad: false, work: 'indoor', energy: 0.5 }),
   police: def({ kind: 'police', name: 'Police Station', size: 1, money: 1200, stone: 20, wood: 10, jobs: 4, salary: 18, publicJob: true, upkeep: 5, energy: 3 }),
   park: def({ kind: 'park', name: 'Park', size: 2, money: 400, wood: 10, jobs: 1, salary: 10, publicJob: true, upkeep: 2, heal: 4, needsRoad: false, energy: 1 }),
@@ -109,7 +109,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   brickworks: def({ kind: 'brickworks', name: 'Brickworks', size: 2, money: 1200, stone: 20, wood: 10, iron: 5, jobs: 5, salary: 14, energy: 4 }),
   steelmill: def({ kind: 'steelmill', name: 'Steel Mill', size: 2, money: 2600, stone: 40, iron: 20, jobs: 6, salary: 18, energy: 8 }),
   sewage: def({ kind: 'sewage', name: 'Sewage Treatment', size: 2, money: 1500, stone: 30, iron: 10, jobs: 3, salary: 14, publicJob: true, upkeep: 6, energy: 4 }),
-  coalmine: def({ kind: 'coalmine', name: 'Coal Mine', size: 2, money: 1000, wood: 15, jobs: 6, salary: 15, upkeep: 4, needsRoad: false, energy: 4 }),
+  coalmine: def({ kind: 'coalmine', name: 'Coal Mine', size: 2, money: 1000, wood: 15, jobs: 6, salary: 15, upkeep: 4, needsRoad: false, energy: 4 , work: 'miner' }),
   coalplant: def({ kind: 'coalplant', name: 'Coal Power Plant', size: 2, money: 2200, stone: 40, iron: 20, jobs: 5, salary: 17, publicJob: true, upkeep: 7, power: 160 }),
   hydro: def({ kind: 'hydro', name: 'Hydro Dam', size: 2, money: 4000, stone: 80, iron: 30, jobs: 3, salary: 17, publicJob: true, upkeep: 6, power: 90 }),
   military: def({ kind: 'military', name: 'Military Base', size: 3, money: 5000, stone: 80, wood: 20, iron: 40, jobs: 12, salary: 20, publicJob: true, upkeep: 15, energy: 6 }),

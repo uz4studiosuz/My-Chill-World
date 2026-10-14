@@ -392,6 +392,22 @@ export class StatsPanel {
     tt.textContent = title;
     if (title) box.appendChild(tt);
     for (const [k, v, good] of rows) {
+      // "✓ wheat · ✗ no mill" — a chain: its name, then each step as a green or red chip
+      const steps = String(v).split(' · ');
+      if (steps.length && steps.every((st) => st.startsWith('✓') || st.startsWith('✗'))) {
+        const r = el('div', `chain-row${good === false ? ' broken' : good ? ' ok' : ''}`);
+        const name = el('div', 'chain-name');
+        name.textContent = k;
+        const chips = el('div', 'chain-chips');
+        for (const st of steps) {
+          const chip = el('span', `chain-chip ${st.startsWith('✓') ? 'yes' : 'no'}`);
+          chip.textContent = st.slice(1).trim();
+          chips.appendChild(chip);
+        }
+        r.append(name, chips);
+        box.appendChild(r);
+        continue;
+      }
       const r = el('div', 'info-row');
       r.innerHTML = `<span>${k}</span><span class="${good === undefined ? '' : good ? 'pos' : 'neg'}">${v}</span>`;
       box.appendChild(r);
