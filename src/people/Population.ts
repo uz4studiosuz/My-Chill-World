@@ -54,6 +54,12 @@ export interface Citizen {
   night?: boolean;
   /** Life story: day, age, English text key and its parameters. */
   story?: StoryEntry[];
+  /** A believer (set once they work at or go to the mosque; otherwise decided at birth). */
+  faith?: boolean;
+  /** Last day they prayed at the mosque, and the last day they gambled at the casino (and lost money there). */
+  prayed?: number;
+  gambled?: number;
+  lost?: boolean;
 }
 
 export interface StoryEntry { d: number; a: number; k: string; p?: Record<string, string | number> }
@@ -685,7 +691,7 @@ export class Population {
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, night: c.night, energy: c.energy === undefined ? undefined : Math.round(c.energy),
+        story: c.story, night: c.night, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));
   }

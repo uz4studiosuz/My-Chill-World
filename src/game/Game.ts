@@ -2070,6 +2070,8 @@ export class Game implements ToolHost {
     if (f?.car && c.age >= 18 && f.car.fuel < 30 && !this.buildings.list.some((b) => b.kind === 'gasstation' && b.city === city.id && b.built >= 1)) return ['⛽', 'There is no gas station in town — the tank is almost empty'];
     if (f && f.money < 0) return ['💸', 'We are in debt'];
     if (city.taxRate > 0.32) return ['😠', 'Taxes are too high'];
+    if ((c.gambled ?? -99) >= this.eco.day - 2 && c.lost) return ['😣', 'I lost money at the casino again…'];
+    if ((c.prayed ?? -99) >= this.eco.day - 2) return ['🤲', 'I feel at peace after prayer'];
     if (c.activity === 'Riding the bus') return ['🚌', 'Nice to ride the bus'];
     if (c.activity.includes('football')) return ['⚽', 'Come on, our team!'];
     if (c.activity === 'Playing') return ['🎈', 'Playing is fun!'];

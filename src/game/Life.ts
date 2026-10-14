@@ -732,8 +732,8 @@ export class Life {
         if (owner && d.jobs) {
           const f0 = b.wageF ?? (city.wages[b.kind] ?? 1);
           let nf = f0;
-          if (b.workers < d.jobs) nf = Math.min(2.5, f0 + 0.05);
-          else if (b.books && b.books.profit < b.books.wages * 0.1) nf = Math.max(0.7, f0 - 0.03);
+          if (b.workers < d.jobs) nf = Math.min(3, f0 + 0.05);
+          else if (b.books && b.books.profit > b.books.wages * 0.5) nf = Math.min(3, f0 + 0.02); // a business doing well shares it
           b.wageF = Math.round(nf * 100) / 100;
         }
         if (owner) {
@@ -1094,8 +1094,9 @@ export class Life {
    * employed and people are looking for work it pays a little less (down to −20%).
    */
   private adjustWages(city: City) {
-    if (!city.wageAuto) return;
     const { buildings, pop } = this.c;
+    for (const c of pop.citizens.values()) if (c.job >= 0 && buildings.get(c.job)?.kind === 'mosque') c.faith = true;
+    if (!city.wageAuto) return;
     const byKind = new Map<string, { jobs: number; workers: number }>();
     for (const b of buildings.list) {
       if (b.city !== city.id || b.built < 1 || !BUILDINGS[b.kind].jobs) continue;
@@ -1105,13 +1106,15 @@ export class Life {
       byKind.set(b.kind, e);
     }
     const unemployed = [...pop.citizens.values()].some((c) => c.job < 0 && pop.canWork(c) && buildings.get(pop.families.get(c.family)?.home ?? -1)?.city === city.id);
+    // a town doing well (money in the treasury, people content, work for everyone) raises pay a little every day
+    const thriving = city.money > 4000 && city.happiness >= 55 && !unemployed;
     for (const [kind, e] of byKind) {
       const w = city.wages[kind] ?? 1;
       let next = w;
-      if (e.workers < e.jobs) next = Math.min(1.6, w + 0.05);
-      else if (unemployed) next = Math.max(0.8, w - 0.03);
-      else next = w + (1 - w) * 0.1;
-      next = Math.round(next * 100) / 100;
+      if (e.workers < e.jobs) next = Math.min(3, w + 0.05);
+      else if (thriving) next = Math.min(3, w + (city.money > 15000 ? 0.03 : 0.01));
+      // pay never goes down by itself
+      next = Math.max(w, Math.round(next * 100) / 100);
       if (Math.abs(next - 1) < 0.01) delete city.wages[kind];
       else city.wages[kind] = next;
     }
@@ -2067,6 +2070,12 @@ export class Life {
     // parks, fountains and decorations near the homes
     add('Decorations and greenery', Math.min(8, (this.leisure.beautyOf.get(city.id) ?? 0) * 1.5));
     add('Air pollution', -Math.min(15, city.pollution * 4));
+    // the faithful who prayed lately are calm and kind, and it rubs off on others; gamblers bring worry and quarrels
+    const today = this.c.eco.day;
+    const prayed = people.filter((c) => (c.prayed ?? -99) >= today - 3).length / n;
+    const gamblers = people.filter((c) => (c.gambled ?? -99) >= today - 3).length / n;
+    add('Faith and prayer', Math.min(8, prayed * 30));
+    add('Gambling', -Math.min(10, gamblers * 45));
     add('Parks', Math.min(1, (parks * 80) / n) * 10);
     if (has('grocery') || has('market') || has('supermarket')) add('Food shops', 7);
     if (has('clothes')) add('Clothing store', 4);

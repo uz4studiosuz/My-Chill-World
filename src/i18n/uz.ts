@@ -2746,4 +2746,8 @@ export const UZ: Record<string, string> = {
   "Build a fire station before a fire spreads": "Yong'in tarqalmasidan oldin o't o'chirish bo'limi quring",
   "People are unhappy: parks, decorations and shops make them happier": "Odamlar norozi: bog'lar, bezaklar va do'konlar ularni xursand qiladi",
   "The cemetery was extended": "Qabriston kengaytirildi",
+  "Faith and prayer": "E'tiqod va namoz",
+  "Gambling": "Qimor",
+  "I lost money at the casino again…": "Kazinoda yana pul yutqazdim…",
+  "I feel at peace after prayer": "Namozdan keyin ko'nglim tinch",
 };

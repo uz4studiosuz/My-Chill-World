@@ -36,7 +36,7 @@ export interface LeisureHost {
 }
 
 /** About half of the adults are believers (fixed per person). */
-export const believer = (c: Citizen) => ((c.id * 2654435761) >>> 0) / 4294967296 < FAITH_SHARE;
+export const believer = (c: Citizen) => c.faith ?? ((c.id * 2654435761) >>> 0) / 4294967296 < FAITH_SHARE;
 /** Visitors of these places go inside (the walker disappears until they come out). */
 const INDOOR = new Set(['casino', 'gym', 'barber', 'concerthall']);
 
@@ -297,6 +297,8 @@ export class Leisure {
     const f = pop.families.get(c.family);
     const price = Math.round((b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0) * this.host.priceLevel(b.city));
     if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; this.host.tally(b, 'Tickets'); }
+    // whoever prays at the mosque is a believer, and leaves it at peace
+    if (b.kind === 'mosque') { c.faith = true; c.prayed = eco.day; c.health = Math.min(100, c.health + 2); }
     if (b.kind === 'casino' && f) this.host.tally(b, 'Players');
     const visit = VISIT_PRICE[b.kind];
     if (b.kind === 'casino' && f) {
@@ -304,6 +306,8 @@ export class Leisure {
       const limit = Math.max(1, Math.min(60, Math.floor(f.money * 0.08)));
       let net = 0, rounds = 0;
       while (rounds < 40 && -net < limit) { rounds++; const bet = 1 + Math.floor(Math.random() * 3); net += Math.random() < 0.46 ? bet : -bet; }
+      c.gambled = eco.day;
+      c.lost = net < 0;
       if (net < 0) { this.host.sell(c, b, -net); pop.note(c, 'Lost ${n} at the casino', { n: -net }); }
       else if (net > 0) { f.money += net; b.sales = Math.max(0, (b.sales ?? 0) - net); pop.note(c, 'Won ${n} at the casino', { n: net }); }
     } else if (visit && f && f.money > visit[0]) {
