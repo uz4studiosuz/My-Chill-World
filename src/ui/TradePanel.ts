@@ -22,7 +22,7 @@ export interface TradeHost {
 
 export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[]; carPrice?: number }
 
-/** Trade window: today's prices for every good, with buttons to sell and buy, and the partners. */
+/** Trade window: today's prices for every good (from the neighbour towns or the merchants), with buttons to sell and buy. */
 export class TradePanel {
   private root: HTMLDivElement;
   visible = false;
@@ -68,10 +68,22 @@ export class TradePanel {
     const sec = (text: string) => { const s = el('div', 'rp-sec'); s.textContent = text; body.appendChild(s); };
     sec(t('Goods'));
     const table = el('div', 'trade-table');
+    const towns = this.host.neighbours();
     for (const g of GOODS) {
       const have = Math.floor(city[g]);
-      const best = this.trade.bestSell(g, linked);
-      const buy = this.trade.buyPrice(g, linked);
+      const lot = g === 'food' ? 50 : 10;
+      // the best buyer and seller: a real neighbour town when it pays more (or sells cheaper), otherwise the merchants
+      const merchant = this.trade.bestSell(g, linked).price;
+      let seller: { id: number; name: string; price: number } | undefined;
+      let buyer: { id: number; name: string; price: number } | undefined;
+      for (const n of towns) {
+        const w = n.wants.find((x) => x.g === g);
+        if (w && w.price > (buyer?.price ?? merchant) && n.money >= w.price * lot) buyer = { id: n.id, name: n.name, price: w.price };
+        const o = n.offers.find((x) => x.g === g);
+        if (o && o.have >= lot && o.price < (seller?.price ?? this.trade.buyPrice(g, linked))) seller = { id: n.id, name: n.name, price: o.price };
+      }
+      const best = { price: buyer?.price ?? merchant, partner: { name: buyer?.name ?? t('Travelling merchants') } };
+      const buy = seller?.price ?? this.trade.buyPrice(g, linked);
       const row = el('div', 'trade-row');
       const name = el('div', 'trade-name');
       name.innerHTML = `<b></b><small></small>`;
@@ -80,7 +92,7 @@ export class TradePanel {
       const offer = el('div', 'trade-offer');
       offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
       (offer.querySelector('.pos') as HTMLElement).textContent = `${t('Sell')} $${best.price.toFixed(1)}`;
-      (offer.querySelector('small') as HTMLElement).textContent = t(best.partner.name);
+      (offer.querySelector('small') as HTMLElement).textContent = seller && seller.name !== best.partner.name ? `${best.partner.name} / ${seller.name}` : best.partner.name;
       (offer.querySelector('.neg') as HTMLElement).textContent = `${t('Buy')} $${buy.toFixed(1)}`;
       const btns = el('div', 'trade-btns');
       const mk = (label: string, cls: string, on: boolean, fn: () => void) => {
@@ -90,11 +102,11 @@ export class TradePanel {
         b.addEventListener('click', () => { fn(); this.render(); });
         return b;
       };
-      const lot = g === 'food' ? 50 : 10;
+      const sell = (n: number) => (buyer ? this.host.deal(buyer.id, g, n, true) : this.host.sell(g, n));
       btns.append(
-        mk(`−${lot}`, 'sell', have >= lot, () => this.host.sell(g, lot)),
-        mk(`−${lot * 5}`, 'sell', have >= lot * 5, () => this.host.sell(g, lot * 5)),
-        mk(`+${lot}`, 'buy', city.money >= buy * lot, () => this.host.buy(g, lot)),
+        mk(`−${lot}`, 'sell', have >= lot, () => sell(lot)),
+        mk(`−${lot * 5}`, 'sell', have >= lot * 5, () => sell(lot * 5)),
+        mk(`+${lot}`, 'buy', city.money >= buy * lot, () => (seller ? this.host.deal(seller.id, g, lot, false) : this.host.buy(g, lot))),
       );
       row.append(name, offer, btns);
       table.appendChild(row);
@@ -121,7 +133,6 @@ export class TradePanel {
     body.appendChild(table);
 
     // neighbour towns: real towns on the map, trading with their own treasury
-    const towns = this.host.neighbours();
     if (towns.length) {
       sec(t('Neighbour towns'));
       for (const n of towns) {
@@ -169,19 +180,8 @@ export class TradePanel {
         body.appendChild(card);
       }
     }
-    sec(t('Partners'));
-    for (const p of this.trade.partners) {
-      const row = el('div', 'rp-bar');
-      row.innerHTML = `<div class="rp-bar-l"><span></span><span></span></div><div class="rp-track"><i></i></div>`;
-      const spans = row.querySelectorAll('.rp-bar-l span');
-      (spans[0] as HTMLElement).textContent = t(p.name);
-      (spans[1] as HTMLElement).textContent = `${t('Wants')}: ${p.wants.map((g) => t(GOOD_NAME[g]).toLowerCase()).join(', ')}`;
-      (row.querySelector('.rp-track i') as HTMLElement).style.width = `${Math.min(100, p.relation)}%`;
-      row.title = t('Relations: {n}/100 — better relations, better prices', { n: Math.round(p.relation) });
-      body.appendChild(row);
-    }
     const note = el('div', 'rp-note');
-    note.textContent = t('Prices change every day. Partners pay up to 50% more for the goods they want; trading often improves relations (up to +20%).') + ' ' + t('Today: sold ${a}, bought ${b}', { a: Math.round(this.trade.today.sold), b: Math.round(this.trade.today.bought) });
+    note.textContent = t('You trade with the real neighbour towns on the map: they pay more for what they lack and sell what they have too much of. When no town needs a good, travelling merchants buy it at plain prices.') + ' ' + t('Today: sold ${a}, bought ${b}', { a: Math.round(this.trade.today.sold), b: Math.round(this.trade.today.bought) });
     body.appendChild(note);
     this.root.append(head, body);
     this.root.classList.add('show');

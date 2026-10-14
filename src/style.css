@@ -1402,3 +1402,20 @@ button.chip:hover { background: var(--raised); }
 .cr-actions .btn-mini { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; }
 .cr-actions .btn-mini svg { width: 15px; height: 15px; }
 .cr-actions .btn-mini.active { background: var(--accent); color: var(--on-accent, #1c222c); }
+
+.news-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #d6cfbd; padding-top: 6px; }
+.news-nav small { color: #6b6459; font-weight: 700; }
+.news-nav .btn-mini { background: #ece5d3; color: #3b362d; border-color: #d6cfbd; }
+.news-nav .btn-mini:disabled { opacity: .4; }
+.log-tabs { padding: 4px 12px !important; }
+.log-row .wt-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+.log-row b { font-weight: 700; }
+/* every panel scrolls: the body takes the free height and shows a thin scrollbar */
+.rp-body { flex: 1 1 auto; min-height: 0; scrollbar-width: thin !important; scrollbar-color: rgba(255,255,255,.28) transparent; }
+.rp-body::-webkit-scrollbar { display: block !important; width: 8px; }
+.rp-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); border-radius: 8px; }
+.stats-body, .goals-body, .guide-body, .inspector, .ins-list, .worlds, .gallery-list { scrollbar-width: thin !important; scrollbar-color: rgba(255,255,255,.28) transparent; }
+.stats-body::-webkit-scrollbar, .goals-body::-webkit-scrollbar, .guide-body::-webkit-scrollbar, .inspector::-webkit-scrollbar, .ins-list::-webkit-scrollbar { display: block !important; width: 8px; }
+.stats-body::-webkit-scrollbar-thumb, .goals-body::-webkit-scrollbar-thumb, .guide-body::-webkit-scrollbar-thumb, .inspector::-webkit-scrollbar-thumb, .ins-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); border-radius: 8px; }
+.stats-body { overscroll-behavior: contain; }
+.respanel.trade-panel { max-height: min(84vh, 760px); }

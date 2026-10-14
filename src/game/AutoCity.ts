@@ -166,6 +166,34 @@ export class AutoCity {
 
   constructor(private h: AutoHost) {}
 
+  /** The building the town wants most and cannot pay for itself (a letter to the player asks for help), with its cost. */
+  wish(city: City): { kind: BuildingKind; cost: number } | null {
+    const hall = this.h.buildings.townHall(city.id);
+    if (!hall || hall.built < 1) return null;
+    const own = this.h.buildings.list.filter((b) => b.city === city.id && !b.removed);
+    if (own.some((b) => b.built < 1)) return null;
+    const kind = this.need(city, own);
+    if (!kind || kind === 'roads' || this.afford(city, kind, 300) || !this.findSpot(kind, hall, own)) return null;
+    return { kind, cost: Math.round(this.cost(city, kind) / 10) * 10 };
+  }
+
+  /** Build it now with money that came from outside (already added to the town's treasury). */
+  buildFunded(city: City, kind: BuildingKind, from: string): boolean {
+    const { buildings } = this.h;
+    const hall = buildings.townHall(city.id);
+    if (!hall) return false;
+    const own = buildings.list.filter((b) => b.city === city.id && !b.removed);
+    const spot = this.findSpot(kind, hall, own);
+    if (!spot || !this.afford(city, kind, 0)) return false;
+    this.pay(city, kind);
+    const b = buildings.place(kind, spot.x, spot.z, { city: city.id });
+    if (kind === 'farm') this.h.digCanal(b);
+    this.h.clearTiles(buildings.footprint(kind, spot.x, spot.z).map((f) => idx(f.x, f.z)));
+    this.h.networkChanged();
+    this.note(city, t('Started building a {name} with help from {city}', { name: t(BUILDINGS[kind].name), city: from }));
+    return true;
+  }
+
   update(dt: number) {
     this.t += dt;
     if (this.t < 30) return;
@@ -189,7 +217,8 @@ export class AutoCity {
     // one building site at a time: builders are few
     if (own.some((b) => b.built < 1)) return;
     const want = this.need(city, own);
-    if (!want) return;
+    // nothing to build: a rich town lays new streets for the future
+    if (!want) { if (city.money > 2500 && Math.random() < 0.3) this.growStreets(city, hall, own); return; }
     if (this.mood.get(city.id) === 'crisis' && want !== 'roads' && !ESSENTIAL.has(want)) return;
     if (want === 'roads') { this.growStreets(city, hall, own); return; }
     if (!this.afford(city, want, ESSENTIAL.has(want) ? 300 : 1500)) return;
@@ -248,6 +277,9 @@ export class AutoCity {
     if (!count('market') && people >= 120) return 'market';
     if (!count('firestation') && people >= 120) return 'firestation';
     if (!count('gym') && people >= 130) return 'gym';
+    // buses: a depot and stops spread over the town
+    if (!count('busdepot') && people >= 150) return 'busdepot';
+    if (count('busdepot') && count('busstop') < Math.min(6, 2 + Math.floor(people / 80))) return 'busstop';
     // the mayor's taste: one of the things this kind of town likes, now and then
     const style = this.styleOf(city);
     if (people >= 50 && Math.random() < 0.35) {
@@ -266,10 +298,15 @@ export class AutoCity {
   /** Has the town the money and materials (it buys missing stone, wood and iron from traders)? */
   /** Has the town the money and materials, keeping a reserve (it buys missing stone, wood and iron from traders)? */
   private afford(city: City, kind: BuildingKind, reserve: number) {
+    return city.money >= this.cost(city, kind) + reserve;
+  }
+
+  /** Money a building costs the town: its price plus the materials it has to buy. */
+  private cost(city: City, kind: BuildingKind) {
     const d = BUILDINGS[kind];
     let money = d.money;
     for (const r of ['stone', 'wood', 'iron'] as const) money += Math.max(0, d[r] - city[r]) * TRADE_PRICE[r] * 1.25;
-    return city.money >= money + reserve;
+    return money;
   }
 
   private pay(city: City, kind: BuildingKind) {
@@ -296,6 +333,7 @@ export class AutoCity {
       const score = outside ? Math.abs(d - radius * 0.8) : d;
       if (score >= bd) continue;
       if (!buildings.check(kind, x, z).ok) continue;
+      if (kind === 'busstop' && own.some((b) => b.kind === 'busstop' && Math.abs(b.x - x) + Math.abs(b.z - z) < 7)) continue;
       if (kind === 'farm' && !this.h.isWatered(x, z, 3) && map.arid[idx(x, z)] > 0.5) continue;
       if (kind === 'farm' && !this.h.isWatered(x, z, 3) && !this.nearWater(x, z, 14)) continue;
       best = { x, z };
@@ -315,47 +353,46 @@ export class AutoCity {
   private radius(hall: Building, own: Building[]) {
     let r = 6;
     for (const b of own) r = Math.max(r, Math.abs(b.x - hall.x), Math.abs(b.z - hall.z));
-    return Math.min(22, r + 2);
+    return Math.min(34, r + 2);
   }
 
   /**
-   * New streets in a grid around the hall: east–west streets every 4 tiles, north–south ones every 7.
-   * Each step builds the shortest missing street that touches the existing roads.
+   * New streets that grow out of the town's own roads: from a road tile a straight street of 3–8 tiles goes out
+   * sideways (or a dead end goes on), over free land, keeping two tiles from any parallel street so there is room for
+   * buildings on both sides; a street that runs into another road joins it. The cheapest street close to the hall wins.
    */
   private growStreets(city: City, hall: Building, own: Building[]) {
     const { net, map, buildings, eco } = this.h;
-    const r = this.radius(hall, own) + 3;
-    const cx = hall.x, cz = hall.z + 2;
-    const lines: Tile[][] = [];
-    for (let j = -Math.floor(r / 4); j <= Math.floor(r / 4); j++) {
-      const z = cz + j * 4, row: Tile[] = [];
-      for (let x = cx - r; x <= cx + r; x++) row.push({ x, z });
-      lines.push(row);
-    }
-    for (let i = -Math.floor(r / 7); i <= Math.floor(r / 7); i++) {
-      const x = cx + i * 7, col: Tile[] = [];
-      for (let z = cz - r; z <= cz + r; z++) col.push({ x, z });
-      lines.push(col);
-    }
-    const free = (tl: Tile) => {
-      if (!inBounds(tl.x, tl.z)) return false;
-      const k = idx(tl.x, tl.z);
-      return map.isLand(k) && buildings.occ[k] === -1 && !this.h.isBlocked(k);
+    const r = this.radius(hall, own) + 4;
+    const road = (x: number, z: number) => inBounds(x, z) && !!net.type[idx(x, z)];
+    const free = (x: number, z: number) => {
+      if (!inBounds(x, z)) return false;
+      const k = idx(x, z);
+      return map.isLand(k) && buildings.occ[k] === -1 && !this.h.isBlocked(k) && !net.type[k];
     };
-    // split each planned street into runs of buildable tiles; keep the runs that touch a road and add something
-    let pick: Tile[] | null = null;
-    for (const line of lines) {
-      let run: Tile[] = [];
-      const runs: Tile[][] = [];
-      for (const tl of line) {
-        if (free(tl)) run.push(tl);
-        else { if (run.length) runs.push(run); run = []; }
-      }
-      if (run.length) runs.push(run);
-      for (const ru of runs) {
-        const missing = ru.filter((tl) => !net.type[idx(tl.x, tl.z)]).length;
-        const touches = ru.some((tl) => net.type[idx(tl.x, tl.z)]);
-        if (missing >= 3 && touches && (!pick || missing < pick.filter((tl) => !net.type[idx(tl.x, tl.z)]).length)) pick = ru;
+    const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let pick: Tile[] | null = null, best = Infinity;
+    for (let z = hall.z - r; z <= hall.z + r; z++) for (let x = hall.x - r; x <= hall.x + r; x++) {
+      if (!road(x, z)) continue;
+      for (const [dx, dz] of DIRS) {
+        const run: Tile[] = [{ x, z }];
+        let joined = false;
+        for (let k = 1; k <= 8; k++) {
+          const tx = x + dx * k, tz = z + dz * k;
+          if (Math.abs(tx - hall.x) > r || Math.abs(tz - hall.z) > r) break;
+          if (road(tx, tz)) { if (k > 3) { run.push({ x: tx, z: tz }); joined = true; } break; }
+          if (!free(tx, tz)) break;
+          // keep away from streets running alongside (the first tile may touch the street it starts from)
+          let close = false;
+          for (const s2 of k === 1 ? [1] : [1, 2]) if (road(tx + dz * s2, tz + dx * s2) || road(tx - dz * s2, tz - dx * s2)) close = true;
+          if (close) break;
+          run.push({ x: tx, z: tz });
+        }
+        const n = run.length - 1 - (joined ? 1 : 0);
+        if (n < 3) continue;
+        const end = run[run.length - 1];
+        const score = Math.abs(end.x - hall.x) + Math.abs(end.z - hall.z) + Math.random() * 4 - (joined ? 6 : 0) - n * 0.5;
+        if (score < best) { best = score; pick = run; }
       }
     }
     if (!pick) return;

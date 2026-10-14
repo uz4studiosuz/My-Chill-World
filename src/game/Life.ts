@@ -138,6 +138,15 @@ export class Life {
   batteryCap = 0;
   /** Food portions eaten per day, per city (by age). */
   private mouths = new Map<number, number>();
+  /** News of a neighbour town goes into that town's own chronicle (set by the game). */
+  onForeign?: (cityId: number, msg: string) => void;
+
+  /** Something happened in a town: the player's news go to the chronicle, a neighbour's to its own news. */
+  cityEvent(cityId: number | undefined, msg: string) {
+    const city = cityId === undefined ? undefined : this.c.eco.cities.get(cityId);
+    if (city?.ai) this.onForeign?.(city.id, msg);
+    else this.events.push(msg);
+  }
   /** Each family: how much it eats per day and its city. */
   private famNeed = new Map<number, { need: number; city: number }>();
   /** Cities where families can buy food (a staffed food shop). */
@@ -597,7 +606,7 @@ export class Life {
     const homeCity = (f: Family) => buildings.get(f.home)?.city;
 
     cities.forEach((city, i) => {
-      const say = (msg: string) => { if (!city.ai || Math.random() < 0.15) this.events.push(cities.length > 1 ? `${city.name}: ${msg}` : msg); };
+      const say = (msg: string) => this.cityEvent(city.id, msg);
       // the first city also adopts families whose house is gone
       const belongs = (f: Family) => {
         const c = homeCity(f);
@@ -1085,11 +1094,18 @@ export class Life {
       city.migration = { vacancies, freeHomes: homes.length, unemployed, reasons };
       if (reasons.length) {
         // tell the player now and then why buildings stand empty
-        if (vacancies >= 6 && unemployed === 0 && Math.random() < 0.08) this.events.push(t('Not enough workers: {n} jobs are empty. {why}', { n: vacancies, why: t(reasons[0]) }));
+        if (vacancies >= 6 && unemployed === 0 && Math.random() < 0.08) this.cityEvent(city.id, t('Not enough workers: {n} jobs are empty. {why}', { n: vacancies, why: t(reasons[0]) }));
         continue;
       }
       const pay = Object.values(city.wages).reduce((a, v) => a + v, 0) / Math.max(1, Object.keys(city.wages).length);
       const arrivals = Math.min(homes.length, 4, 1 + Math.floor(vacancies / 8) + (pay > 1.1 ? 1 : 0));
+      if (eco.cities.size > 1 && Math.random() < 0.4) {
+        const worse = [...eco.cities.values()].filter((c) => c.id !== city.id && c.happiness + 5 < city.happiness);
+        const src = worse[Math.floor(Math.random() * worse.length)];
+        const owners = new Set(buildings.list.map((b) => b.owner));
+        const fam = src && [...pop.families.values()].find((x) => buildings.get(x.home)?.city === src.id && !owners.has(x.id));
+        if (fam && this.relocate(fam, src.id, false)) continue;
+      }
       for (let i = 0; i < arrivals; i++) {
         const free = this.freeHomes(city.id);
         if (!free.length) break;
@@ -1097,7 +1113,7 @@ export class Life {
         pop.assign(buildings);
         // only the newcomers plan their day (re-planning everyone would send people back to work in the evening)
         pop.planDay(pop.members(f));
-        this.events.push(eco.cities.size > 1 ? `${city.name}: ${t('A new family moved in')}` : t('A new family moved in'));
+        this.cityEvent(city.id, t('A new family moved in'));
       }
     }
   }
@@ -1131,6 +1147,40 @@ export class Life {
       this.meals.set(city.id, m);
     }
     for (const [cid, n] of bought) { const city = eco.cities.get(cid); if (city) eco.note(city, 'food', -n, 'Bought by families in the shops'); }
+  }
+
+  /**
+   * A family moves to another town on the map where life is better (happier, with a free home) — or, after losing
+   * its home, to any town with a free home. Both towns hear about it. Returns false when there is nowhere to go.
+   */
+  relocate(f: Family, fromCity: number, homeless: boolean): boolean {
+    const { eco, buildings, pop } = this.c;
+    const from = eco.cities.get(fromCity);
+    if (!from || eco.cities.size < 2) return false;
+    const options = [...eco.cities.values()].filter((c) => c.id !== fromCity && (homeless || c.happiness > from.happiness + 5)).sort((a, b) => b.happiness - a.happiness);
+    for (const to of options) {
+      const home = this.freeHomes(to.id)[0];
+      if (!home) continue;
+      for (const m of pop.members(f)) {
+        if (m.walker) { this.c.walkers.dismiss(m.walker); m.walker = undefined; }
+        m.job = -1;
+        m.school = -1;
+        m.state = 'home';
+        m.at = home.id;
+        m.activity = 'At home';
+        m.outing = undefined;
+        pop.note(m, 'The family moved to {city}', { city: to.name });
+      }
+      if (f.car) f.car.at = 'home';
+      f.home = home.id;
+      pop.assign(buildings);
+      pop.planDay(pop.members(f));
+      const why = homeless ? t('after losing their home') : t('for a better life');
+      this.cityEvent(fromCity, t('The {family} family moved to {city} {why}', { family: f.surname, city: to.name, why }));
+      this.cityEvent(to.id, t('The {family} family moved here from {city} {why}', { family: f.surname, city: from.name, why }));
+      return true;
+    }
+    return false;
   }
 
   /** Is there a staffed food shop in the town (families can buy food)? */
@@ -1188,7 +1238,7 @@ export class Life {
               b.cattleHunger = 0;
               b.cattleCount = Math.max(0, cattle - 1);
               this.c.effects.puff(b.mesh.position.x, b.mesh.position.z, 0.5, 12, ['#8a5a35', '#2b2622', '#f4f1ea']);
-              this.events.push(t('A cow died in the ranch due to lack of feed (grass/crops)!'));
+              this.cityEvent(b.city, t('A cow died in the ranch due to lack of feed (grass/crops)!'));
             }
           }
         }
@@ -1683,7 +1733,7 @@ export class Life {
           const o = near[Math.floor(Math.random() * near.length)];
           o.fire = 14;
           sound.play('fire', o.mesh.position);
-          this.events.push(t('The fire spread to the {name}!', { name: t(BUILDINGS[o.kind].name) }));
+          this.cityEvent(o.city, t('The fire spread to the {name}!', { name: t(BUILDINGS[o.kind].name) }));
         }
       }
       // firefighters
@@ -1697,7 +1747,7 @@ export class Life {
             b.fire = 0;
             b.fireCrew = false;
             effects.puff(b.mesh.position.x, b.mesh.position.z, 0.6, 14, ['#bfe3ff', '#ffffff', '#9aa3ab']);
-            this.events.push(t('Firefighters put out the fire at the {name}', { name: t(BUILDINGS[b.kind].name) }));
+            this.cityEvent(b.city, t('Firefighters put out the fire at the {name}', { name: t(BUILDINGS[b.kind].name) }));
           };
           const nozzle = buildings.door(b);
           // firefighters spray water for a few seconds before the flames die
@@ -1716,7 +1766,7 @@ export class Life {
         }
       }
       if (b.fire <= 0) {
-        this.events.push(t('{name} burnt down!', { name: t(BUILDINGS[b.kind].name) }));
+        this.cityEvent(b.city, t('{name} burnt down!', { name: t(BUILDINGS[b.kind].name) }));
         this.c.burnDown(b);
       }
     }
@@ -1773,7 +1823,7 @@ export class Life {
     if (city.happiness < 30 && Math.random() < 0.35) {
       const owners = new Set(this.c.buildings.list.map((b) => b.owner));
       const leaving = [...pop.families.values()].find((f) => belongs(f) && !owners.has(f.id));
-      if (leaving) {
+      if (leaving && !this.relocate(leaving, city.id, false)) {
         for (const m of pop.members(leaving)) if (m.walker) this.c.walkers.dismiss(m.walker);
         pop.removeFamily(leaving);
         say(t('The unhappy {family} family left the city', { family: leaving.surname }));
@@ -1995,7 +2045,7 @@ export class Life {
         purpose: 'Police patrol', driverName: 'Police officer', destName: 'Accident site', homeBuildingId: police.id,
         onArrive: () => {
           effects.clearWreck(wreck);
-          this.events.push(t('The traffic police cleared the crash'));
+          this.cityEvent(police.city, t('The traffic police cleared the crash'));
           traffic.spawn({
             kind: 'car', from: k, to: police.access, color: new THREE.Color('#1f3f86'), toPos: buildings.door(police),
             purpose: 'Returning to station', driverName: 'Police officer', destName: 'Police station', homeBuildingId: police.id,
@@ -2030,7 +2080,7 @@ export class Life {
       if (!w || w.leaving || Math.hypot(w.x - x, w.z - z) > 0.7) continue;
       walkers.dismiss(w);
       const f = pop.families.get(c.family);
-      this.events.push(t('{name} died ({cause})', { name: `${c.name} ${f?.surname ?? ''}`, cause: t('lightning') }));
+      this.cityEvent(f ? buildings.get(f.home)?.city : undefined, t('{name} died ({cause})', { name: `${c.name} ${f?.surname ?? ''}`, cause: t('lightning') }));
       const cid = (f && buildings.get(f.home)?.city) ?? -1;
       const cemetery = buildings.list.find((b) => b.kind === 'cemetery' && b.city === cid && b.built >= 1 && (b.graves?.length ?? 0) < MAX_GRAVES_PER_CEMETERY * b.level);
       if (cemetery && f && f.money >= GRAVE_COST) {
@@ -2038,7 +2088,7 @@ export class Life {
         const own = this.c.eco.cities.get(cid);
         if (own) this.c.eco.add(own, 'money', GRAVE_COST, 'Grave plots');
         buildings.addGrave(cemetery, { name: c.name, family: f?.surname ?? '', age: Math.floor(c.age), day: this.c.eco.day });
-        this.events.push(t('{name} was laid to rest at the cemetery (${cost})', { name: `${c.name} ${f?.surname ?? ''}`.trim(), cost: GRAVE_COST }));
+        this.cityEvent(cid, t('{name} was laid to rest at the cemetery (${cost})', { name: `${c.name} ${f?.surname ?? ''}`.trim(), cost: GRAVE_COST }));
       }
       pop.removeCitizen(c);
       killed++;
@@ -2046,7 +2096,7 @@ export class Life {
     if (inBounds(tx, tz)) {
       const k = idx(tx, tz);
       const b = buildings.at(k);
-      if (b && b.kind !== 'townhall') { b.fire = Math.max(b.fire, 14); this.events.push(t('Lightning set the {name} on fire!', { name: t(BUILDINGS[b.kind].name) })); }
+      if (b && b.kind !== 'townhall') { b.fire = Math.max(b.fire, 14); this.cityEvent(b.city, t('Lightning set the {name} on fire!', { name: t(BUILDINGS[b.kind].name) })); }
       if (terrain.hasTree(k)) { terrain.chop(k); effects.puff(tileToWorld(tx), tileToWorld(tz), 0.3, 12, ['#ff7a1a', '#3a2a20', '#ffd166']); }
     }
     if (killed) pop.assign(buildings);
@@ -3137,12 +3187,12 @@ export class Life {
     }
     if (BUILDINGS[b.kind].units) {
       for (const f of [...pop.families.values()].filter((x) => x.home === b.id)) {
-        const other = this.freeHomes(b.city)[0];
+        const other = this.freeHomes(b.city).find((h) => h.id !== b.id);
         if (other) f.home = other.id;
-        else {
+        else if (!this.relocate(f, b.city, true)) {
           for (const m of pop.members(f)) if (m.walker) this.c.walkers.dismiss(m.walker);
           pop.removeFamily(f);
-          this.events.push(t('A family left town — their house was destroyed'));
+          this.cityEvent(b.city, t('A family left town — their house was destroyed'));
         }
       }
     }

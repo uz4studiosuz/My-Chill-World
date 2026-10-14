@@ -321,6 +321,7 @@ export class Game implements ToolHost {
       return o === 'high' ? 0 : o === 'low' ? 7 : JOB_PRIORITY[b.kind] ?? 5;
     };
     this.pop.wageFactor = (b) => this.eco.cities.get(b.city)?.wages[b.kind] ?? 1;
+    this.life.onForeign = (id, msg) => { const c = this.eco.cities.get(id); if (c) this.autoCity?.note(c, msg); };
     this.buildings.tintOf = (id) => this.eco.cities.get(id)?.tint;
     // the town hall keeps some goods; every warehouse keeps much more
     this.eco.capacity = (city, res) => {
@@ -339,7 +340,7 @@ export class Game implements ToolHost {
       isBlocked: (k) => !!this.footpaths.tiles[k] || !!this.canals.tiles[k] || !!this.railway.tiles[k],
       clearTiles: (ks) => this.terrain.clearTiles(ks),
       networkChanged: () => this.networkChanged(),
-      say: (msg) => this.life.events.push(msg),
+      say: () => { /* big neighbour news stay in the neighbours' chronicle */ },
       happiness: (id) => this.eco.cities.get(id)?.happiness ?? 50,
       richest: (id) => [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === id)
         .sort((a, b) => b.money - a.money).slice(0, 3).map((f) => ({ name: f.surname, money: f.money })),
@@ -428,6 +429,7 @@ export class Game implements ToolHost {
       openWorld: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
       openTrade: () => { this.resPanel?.hide(); this.stats?.hide(); this.trade.newDay(this.eco.day); this.tradePanel?.toggle(); },
       openDrive: () => (this.drive.active ? this.drive.stop() : this.startDrive()),
+      openNews: () => { this.stats?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.news?.toggle(); },
       openPetitions: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.toggle(); },
       toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setNature(on); return on; },
       cycleCity: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
@@ -455,7 +457,8 @@ export class Game implements ToolHost {
     });
     this.goalsPanel = new GoalsPanel(this.hud.root, this.goals, () => this.goalContext());
     const keep = this.eventLog?.entries.slice() ?? this.savedLog;
-    this.eventLog = new EventLog(this.hud.root, (d) => `${t('Day {n}', { n: d })} · ${t(MONTHS[monthOf(d)]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(d) })}`);
+    this.eventLog = new EventLog(this.hud.root, (d) => `${t('Day {n}', { n: d })} · ${t(MONTHS[monthOf(d)]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(d) })}`,
+      () => [...this.eco.cities.values()].filter((c) => c.ai).flatMap((c) => (this.autoCity.log.get(c.id) ?? []).map((e) => ({ ...e, town: c.name, tint: c.tint ?? '#aab4be' }))));
     this.eventLog.load(keep);
     this.guide = new Guide(this.hud.root);
     this.hud.countOf = (tool) => this.buildings.list.filter((b) => b.kind === tool && b.city === this.eco.city.id && !b.removed).length;
@@ -544,6 +547,7 @@ export class Game implements ToolHost {
     this.povBar = undefined;
     this.news?.dispose();
     this.news = new Newspaper(this.hud.root);
+    this.news.onUnread = (n) => this.hud?.setBadge('news', n);
     if (this.wantTutorial && !this.tutorial?.finished) {
       this.tutorial = new Tutorial(this.hud.root, this.tutorialContext(), () => sound.play('complete'));
     }
@@ -1190,6 +1194,19 @@ export class Game implements ToolHost {
     this.recordTowns();
     this.maybeDecide();
     this.trade.newDay(this.eco.day);
+    // neighbour towns pay back the player's investments (what they can; the rest a few days later)
+    for (const c of this.eco.cities.values()) {
+      if (!c.ai || !c.owes || c.owes.day > this.eco.day) continue;
+      const pay = Math.min(c.owes.money, Math.max(0, Math.floor(c.money - 300)));
+      if (pay > 0) {
+        this.eco.add(c, 'money', -pay, 'Paid back an investment');
+        this.eco.add(this.eco.city, 'money', pay, 'Investments paid back');
+        this.deal(c.id, t('Paid back ${m} of your investment', { m: pay }), pay);
+        this.life.events.push(t('{city} paid back ${m} of your investment', { city: c.name, m: pay }));
+      }
+      c.owes.money -= pay;
+      if (c.owes.money <= 0) c.owes = undefined; else c.owes.day = this.eco.day + 3;
+    }
     for (const v of this.airLog.values()) v.flights = 0;
     this.lastDay = this.eco.day;
     this.goals.newDay([...this.eco.cities.values()].some((c) => c.money < 0));
@@ -1604,7 +1621,33 @@ export class Game implements ToolHost {
     // now and then a neighbour town writes to the town hall
     const towns = [...this.eco.cities.values()].filter((c) => c.ai);
     const town = towns[Math.floor(Math.random() * towns.length)];
-    if (town && Math.random() < 0.3) {
+    const wish = town && Math.random() < 0.3 ? this.autoCity.wish(town) : null;
+    if (town && wish && Math.random() < 0.5) {
+      // a neighbour town asks for help (or an investment) to build something it needs
+      const bname = t(BUILDINGS[wish.kind].name).toLowerCase();
+      const back = Math.round(wish.cost * 1.3);
+      const fund = (text: string, rel: number) => {
+        if (city.money < wish.cost) { this.hud?.toast(t('Not enough money')); return false; }
+        this.eco.add(city, 'money', -wish.cost, 'Help to neighbour towns');
+        this.eco.add(town, 'money', wish.cost, 'Help from a neighbour town');
+        town.relation = Math.min(100, (town.relation ?? 40) + rel);
+        this.autoCity.buildFunded(town, wish.kind, city.name);
+        this.deal(town.id, text, -wish.cost);
+        return true;
+      };
+      options.length = 0;
+      options.push({
+        id: 'neighbour', title: t('A letter from {city}', { city: town.name }),
+        text: t('The mayor of {city} wants to build a {name} but the treasury is short. They ask you for ${m} — as help, or as an investment they will pay back.', { city: town.name, name: bname, m: wish.cost }),
+        options: [
+          { label: t('Help them'), note: t('−${m}, the {name} is built, they become much friendlier', { m: wish.cost, name: bname }), act: () => { fund(t('Helped to build a {name} (relations +15)', { name: bname }), 15); } },
+          { label: t('Invest'), note: t('−${m} now, +${b} back in 15 days', { m: wish.cost, b: back }), act: () => {
+            if (fund(t('Invested in a {name} — they pay back ${m}', { name: bname, m: back }), 5)) town.owes = { day: this.eco.day + 15, money: (town.owes?.money ?? 0) + back };
+          } },
+          { label: t('Refuse'), note: t('They will remember it'), act: () => { town.relation = Math.max(0, (town.relation ?? 40) - 5); this.deal(town.id, t('Refused to help build a {name} (relations −5)', { name: bname }), 0); } },
+        ],
+      });
+    } else if (town && Math.random() < 0.3) {
       const need = town.food < 150 ? 'food' : town.wood < 60 ? 'wood' : 'stone';
       const amount = need === 'food' ? 80 : 30;
       const name = t(GOOD_NAME[need]).toLowerCase();
@@ -2470,7 +2513,7 @@ export class Game implements ToolHost {
           [t('Bought today'), `$${n(this.trade.today.bought)}`, t('from traders')],
           [t('Transport'), linked ? t('Railway / airport') : t('Caravans'), linked ? t('better prices') : t('10% worse prices'), linked],
         ] },
-        { title: t('Trade partners'), bars: this.trade.partners.map((p, i) => [t(p.name), Math.max(1, Math.round(p.relation)), ['#6fb6ff', '#7be08f', '#f2b33d', '#f28cb8', '#b9a3e0'][i % 5]] as [string, number, string]) },
+        { title: t('Relations with neighbour towns'), bars: [...this.eco.cities.values()].filter((c) => c.ai).map((c) => [c.name, Math.max(1, Math.round(c.relation ?? 40)), c.tint ?? '#aab4be'] as [string, number, string]) },
         { title: t('Businesses'), rows: biz.length ? biz.slice(0, 16).map((b) => {
           const owner = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
           return [t(BUILDINGS[b.kind].name), `${owner ? t('{family} family', { family: owner.surname }) : t('Town')} · ${b.workers}/${BUILDINGS[b.kind].jobs}`, b.workers > 0] as [string, string, boolean];
@@ -2816,7 +2859,6 @@ export class Game implements ToolHost {
       tabs.push({ id: 'trade', label: t('Trade'), sections: [
         { title: t('Today'), kpis: [[t('Sold today'), money(this.trade.today.sold), t('to other regions')], [t('Bought today'), money(this.trade.today.bought), t('from traders')]] },
         { title: t('Relations with neighbour towns'), bars: towns.map((c) => [c.name, c.relation ?? 40, c.tint ?? '#aab4be', `${Math.round(c.relation ?? 40)}/100`] as [string, number, string, string]) },
-        { title: t('Trade partners'), bars: this.trade.partners.map((p, i) => [t(p.name), Math.max(1, p.relation), C[i % C.length], `${Math.round(p.relation)}`] as [string, number, string, string]) },
         { title: t('Goods per day (made − used)'), chart: { series: [series(t('Food'), '#7be08f', net('food')), series(t('Wood'), '#c98a5a', net('wood')), series(t('Stone'), '#aab4be', net('stone')), series(t('Iron'), '#6fb6ff', net('iron'))] } },
       ] });
     } else {
@@ -2833,7 +2875,7 @@ export class Game implements ToolHost {
       else hv.actions = (hv.actions ?? []).filter((a) => a.icon !== 'info' && a.icon !== 'buildings');
       tabs.unshift({ id: 'hall', label: t('Town hall'), hall: hv });
     }
-    // ---- relations with the neighbours and the trading partners ----
+    // ---- relations with the neighbour towns ----
     const towns = [...this.eco.cities.values()].filter((c) => c.ai && c.id !== id);
     if (!city.ai) {
       tabs.push({ id: 'relations', label: t('Relations'), sections: [
@@ -2844,7 +2886,6 @@ export class Game implements ToolHost {
           const total = d.reduce((a, x) => a + x.money, 0);
           return { title: `${c.name} · ${t('Dealings with you')} · ${total >= 0 ? '+' : '−'}$${n(Math.abs(total))}`, rows: d.length ? d.slice(0, 8).map((x) => [`${t('Day {n}', { n: x.day })} · ${x.text}`, x.money ? `${x.money > 0 ? '+' : '−'}$${n(Math.abs(x.money))}` : '—', x.money > 0 ? 'good' : x.money < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]) : [[t('No deals yet — open Trade to sell them what they need'), '—']] } as ReportSection;
         }),
-        { title: t('Trading partners (other regions)'), bars: this.trade.partners.map((p, i) => [t(p.name), Math.max(1, p.relation), C[i % C.length], `${Math.round(p.relation)}/100`] as [string, number, string, string]) },
       ] });
     }
     // ---- every price in the town ----

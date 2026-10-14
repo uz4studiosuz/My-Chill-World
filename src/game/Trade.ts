@@ -9,14 +9,10 @@ export const GOOD_NAME: Record<Good, string> = {
   grain: 'Grain', flour: 'Flour', milk: 'Milk', cotton: 'Cotton',
 };
 
-/** Trading partners: each one pays more for the goods it needs. */
+/** Travelling merchants: they always buy and sell, at plain prices. The real trading partners are the neighbour towns on the map. */
 export interface Partner { name: string; wants: Good[]; relation: number }
 const PARTNERS: { name: string; wants: Good[] }[] = [
-  { name: 'Samarkand', wants: ['cotton', 'food', 'bricks'] },
-  { name: 'Bukhara', wants: ['wood', 'planks', 'cotton'] },
-  { name: 'Tashkent', wants: ['steel', 'iron', 'coal'] },
-  { name: 'Fergana', wants: ['stone', 'bricks', 'milk'] },
-  { name: 'Khiva', wants: ['grain', 'flour', 'wood'] },
+  { name: 'Travelling merchants', wants: [] },
 ];
 
 export interface TradeSave { relation: number[] }
