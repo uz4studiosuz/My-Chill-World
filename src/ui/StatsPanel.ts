@@ -77,6 +77,7 @@ export class StatsPanel {
   private body: HTMLDivElement;
   private tabBtns = new Map<Tab, HTMLButtonElement>();
   private tab: Tab = 'overview';
+  private last = '';
   visible = false;
   private title!: HTMLElement;
 
@@ -124,6 +125,10 @@ export class StatsPanel {
     if (!this.visible) return;
     this.tabBtns.forEach((b, id) => b.classList.toggle('active', id === this.tab));
     const s = this.get();
+    // nothing changed: keep the page as it is (no flicker)
+    const key = `${this.tab}|${JSON.stringify(s)}`;
+    if (key === this.last) return;
+    this.last = key;
     this.title.textContent = `${t('Statistics')} · ${s.cityName}`;
     const scroll = this.body.scrollTop;
     this.body.replaceChildren();
@@ -328,7 +333,7 @@ export class StatsPanel {
       if (sec.note) { const n = el('div', 'snote'); n.textContent = sec.note; this.body.appendChild(n); }
     }
     this.body.scrollTop = scroll;
-    requestAnimationFrame(() => charts.forEach(([c, ser, f]) => drawChart(c, ser, f)));
+    charts.forEach(([c, ser, f]) => drawChart(c, ser, f));
   }
 
   private notes(s: StatsSnapshot) {

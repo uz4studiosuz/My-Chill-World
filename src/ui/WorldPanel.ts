@@ -47,6 +47,7 @@ export class WorldPanel {
   visible = false;
   private open = new Set<number>();
   private tab: 'all' | number = 'all';
+  private last = '';
 
   constructor(parent: HTMLElement, private get: () => WorldTown[], private show: (id: number) => void, private trade: () => void,
     private buildFor: (id: number) => void = () => {}, private active: () => number = () => -1, private report: (id: number) => void = () => {}) {
@@ -60,6 +61,9 @@ export class WorldPanel {
   render() {
     if (!this.visible) return;
     const towns = this.get();
+    const key = `${String(this.tab)}|${[...this.open].join(',')}|${JSON.stringify(towns)}`;
+    if (key === this.last) return;
+    this.last = key;
     if (this.tab !== 'all' && !towns.some((x) => x.id === this.tab)) this.tab = 'all';
     const oldBody = this.root.querySelector('.stats-body');
     const scroll = oldBody?.scrollTop ?? 0;
@@ -89,7 +93,7 @@ export class WorldPanel {
     else this.town(body, towns.find((tw) => tw.id === this.tab)!, charts);
     this.root.append(head, tabs, body);
     body.scrollTop = scroll;
-    requestAnimationFrame(() => charts.forEach((f) => f()));
+    charts.forEach((f) => f());
   }
 
   /** All towns side by side: a table, bars and the history of people and money. */

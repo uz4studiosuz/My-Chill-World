@@ -54,6 +54,7 @@ export class CityReport {
   visible = false;
   private tab = '';
   private id = -1;
+  private last = '';
 
   constructor(parent: HTMLElement, private get: (cityId: number) => CityReportView | null) {
     this.root = el('div', 'stats city-report');
@@ -67,6 +68,9 @@ export class CityReport {
     if (!this.visible) return;
     const v = this.get(this.id);
     if (!v) return this.hide();
+    const key = `${this.id}|${this.tab}|${JSON.stringify(v)}`;
+    if (key === this.last) return;
+    this.last = key;
     if (!v.tabs.some((x) => x.id === this.tab)) this.tab = v.tabs[0]?.id ?? '';
     const scroll = this.root.querySelector('.stats-body')?.scrollTop ?? 0;
     this.root.replaceChildren();
@@ -160,6 +164,6 @@ export class CityReport {
     }
     this.root.append(head, tabs, body);
     body.scrollTop = scroll;
-    requestAnimationFrame(() => later.forEach((f) => f()));
+    later.forEach((f) => f());
   }
 }
