@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
+import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS } from '../buildings/BuildingTypes';
 import type { BuildingKind, CropKind } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
@@ -1669,24 +1669,35 @@ export class Life {
   /** Skilled workers move to better-paid jobs when one is free (a job interview, in short). */
   private switchJobs(city: City, own: Building[], say: (msg: string) => void) {
     const { pop, buildings } = this.c;
-    let moved = 0;
-    const open = own.filter((b) => BUILDINGS[b.kind].jobs > b.workers).sort((a, b) => BUILDINGS[b.kind].salary - BUILDINGS[a.kind].salary);
+    let moved = 0, came = 0;
+    const open = own.filter((b) => BUILDINGS[b.kind].jobs > b.workers).sort((a, b) => BUILDINGS[b.kind].salary * pop.wageFactor(b) - BUILDINGS[a.kind].salary * pop.wageFactor(a));
     if (!open.length) return;
     for (const c of pop.citizens.values()) {
-      if (moved >= 3 || c.job < 0 || c.skill < 1 || Math.random() > 0.15) continue;
+      if (moved + came >= 4 || c.job < 0 || Math.random() > 0.15) continue;
       const cur = buildings.get(c.job);
-      if (!cur || cur.city !== city.id) continue;
+      if (!cur) continue;
+      // workers of a neighbour town (joined by road) come over when this town pays clearly more
+      const home = buildings.get(pop.families.get(c.family)?.home ?? -1);
+      const here = cur.city === city.id;
+      if (here ? c.skill < 1 : !home || home.city === city.id || !pop.commute(home.city, city.id)) continue;
       const pay = (b: Building) => BUILDINGS[b.kind].salary * this.c.pop.wageFactor(b);
-      const best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && pay(b) >= pay(cur) * 1.25 && b.id !== cur.id);
+      const best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && pay(b) >= pay(cur) * 1.25 && b.id !== cur.id
+        && (here || ((!DEGREE_JOBS[b.kind] || c.skill >= 1) && Math.abs(b.x - home!.x) + Math.abs(b.z - home!.z) <= 90)));
       // nobody leaves an essential job (water, food, power, builders…) for a less essential one
       if (!best || this.c.pop.priority(best) > this.c.pop.priority(cur) || (this.c.pop.priority(cur) <= 2 && cur.workers <= 1)) continue;
       cur.workers--;
       best.workers++;
       c.job = best.id;
-      this.c.pop.note(c, 'Changed jobs: now at the {place} for better pay', { place: BUILDINGS[best.kind].name });
-      moved++;
+      if (here) { this.c.pop.note(c, 'Changed jobs: now at the {place} for better pay', { place: BUILDINGS[best.kind].name }); moved++; }
+      else {
+        this.c.pop.note(c, 'Now works in {city} at the {place} — the pay is better there', { city: city.name, place: BUILDINGS[best.kind].name });
+        this.cityEvent(cur.city, t('A worker left for better pay in {city}', { city: city.name }));
+        came++;
+      }
     }
-    if (moved) { pop.assign(buildings); say(t('{n} skilled workers moved to better-paid jobs', { n: moved })); }
+    if (moved || came) pop.assign(buildings);
+    if (moved) say(t('{n} skilled workers moved to better-paid jobs', { n: moved }));
+    if (came) say(t('{n} workers from neighbour towns came here for better pay', { n: came }));
   }
 
   /** Special weather for the day: morning fog, a winter blizzard or a summer heatwave. */

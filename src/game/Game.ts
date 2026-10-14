@@ -4,6 +4,7 @@ import { DIRS, N, Tile, idx, inBounds, tileToWorld } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { generateWorld } from '../world/WorldGen';
 import { Terrain } from '../world/Terrain';
+import { walkPath } from '../people/WalkPath';
 import { BRIDGE_COST, ROAD_COST, ROAD_TWO_LANE, ROUNDABOUT_COST, RoadNetwork, isRingMid } from '../roads/RoadNetwork';
 import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
@@ -174,6 +175,8 @@ export class Game implements ToolHost {
   private worldHistory = new Map<number, { day: number; pop: number; money: number; happy: number }[]>();
   /** Price of every good in every town, one value per day (the last 30 days). */
   private priceHistory = new Map<number, Record<string, number[]>>();
+  /** Which pairs of towns are joined by road (for people working in another town); cleared when roads change. */
+  private commuteCache = new Map<string, boolean>();
   /** What happened between each neighbour town and the player: deals, gifts, letters (newest first). */
   private dealings = new Map<number, { day: number; text: string; money: number }[]>();
   private tradePanel?: TradePanel;
@@ -323,6 +326,17 @@ export class Game implements ToolHost {
       return o === 'high' ? 0 : o === 'low' ? 7 : JOB_PRIORITY[b.kind] ?? 5;
     };
     this.pop.wageFactor = (b) => this.eco.cities.get(b.city)?.wages[b.kind] ?? 1;
+    // people may work in another town when a road joins the two town halls
+    this.pop.commute = (a, b) => {
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      let ok = this.commuteCache.get(key);
+      if (ok === undefined) {
+        const ha = this.buildings.townHall(a), hb = this.buildings.townHall(b);
+        ok = !!ha && !!hb && ha.access >= 0 && hb.access >= 0 && this.traffic.canRoute(ha.access, hb.access);
+        this.commuteCache.set(key, ok);
+      }
+      return ok;
+    };
     this.life.streetRoom = (id, k, x, z) => !this.eco.cities.get(id)?.ai || !this.autoCity || this.autoCity.leavesRoom(id, k, x, z);
     this.life.onForeign = (id, msg) => { const c = this.eco.cities.get(id); if (c) this.autoCity?.note(c, msg); };
     this.buildings.tintOf = (id) => this.eco.cities.get(id)?.tint;
@@ -345,6 +359,7 @@ export class Game implements ToolHost {
       networkChanged: () => this.networkChanged(),
       say: () => { /* big neighbour news stay in the neighbours' chronicle */ },
       happiness: (id) => this.eco.cities.get(id)?.happiness ?? 50,
+      linkRoad: (c) => this.linkTown(c),
       richest: (id) => [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === id)
         .sort((a, b) => b.money - a.money).slice(0, 3).map((f) => ({ name: f.surname, money: f.money })),
     });
@@ -1170,6 +1185,7 @@ export class Game implements ToolHost {
   }
 
   private networkChanged(dirty = true) {
+    this.commuteCache.clear();
     this.roadMesh.rebuild();
     this.lights.rebuild();
     // every lamp draws power from the city whose Town Hall is closest
@@ -1502,8 +1518,105 @@ export class Game implements ToolHost {
   }
 
   /** A plane stopped at the terminal: tourists get off, surplus goods fly out, missing goods fly in. */
+  /**
+   * A town that runs itself builds a road to the nearest town it is not joined with yet: around the mountains,
+   * along existing roads where it can, over water with a bridge. It pays from its own treasury.
+   */
+  private linkTown(c: City): string | null {
+    const hall = this.buildings.townHall(c.id);
+    if (!hall || hall.access < 0) return null;
+    const others = [...this.eco.cities.values()]
+      .map((o) => ({ o, h: this.buildings.townHall(o.id) }))
+      .filter((x) => x.o.id !== c.id && x.h && x.h.access >= 0 && !this.pop.commute(c.id, x.o.id))
+      .sort((a, b) => Math.abs(a.h!.x - hall.x) + Math.abs(a.h!.z - hall.z) - (Math.abs(b.h!.x - hall.x) + Math.abs(b.h!.z - hall.z)));
+    const target = others[0];
+    if (!target) return null;
+    const cost = (k: number) => {
+      if (this.net.type[k]) return this.net.isRing(k) || this.net.isIsland(k) ? Infinity : 0.25;
+      if (this.map.height[k] > 0 || this.buildings.occ[k] !== -1 || this.railway.tiles[k] || this.net.isIsland(k)) return Infinity;
+      return this.map.water[k] ? 8 : 1;
+    };
+    const path = walkPath(cost, hall.access, target.h!.access, 150000);
+    if (!path) return null;
+    const fresh = path.filter((k) => !this.net.type[k]);
+    let money = 0, stone = 0;
+    for (const k of fresh) { const r = this.map.water[k] ? BRIDGE_COST : ROAD_COST[2]; money += r.money; stone += r.stone; }
+    if (c.money < money + stone * TRADE_PRICE.stone * 1.25 + 1500) return null;
+    // buy the stone it lacks, then pay for the road
+    const short = Math.max(0, stone - c.stone);
+    if (short) { this.eco.add(c, 'money', -short * TRADE_PRICE.stone * 1.25, 'Trade: goods bought'); this.eco.add(c, 'stone', short, 'Bought from traders'); }
+    this.eco.add(c, 'money', -money, 'Roads');
+    this.eco.add(c, 'stone', -stone, 'Roads');
+    // keep the kind of the roads it runs along; only the new tiles become a two-lane road
+    const old = path.map((k) => this.net.type[k]);
+    const tiles = path.map((k) => ({ x: k % N, z: (k / N) | 0 }));
+    this.footpaths.remove(tiles.filter((tl) => !this.net.type[idx(tl.x, tl.z)]));
+    this.net.buildPath(tiles, ROAD_TWO_LANE);
+    path.forEach((k, i) => { if (old[i]) this.net.type[k] = old[i]; });
+    this.net.clearUndo();
+    this.terrain.clearTiles(fresh);
+    this.networkChanged();
+    this.pop.assign(this.buildings);
+    if (!target.o.ai) this.life.events.push(t('{city} built a road to your town — people can now come to work and trade', { city: c.name }));
+    else this.autoCity.note(target.o, t('{city} built a road to us', { city: c.name }));
+    return target.o.name;
+  }
+
+  /** People who live in one town and work in another: coming in (`into`) or going out. */
+  private commuters(cityId: number, into: boolean) {
+    let n = 0;
+    for (const c of this.pop.citizens.values()) {
+      if (c.job < 0) continue;
+      const job = this.buildings.get(c.job), home = this.buildings.get(this.pop.families.get(c.family)?.home ?? -1);
+      if (!job || !home || job.city === home.city) continue;
+      if (into ? job.city === cityId : home.city === cityId) n++;
+    }
+    return n;
+  }
+
+  /**
+   * A plane lands: it comes from one of the other towns on the map (visitors from there, and its goods: the town
+   * sells what it has a lot of and buys what it lacks, at its own prices). With no other town the plane comes from abroad.
+   */
   private planeLanded(b: Building) {
     const city = this.cityOf(b);
+    const others = [...this.eco.cities.values()].filter((c) => c.id !== city.id);
+    if (others.length) {
+      // towns with an airport fly more often; any town sends a few visitors
+      const withAir = others.filter((c) => this.buildings.list.some((x) => x.kind === 'airport' && x.city === c.id && x.built >= 1));
+      const pool = withAir.length && Math.random() < 0.7 ? withAir : others;
+      const from = pool[Math.floor(Math.random() * pool.length)];
+      const pops = this.life.populationByCity();
+      const visitors = Math.max(2, Math.min(20, Math.round((pops.get(from.id) ?? 0) * 0.08 + Math.random() * 4)));
+      city.tourists += visitors;
+      const deals: string[] = [];
+      // the plane takes what this town has far too much of to the other town, if it needs it and can pay
+      if (city.ai || from.ai) {
+        const seller = city, buyer = from;
+        for (const g of GOODS) {
+          if (deals.length >= 3) break;
+          const pc = pops.get(city.id) ?? 0, pf = pops.get(from.id) ?? 0;
+          const extra = Math.floor(seller[g] - this.stockTarget(g, pc) * 1.5);
+          const need = this.stockTarget(g, pf) - buyer[g];
+          const room = this.eco.capacity(buyer, g) - buyer[g];
+          if (extra >= 10 && need > 0 && room >= 10) {
+            const n = Math.min(15, extra, Math.floor(need), Math.floor(room));
+            const m = Math.round(n * this.midPrice(from, g, pf));
+            if (buyer.money < m + 300) continue;
+            this.eco.add(seller, g, -n, 'Sold by plane'); this.eco.add(buyer, g, n, 'Bought by plane');
+            this.eco.add(buyer, 'money', -m, 'Purchases by plane'); this.eco.add(seller, 'money', m, 'Sales by plane');
+            deals.push(t('sold {n} {what} (+${m})', { n, what: t(GOOD_NAME[g]).toLowerCase(), m }));
+            if (!city.ai) this.deal(from.id, t('Plane: sold {n} {good}', { n, good: t(GOOD_NAME[g]).toLowerCase() }), m);
+          }
+        }
+      }
+      const log = this.airLog.get(b.id) ?? { flights: 0, last: '' };
+      log.flights++;
+      log.last = `${t('From {city}', { city: from.name })} · ${t('{n} visitors', { n: visitors })}${deals.length ? ' · ' + deals.join(', ') : ''}`;
+      this.airLog.set(b.id, log);
+      if (log.flights === 1) this.life.cityEvent(city.id, t('A plane from {from} landed in {city}: {n} visitors arrived', { from: from.name, city: city.name, n: visitors }) + (deals.length ? ` — ${deals.join(', ')}` : ''));
+      return;
+    }
     const tourists = 8 + Math.floor(Math.random() * 12);
     city.tourists += tourists;
     const deals: string[] = [];
@@ -2716,7 +2829,9 @@ export class Game implements ToolHost {
         return {
           key, icon: 'jobs', title: t('Jobs'), value: `${c.workers}/${c.workforce}`,
           sections: [
-            { title: t('Workers'), bars: [[t('Employed'), c.workforce ? c.workers / c.workforce : 1, `${c.workers}/${c.workforce}`]], rows: [[t('Unemployed'), `${Math.max(0, c.workforce - c.workers)}`, c.workforce - c.workers > 0 ? 'bad' : 'good'], [t('Students'), `${c.students}`]] },
+            { title: t('Workers'), bars: [[t('Employed'), c.workforce ? c.workers / c.workforce : 1, `${c.workers}/${c.workforce}`]], rows: [[t('Unemployed'), `${Math.max(0, c.workforce - c.workers)}`, c.workforce - c.workers > 0 ? 'bad' : 'good'], [t('Students'), `${c.students}`],
+              [t('Come from other towns to work here'), `${this.commuters(city.id, true)}`], [t('Work in other towns'), `${this.commuters(city.id, false)}`]],
+              note: t('When a town has no work for someone, they take a job in a neighbour town joined by road. The town where they work pays the wage.') },
             { title: t('Open jobs'), rows: open.size ? [...open.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => [t(k), `${v}`]) : [[t('Every job is filled'), '—', 'good']] },
             this.migrationSection(city),
           ],

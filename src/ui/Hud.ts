@@ -86,7 +86,7 @@ export const ITEMS: ToolItem[] = [
   b('battery', 'production', 'Stores power', 'Stores spare electricity (e.g. from solar panels by day) and gives it back at night.', 'energy'),
   b('windturbine', 'production', '+30 clean energy', 'Clean power from the wind — no wood, no smoke.', 'energy'),
   b('solarfarm', 'production', '+45 clean energy', 'Solar panels — clean power during the day.', 'energy'),
-  b('airport', 'production', 'Flights', 'Planes bring tourists from far away and trade goods: surplus food, wood, stone and iron is sold, missing goods are bought.', 'globe'),
+  b('airport', 'production', 'Flights', 'Planes fly in from the other towns on the map: visitors arrive, and the plane carries goods between the towns at their own prices.', 'globe'),
   b('trainstation', 'production', 'Railway', 'Connect two stations with a railway: trains share goods between cities and bring visitors.', 'rail'),
   b('factory', 'production', 'Clothes and furniture', 'Sews clothes from cotton for the clothing stores and makes furniture from planks for the markets. Many jobs, a big business tax payer. Needs lots of power.', 'production'),
   b('carfactory', 'production', 'Cars', 'Assembles cars: the best-paying workplace and the largest business tax payer.', 'car'),

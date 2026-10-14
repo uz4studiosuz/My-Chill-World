@@ -29,6 +29,8 @@ export interface AutoHost {
   irrigated(b: Building): boolean;
   /** Richest families of a town: name and savings. */
   richest(cityId: number): { name: string; money: number }[];
+  /** Build a road to the nearest town it is not joined with yet (when it can pay); returns the town's name. */
+  linkRoad(city: City): string | null;
 }
 
 /** The character of a town's mayor: what the town likes to build and how it spends its money. */
@@ -115,6 +117,11 @@ export class AutoCity {
     const style = this.styleOf(city);
     const people = this.h.people(city.id);
     const happy = this.h.happiness(city.id);
+    // a road to the neighbours: people can then work, shop and trade there
+    if (people >= 25 && city.money > 2500 && Math.random() < 0.35) {
+      const to = this.h.linkRoad(city);
+      if (to) this.note(city, t('Built a road to {city}', { city: to }), true);
+    }
     const hist = this.popHistory.get(city.id) ?? [];
     hist.push(people);
     if (hist.length > 8) hist.shift();

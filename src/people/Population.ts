@@ -163,6 +163,8 @@ export class Population {
   priority: (b: Building) => number = (b) => JOB_PRIORITY[b.kind] ?? 5;
   /** Wage factor the town hall pays for a kind of job (set by the game). */
   wageFactor: (b: Building) => number = () => 1;
+  /** Can people of one town reach the jobs of another (a road joins them)? Set by the game. */
+  commute: (fromCity: number, toCity: number) => boolean = () => false;
   private nextFamily = 1;
 
   get size() { return this.citizens.size; }
@@ -265,7 +267,7 @@ export class Population {
     const student = (c: Citizen) => c.age >= ADULT_AGE && c.age < UNI_END && c.edu >= 0.9 && c.skill < 2;
     for (const c of this.citizens.values()) {
       const hb = homeOf(c);
-      if (c.job >= 0 && hb && buildings.get(c.job)?.city !== hb.city) c.job = -1;
+      if (c.job >= 0 && hb && buildings.get(c.job)?.city !== hb.city && !this.commute(hb.city, buildings.get(c.job)!.city)) c.job = -1;
       if (c.school >= 0 && hb && buildings.get(c.school)?.city !== hb.city) c.school = -1;
       if (c.school >= 0) {
         const kind = buildings.get(c.school)?.kind;
@@ -301,6 +303,21 @@ export class Population {
         const id = nearest(free, homeOf(c), undefined, c);
         if (id >= 0) { c.job = id; free.set(id, free.get(id)! - 1); }
       }
+    }
+    // nobody hires them at home: the jobless go to work in a neighbour town joined by road (that town pays the wage)
+    for (const c of this.citizens.values()) {
+      if (c.job >= 0 || !this.canWork(c)) continue;
+      const hb = homeOf(c);
+      if (!hb) continue;
+      let best = -1, bd = Infinity;
+      for (const [id, n] of free) {
+        if (n <= 0) continue;
+        const b = buildings.get(id)!;
+        if (b.city === hb.city || !this.commute(hb.city, b.city)) continue;
+        const d = Math.abs(b.x - hb.x) + Math.abs(b.z - hb.z) + this.priority(b) * 30;
+        if (d < bd && Math.abs(b.x - hb.x) + Math.abs(b.z - hb.z) <= 90) { bd = d; best = id; }
+      }
+      if (best >= 0) { c.job = best; free.set(best, free.get(best)! - 1); }
     }
     // essential jobs (water, food, energy, materials) never stay empty while people sit in ordinary jobs
     const prio = (id: number) => { const b = buildings.get(id); return b ? this.priority(b) : 9; };
