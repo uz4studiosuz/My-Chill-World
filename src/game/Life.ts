@@ -1436,6 +1436,22 @@ export class Life {
         const cutter = buildings.list.find((w) => w.kind === 'woodcutter' && w.city === city.id && w.access >= 0);
         if (cutter) this.chainTruck(cutter, n, ['sawmill'], 'logs');
       }
+      // the factory sews clothes from cotton and makes furniture from planks (half the staff on each when both come in)
+      for (const fc of own.filter((b) => b.kind === 'factory')) {
+        const both = city.cotton >= 1 && city.planks > 12;
+        const c1 = Math.min(Math.max(0, city.cotton), CHAIN2.garments * staff(fc) * share * (both ? 0.5 : 1));
+        if (c1 > 0) {
+          eco.add(city, 'cotton', -c1, 'Factory');
+          eco.add(city, 'garments', c1, 'Factory');
+          this.chainTruck(fc, c1, ['clothes'], 'cotton');
+        }
+        const p1 = Math.min(Math.max(0, city.planks - 10), CHAIN2.furniture * staff(fc) * share * (both ? 0.5 : 1));
+        if (p1 > 0) {
+          eco.add(city, 'planks', -p1, 'Factory');
+          eco.add(city, 'furniture', p1, 'Factory');
+          this.chainTruck(fc, p1, ['market', 'supermarket'], 'planks');
+        }
+      }
     }
   }
 
@@ -2394,7 +2410,10 @@ export class Life {
     const price = food ? this.c.eco.cities.get(b.city)?.priceFactor ?? 1 : 1;
     let spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1) * price);
     const town = this.c.eco.cities.get(b.city);
-    if (b.kind === 'clothes' && town && town.cotton >= 1) { this.c.eco.add(town, 'cotton', -1, 'Clothing stores'); spend = Math.round(spend * 1.6); }
+    // clothes from the factory sell best; raw cotton a little; furniture sells in the markets
+    if (b.kind === 'clothes' && town && town.garments >= 1) { this.c.eco.add(town, 'garments', -1, 'Clothing stores'); spend = Math.round(spend * 1.8); }
+    else if (b.kind === 'clothes' && town && town.cotton >= 1) { this.c.eco.add(town, 'cotton', -1, 'Clothing stores'); spend = Math.round(spend * 1.3); }
+    if ((b.kind === 'market' || b.kind === 'supermarket') && town && town.furniture >= 1 && f.money > 80 && Math.random() < 0.25) { this.c.eco.add(town, 'furniture', -1, 'Sold in the markets'); spend += 30; }
     // a pharmacy sells medicine: the sick feel better
     if (b.kind === 'pharmacy') { c.health = Math.min(100, c.health + 15); if (c.flu) c.flu = Math.max(0, c.flu - 1); }
     f.money -= spend;

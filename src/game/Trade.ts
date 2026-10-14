@@ -2,11 +2,11 @@ import { TRADE_PRICE } from '../buildings/BuildingTypes';
 import type { City, Res } from '../sim/Economy';
 
 /** Goods the town hall can sell to or buy from other regions. */
-export type Good = 'food' | 'wood' | 'stone' | 'iron' | 'coal' | 'planks' | 'bricks' | 'steel' | 'grain' | 'flour' | 'milk' | 'cotton';
-export const GOODS: Good[] = ['food', 'wood', 'stone', 'iron', 'coal', 'planks', 'bricks', 'steel', 'grain', 'flour', 'milk', 'cotton'];
+export type Good = 'food' | 'wood' | 'stone' | 'iron' | 'coal' | 'planks' | 'bricks' | 'steel' | 'grain' | 'flour' | 'milk' | 'cotton' | 'garments' | 'furniture';
+export const GOODS: Good[] = ['food', 'wood', 'stone', 'iron', 'coal', 'planks', 'bricks', 'steel', 'grain', 'flour', 'milk', 'cotton', 'garments', 'furniture'];
 export const GOOD_NAME: Record<Good, string> = {
   food: 'Food', wood: 'Wood', stone: 'Stone', iron: 'Iron', coal: 'Coal', planks: 'Planks', bricks: 'Bricks', steel: 'Steel',
-  grain: 'Grain', flour: 'Flour', milk: 'Milk', cotton: 'Cotton',
+  grain: 'Grain', flour: 'Flour', milk: 'Milk', cotton: 'Cotton', garments: 'Clothes', furniture: 'Furniture',
 };
 
 /** Travelling merchants: they always buy and sell, at plain prices. The real trading partners are the neighbour towns on the map. */

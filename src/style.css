@@ -1419,3 +1419,13 @@ button.chip:hover { background: var(--raised); }
 .stats-body::-webkit-scrollbar-thumb, .goals-body::-webkit-scrollbar-thumb, .guide-body::-webkit-scrollbar-thumb, .inspector::-webkit-scrollbar-thumb, .ins-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); border-radius: 8px; }
 .stats-body { overscroll-behavior: contain; }
 .respanel.trade-panel { max-height: min(84vh, 760px); }
+
+/* guide: production chains */
+.chain-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 6px; }
+.chain-step { display: flex; align-items: center; gap: 7px; background: var(--base); border: 1px solid var(--line); border-radius: 10px; padding: 6px 9px; min-width: 0; }
+.chain-step svg { width: 18px; height: 18px; flex: none; color: var(--accent); }
+.chain-step span { display: flex; flex-direction: column; line-height: 1.2; }
+.chain-step b { font-size: 12px; font-weight: 800; }
+.chain-step small { font-size: 11px; color: var(--muted); }
+.chain-arrow { color: var(--accent); font-weight: 900; font-size: 15px; }
+@media (max-width: 600px) { .chain-flow { flex-direction: column; align-items: stretch; } .chain-arrow { transform: rotate(90deg); align-self: center; line-height: 1; } }

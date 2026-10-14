@@ -25,6 +25,9 @@ export interface City {
   /** Cotton for the clothing stores, corn feed for the cattle. */
   cotton: number;
   feed: number;
+  /** Made by the factory: clothes (from cotton) for the clothing stores, furniture (from planks) for the markets. */
+  garments: number;
+  furniture: number;
   /** Price of food compared to normal (scarce food is dearer). */
   priceFactor: number;
   /** Share of homes supplied with water through mains and pipes. */
@@ -87,14 +90,14 @@ export interface City {
 export type PromiseKind = 'tax' | 'park' | 'hospital' | 'school' | 'jobs';
 
 /** Resources that are counted in the city's books. */
-export type Res = 'money' | 'stone' | 'wood' | 'iron' | 'food' | 'grain' | 'flour' | 'planks' | 'milk' | 'bricks' | 'steel' | 'coal' | 'cotton' | 'feed';
+export type Res = 'money' | 'stone' | 'wood' | 'iron' | 'food' | 'grain' | 'flour' | 'planks' | 'milk' | 'bricks' | 'steel' | 'coal' | 'cotton' | 'feed' | 'garments' | 'furniture';
 /** Where each resource came from / went to: reason (English key) → signed amount. */
 export type Ledger = Record<Res, Record<string, number>>;
-export const blankLedger = (): Ledger => ({ money: {}, stone: {}, wood: {}, iron: {}, food: {}, grain: {}, flour: {}, planks: {}, milk: {}, bricks: {}, steel: {}, coal: {}, cotton: {}, feed: {} });
+export const blankLedger = (): Ledger => ({ money: {}, stone: {}, wood: {}, iron: {}, food: {}, grain: {}, flour: {}, planks: {}, milk: {}, bricks: {}, steel: {}, coal: {}, cotton: {}, feed: {}, garments: {}, furniture: {} });
 export const LEDGER_DAYS = 7;
 
 export interface CitySave {
-  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; grain?: number; flour?: number; planks?: number; milk?: number; bricks?: number; steel?: number; coal?: number; cotton?: number; feed?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
+  id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; grain?: number; flour?: number; planks?: number; milk?: number; bricks?: number; steel?: number; coal?: number; cotton?: number; feed?: number; garments?: number; furniture?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
   jobPriority?: Record<string, 'high' | 'low'>; wageAuto?: boolean; wages?: Record<string, number>; ai?: boolean; tint?: string; relation?: number; style?: string; owes?: City['owes']; balance?: Balance; foodYesterday?: { made: number; eaten: number }; campaign?: City['campaign']; promise?: City['promise'];
 }
 
@@ -112,7 +115,7 @@ function blankCity(id: number, name: string, founded: number, g: Grant = { money
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
     foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25, mayor: -1, elected: 0,
     jobPriority: {}, wageAuto: true, wages: {}, pollution: 0, tourists: 0, smart: false, railLink: false,
-    ledger: blankLedger(), ledgerDays: [], mood: [], grain: 0, flour: 0, planks: 0, stored: 0, milk: 0, bricks: 0, steel: 0, coal: 0, cotton: 0, feed: 0, priceFactor: 1, piped: 1,
+    ledger: blankLedger(), ledgerDays: [], mood: [], grain: 0, flour: 0, planks: 0, stored: 0, milk: 0, bricks: 0, steel: 0, coal: 0, cotton: 0, feed: 0, garments: 0, furniture: 0, priceFactor: 1, piped: 1,
   };
 }
 
@@ -253,7 +256,7 @@ export class Economy {
     return {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
-        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), grain: Math.round(c.grain), flour: Math.round(c.flour), planks: Math.round(c.planks), milk: Math.round(c.milk), bricks: Math.round(c.bricks), steel: Math.round(c.steel), coal: Math.round(c.coal), cotton: Math.round(c.cotton), feed: Math.round(c.feed), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
+        id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), grain: Math.round(c.grain), flour: Math.round(c.flour), planks: Math.round(c.planks), milk: Math.round(c.milk), bricks: Math.round(c.bricks), steel: Math.round(c.steel), coal: Math.round(c.coal), cotton: Math.round(c.cotton), feed: Math.round(c.feed), garments: Math.round(c.garments), furniture: Math.round(c.furniture), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
         jobPriority: c.jobPriority, wageAuto: c.wageAuto, wages: c.wages, ai: c.ai, tint: c.tint, style: c.style, owes: c.owes, balance: c.balance, foodYesterday: c.foodYesterday, relation: c.relation === undefined ? undefined : Math.round(c.relation), campaign: c.campaign, promise: c.promise,
       })),
     };
@@ -275,6 +278,8 @@ export class Economy {
       city.coal = c.coal ?? 0;
       city.cotton = c.cotton ?? 0;
       city.feed = c.feed ?? 0;
+      city.garments = c.garments ?? 0;
+      city.furniture = c.furniture ?? 0;
       city.loan = c.loan ?? 0;
       city.happiness = c.happiness ?? 65;
       city.taxRate = c.taxRate ?? 0.25;

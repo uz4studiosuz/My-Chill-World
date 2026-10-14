@@ -188,6 +188,8 @@ export const CHAIN = {
 export const CHAIN2 = {
   dairy: 40, foodPerMilk: 1.5, milkShareOfRanch: 0.6,
   bricks: 30, stonePerBrick: 1, steel: 12, ironPerSteel: 1.5,
+  /** Factory: clothes from cotton and furniture from planks per day at full staff. */
+  garments: 30, furniture: 20,
   coalPerDay: 18, energyPerCoal: 12,
   /** Construction boost from each delivered material, and how much a delivery uses. */
   brickBoost: 1.3, steelBoost: 1.3, perSite: 3,
@@ -213,7 +215,7 @@ export const CROPS: Record<CropKind, { name: string; gives: string; ripe: string
 /** Bank: interest the bank pays on savings and charges on family loans (per day); share of savings kept in the bank. */
 export const BANKING = { deposit: 0.002, loanRate: 0.006, saveShare: 0.6, maxFamilyLoan: 3000 };
 /** Trade: what a unit is worth (the city buys at this price, sells for 80% of it). */
-export const TRADE_PRICE: Record<string, number> = { food: 2, wood: 4, stone: 5, iron: 9, coal: 5, planks: 7, bricks: 7, steel: 16, grain: 2, flour: 3, milk: 2, cotton: 4 };
+export const TRADE_PRICE: Record<string, number> = { food: 2, wood: 4, stone: 5, iron: 9, coal: 5, planks: 7, bricks: 7, steel: 16, grain: 2, flour: 3, milk: 2, cotton: 4, garments: 9, furniture: 12 };
 
 /** Pensions paid by the town hall per retired citizen per day. */
 export const PENSION = 4;

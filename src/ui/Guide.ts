@@ -4,7 +4,38 @@ import { BUILDINGS, BuildingKind, JOB_PRIORITY } from '../buildings/BuildingType
 import { CATS, ITEMS } from './Hud';
 import { VERSION } from '../version';
 
-type Section = 'basics' | 'resources' | 'buildings' | 'life';
+type Section = 'basics' | 'resources' | 'chains' | 'buildings' | 'life';
+type Ic = Parameters<typeof icon>[0];
+
+/** Production chains: each step is a building (icon, name) and what it hands on; then what it is all for. */
+const CHAINS: { title: string; ic: Ic; steps: [Ic, string, string][]; text: string }[] = [
+  { title: 'Bread', ic: 'food', steps: [['farm', 'Crop Farm (wheat)', 'grain'], ['farm', 'Flour Mill', 'flour'], ['food', 'Bakery', 'bread'], ['food', 'Grocery / Supermarket / Market', 'food for families']],
+    text: 'Wheat fields give grain; tractors take it to the mill, the bakery bakes bread (1.4 food from each flour) and vans bring it to the shops. Without a mill the grain is only cooked into porridge (70%).' },
+  { title: 'Milk and cheese', ic: 'cow', steps: [['farm', 'Crop Farm (corn)', 'feed'], ['cow', 'Cattle Ranch', 'milk'], ['cow', 'Dairy', 'cheese and ice cream'], ['food', 'Shops', 'food for families']],
+    text: 'Corn feed makes the cows give 30% more. The dairy makes 1.5 food from each milk; without a dairy the milk is drunk fresh.' },
+  { title: 'Fresh food', ic: 'orchard', steps: [['orchard', 'Orchard / Fishing Hut / vegetable and melon fields', 'food'], ['food', 'Shops', 'food for families']],
+    text: 'Fruit (summer and autumn), fish, vegetables and melons go straight into the stores. Families buy food only in an open food shop and keep it in the pantry at home.' },
+  { title: 'Clothes', ic: 'people', steps: [['farm', 'Crop Farm (cotton)', 'cotton'], ['production', 'Factory', 'clothes'], ['people', 'Clothing Store', 'clothes for families']],
+    text: 'The factory sews clothes from cotton. A clothing store with factory clothes takes 80% more from every sale, with raw cotton only 30% more, with nothing it sells little.' },
+  { title: 'Furniture', ic: 'house', steps: [['woodcutter', 'Woodcutter', 'logs'], ['woodcutter', 'Sawmill', 'planks'], ['production', 'Factory', 'furniture'], ['food', 'Market / Supermarket', 'furniture for homes']],
+    text: 'Families buy furniture in the market and the supermarket: every piece adds $30 to the sale (and to the business tax). Furniture and clothes are also dear goods to sell to the neighbour towns.' },
+  { title: 'Planks for building', ic: 'woodcutter', steps: [['woodcutter', 'Woodcutter', 'wood'], ['woodcutter', 'Sawmill', 'planks'], ['buildings', 'Construction sites', '40% faster']],
+    text: 'Trucks bring planks to the building sites and they go up 40% faster. So planks have two uses: faster building and furniture at the factory. Wood itself is a building material and fuel for the wood power plant.' },
+  { title: 'Bricks', ic: 'quarry', steps: [['quarry', 'Stone Quarry', 'stone'], ['quarry', 'Brickworks', 'bricks'], ['buildings', 'Construction sites', '30% faster']],
+    text: 'Stone is needed for roads and almost every building. The brickworks fires part of it into bricks that speed up building sites.' },
+  { title: 'Steel', ic: 'iron', steps: [['iron', 'Iron Mine', 'iron'], ['iron', 'Steel Mill', 'steel'], ['buildings', 'Big construction sites', '30% faster']],
+    text: 'Iron is needed for factories, hospitals, towers, railways and the car factory. A steel mill melts it into steel beams for big building sites.' },
+  { title: 'Cars', ic: 'car', steps: [['iron', 'Iron Mine', 'iron'], ['car', 'Car Factory', 'cars'], ['car', 'Car Market', 'cars on sale'], ['people', 'Families', 'drive to work']],
+    text: 'Car trucks bring new cars to the car market, where families buy them. Without a car factory cars can be imported in the Trade window; spare cars can be sold to other towns.' },
+  { title: 'Electricity', ic: 'energy', steps: [['woodcutter', 'Wood / Coal Mine', 'fuel'], ['powerplant', 'Wood Power Plant / Coal Plant', 'electricity'], ['energy', 'Wind, Sun, Hydro', 'free electricity'], ['house', 'Homes and workplaces', 'light and work']],
+    text: 'Fuel plants burn wood or coal; wind turbines, solar farms and dams need no fuel (wind and sun not even a road). A battery keeps what is left over for the night. Without power wages halve and work slows.' },
+  { title: 'Water', ic: 'water', steps: [['watertower', 'Water Tower', 'water for 160 people'], ['roads', 'Mains under the roads / pipes', 'water'], ['house', 'Homes', 'drinking water'], ['water', 'Sewage Treatment', 'clean town']],
+    text: 'Water runs under every road; pipes bring it to homes away from the roads. Without water people fall ill and nobody moves in.' },
+  { title: 'Garbage', ic: 'bulldoze', steps: [['house', 'Homes and shops', 'garbage'], ['car', 'Garbage trucks', 'collect it'], ['bulldoze', 'Landfill / Recycling Plant', 'clean streets']],
+    text: 'A landfill takes the garbage away (and smells); a recycling plant is cleaner. When the bins at home stay full, the family falls ill.' },
+  { title: 'Stores and trade', ic: 'globe', steps: [['production', 'All producers', 'goods'], ['buildings', 'Town Hall / Warehouse', 'stores'], ['globe', 'Neighbour towns / merchants', 'money']],
+    text: 'The town hall keeps 800 of each good (1500 food); every warehouse 2000 more (2500 food). What does not fit spoils. Sell the surplus in the Trade window: every neighbour town pays more for what it lacks and sells cheap what it has a lot of.' },
+];
 
 const RESOURCES: [string, string, string][] = [
   ['coin', 'Money', 'Taxes (income, property, business), food sales and utility bills fill the treasury. Wages of public workers and upkeep cost money every day. Banks lend money; 8 months in debt means bankruptcy.'],
@@ -94,7 +125,7 @@ export class Guide {
     close.addEventListener('click', () => this.hide());
     head.append(title, ver, close);
     const tabs = el('div', 'stats-tabs');
-    for (const [id, label, ic] of [['basics', 'Basics', 'play'], ['resources', 'Resources', 'coin'], ['buildings', 'Buildings', 'buildings'], ['life', 'City life', 'people']] as [Section, string, Parameters<typeof icon>[0]][]) {
+    for (const [id, label, ic] of [['basics', 'Basics', 'play'], ['resources', 'Resources', 'coin'], ['chains', 'Chains', 'production'], ['buildings', 'Buildings', 'buildings'], ['life', 'City life', 'people']] as [Section, string, Parameters<typeof icon>[0]][]) {
       const b = el('button', 'stab');
       b.innerHTML = icon(ic) + `<span>${t(label)}</span>`;
       b.addEventListener('click', () => { this.section = id; this.render(); });
@@ -126,6 +157,7 @@ export class Guide {
     this.body.replaceChildren();
     if (this.section === 'basics') this.basics();
     else if (this.section === 'resources') this.resources();
+    else if (this.section === 'chains') this.chains();
     else if (this.section === 'buildings') this.buildings();
     else this.life();
     this.body.scrollTop = 0;
@@ -150,6 +182,33 @@ export class Guide {
 
   private resources() {
     for (const [ic, name, text] of RESOURCES) this.para(name, text, ic as Parameters<typeof icon>[0]);
+  }
+
+  /** Every production chain as a row of steps with arrows, and what it is for. */
+  private chains() {
+    const intro = el('div', 'guide-card');
+    const p = el('p', '');
+    p.textContent = t('Raw goods become better goods step by step: each building hands its product to the next one. A building whose input is missing waits. Trucks show the goods moving between them.');
+    intro.appendChild(p);
+    this.body.appendChild(intro);
+    for (const ch of CHAINS) {
+      const box = el('div', 'guide-card chain-card');
+      const h = el('div', 'guide-title');
+      h.innerHTML = icon(ch.ic) + `<span>${t(ch.title)}</span>`;
+      const flow = el('div', 'chain-flow');
+      ch.steps.forEach(([ic, name, out], i) => {
+        if (i) { const a = el('span', 'chain-arrow'); a.textContent = '→'; flow.appendChild(a); }
+        const s = el('div', 'chain-step');
+        s.innerHTML = `${icon(ic)}<span><b></b><small></small></span>`;
+        (s.querySelector('b') as HTMLElement).textContent = t(name);
+        (s.querySelector('small') as HTMLElement).textContent = t(out);
+        flow.appendChild(s);
+      });
+      const txt = el('p', '');
+      txt.textContent = t(ch.text);
+      box.append(h, flow, txt);
+      this.body.appendChild(box);
+    }
   }
 
   private life() {
