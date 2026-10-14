@@ -3,6 +3,7 @@ import { PERSON_VARIANTS, babyGeometry, logGeometry, personGeometry } from '../m
 import type { Point } from '../buildings/Buildings';
 import { stretcherGeometry } from '../models/extras';
 import { bikeGeometry } from '../models/chains2';
+import { UNIFORMS, UNIFORM_KINDS, type Uniform } from '../models/people/uniforms';
 
 export type Carry = 'none' | 'log' | 'baby' | 'stretcher';
 
@@ -47,6 +48,8 @@ const MAX_PER_VARIANT = 400;
 export class Walkers {
   /** Bicycles standing in front of the factories (set by the game every frame). */
   standingBikes: { x: number; z: number; rot: number }[] = [];
+  /** Work clothes of a walker right now (set by the game: people at or on their way to work wear them). */
+  uniformOf?: (w: Walker) => Uniform | undefined;
   /** May a walker enter the segment (x0,z0)→(x1,z1)? Used for red lights at crossings. */
   gate?: (x0: number, z0: number, x1: number, z1: number) => boolean;
   readonly group = new THREE.Group();
@@ -57,6 +60,7 @@ export class Walkers {
   private log: THREE.InstancedMesh;
   private stretcher: THREE.InstancedMesh;
   private bikes: THREE.InstancedMesh;
+  private uniforms = new Map<Uniform, THREE.InstancedMesh>();
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private e = new THREE.Euler();
@@ -79,6 +83,7 @@ export class Walkers {
     this.log = make(logGeometry());
     this.stretcher = make(stretcherGeometry());
     this.bikes = make(bikeGeometry());
+    for (const u of UNIFORM_KINDS) this.uniforms.set(u, make(UNIFORMS[u]()));
   }
 
   walk(variant: number, scale: number, route: WalkRoute, carry: Carry = 'none', onArrive?: (w: Walker) => void): Walker {
@@ -215,6 +220,7 @@ export class Walkers {
   private render() {
     const counts = new Array(PERSON_VARIANTS).fill(0);
     let nb = 0, nl = 0, ns = 0, nk = 0;
+    const nu = new Map<Uniform, number>();
     for (const w of this.list) {
       if (w.hidden) continue;
       const tt = this.time * 9 + w.phase;
@@ -234,6 +240,9 @@ export class Walkers {
       this.m.compose(this.p, this.q, this.sc);
       const mesh = this.meshes[w.variant];
       if (counts[w.variant] < MAX_PER_VARIANT) mesh.setMatrixAt(counts[w.variant]++, this.m);
+      // work clothes over the everyday ones
+      const u = w.scale >= 0.95 ? this.uniformOf?.(w) : undefined;
+      if (u) { const k = nu.get(u) ?? 0; if (k < MAX_PER_VARIANT) { this.uniforms.get(u)!.setMatrixAt(k, this.m); nu.set(u, k + 1); } }
       if (w.carry === 'baby' && nb < MAX_PER_VARIANT) this.baby.setMatrixAt(nb++, this.m);
       if (w.carry === 'log' && nl < MAX_PER_VARIANT) this.log.setMatrixAt(nl++, this.m);
       if (w.carry === 'stretcher' && ns < MAX_PER_VARIANT) this.stretcher.setMatrixAt(ns++, this.m);
@@ -249,6 +258,7 @@ export class Walkers {
       m.instanceMatrix.needsUpdate = true;
     });
     this.baby.count = nb;
+    for (const [u, m] of this.uniforms) { m.count = nu.get(u) ?? 0; m.instanceMatrix.needsUpdate = true; }
     this.log.count = nl;
     for (const b of this.standingBikes) {
       if (nk >= MAX_PER_VARIANT) break;

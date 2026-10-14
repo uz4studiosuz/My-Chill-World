@@ -3068,15 +3068,19 @@ export class Game implements ToolHost {
         ] },
       ],
       finance: [
-        { title: t('Bank'), kpis: [
-          [t('Savings'), bank ? `$${n(bank.deposits)}` : '—', t('{n} families save', { n: bank?.savers ?? 0 })],
+        { title: t('Bank'), kpis: !count('bank') ? [
+          [t('Savings'), '—', t('No bank in the town'), false],
+          [t('Family loans'), '—', t('Build a bank: families save and borrow there'), false],
+          [t('Town hall loan'), `$${n(city.loan)}`, t('1% interest per day'), city.loan === 0],
+        ] : [
+          [t('Savings'), bank ? `$${n(bank.deposits)}` : '—', bank?.savers ? t('{n} families save', { n: bank.savers }) : t('Families save above $300'), (bank?.savers ?? 0) > 0],
           [t('Family loans'), `$${n(famLoans.reduce((a, f) => a + (f.loan ?? 0), 0))}`, t('{n} borrowers', { n: famLoans.length })],
           [t('Interest earned'), bank ? `$${n(bank.earned)}` : '—', t('yesterday')],
           [t('Town hall loan'), `$${n(city.loan)}`, t('1% interest per day'), city.loan === 0],
         ], note: count('bank') ? undefined : t('No bank yet: families cannot save or borrow to build.') },
         { title: t('Trade'), kpis: [
-          [t('Sold today'), `$${n(this.trade.today.sold)}`, t('to other towns')],
-          [t('Bought today'), `$${n(this.trade.today.bought)}`, t('from other towns')],
+          [t('Sold today'), `$${n(this.trade.today.sold)}`, this.trade.today.sold ? t('to other towns') : t('Nothing yet — sell in the Trade window')],
+          [t('Bought today'), `$${n(this.trade.today.bought)}`, this.trade.today.bought ? t('from other towns') : t('Nothing yet — buy in the Trade window')],
           [t('Transport'), linked ? t('Railway / airport') : t('Caravans'), linked ? t('better prices') : t('10% worse prices'), linked],
         ] },
         { title: t('Relations with neighbour towns'), bars: [...this.eco.cities.values()].filter((c) => c.ai).map((c) => [c.name, Math.max(1, Math.round(c.relation ?? 40)), c.tint ?? '#aab4be'] as [string, number, string]) },

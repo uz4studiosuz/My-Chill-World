@@ -2670,4 +2670,9 @@ export const UZ: Record<string, string> = {
   "Food is dearer when the stores run low and cheaper when they are full. Where the pay is higher, everything costs more.": "Ombor bo'shasa oziq-ovqat qimmatlashadi, to'lsa arzonlashadi. Maosh qayerda yuqori bo'lsa, u yerda hamma narsa qimmatroq.",
   "Prices in town (they follow the average wage)": "Shahardagi narxlar (o'rtacha maoshga qarab)",
   "Type the pay per day and press Enter": "Kunlik maoshni yozing va Enter bosing",
+  "No bank in the town": "Shaharda bank yo'q",
+  "Build a bank: families save and borrow there": "Bank quring: oilalar u yerda pul jamg'arib, qarz oladi",
+  "Families save above $300": "$300 dan ortig'ini jamg'aradi",
+  "Nothing yet — sell in the Trade window": "Hali yo'q — Savdo oynasida soting",
+  "Nothing yet — buy in the Trade window": "Hali yo'q — Savdo oynasidan sotib oling",
 };

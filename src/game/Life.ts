@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { UNIFORM_OF, type Uniform } from '../models/people/uniforms';
 import { DAY_SECONDS, DAYS_PER_YEAR } from '../config';
 import { DIRS, N, tileToWorld, worldToTile, inBounds, idx } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
@@ -197,6 +198,7 @@ export class Life {
 
   constructor(private c: LifeContext) {
     this.leisure = new Leisure(c, this);
+    c.walkers.uniformOf = (w) => (w.citizen !== undefined ? this.uniformFor(w.citizen) : undefined);
     const { map, net, footpaths, canals, buildings, traffic } = c;
     // pedestrians cross at signalled junctions only on green for their direction
     c.walkers.gate = (x0, z0, x1, z1) => {
@@ -1042,20 +1044,41 @@ export class Life {
       const farms = own.filter((b) => b.kind === 'farm' && !b.cropManual);
       if (!farms.length) continue;
       const has = (k: string) => own.some((b) => b.kind === k && b.workers > 0);
-      const count = new Map<string, number>();
+      // a mix of crops, as much as the town's own chains need and less of what is already in plenty
+      const want: Record<CropKind, number> = {
+        wheat: (has('mill') ? 4.5 : 3) * (city.grain > 80 ? 0.4 : 1),
+        vegetables: 2.5 * (city.food / Math.max(1, this.mouths.get(city.id) ?? 1) > 12 ? 0.5 : 1),
+        corn: (has('ranch') || has('dairy') ? 2.5 : 1.2) * (city.feed > 60 ? 0.4 : 1),
+        cotton: (has('clothes') || has('factory') ? 2.5 : 1.2) * (city.cotton > 50 ? 0.4 : 1),
+        melons: month >= 4 && month <= 7 ? 1.5 : 0,
+      };
+      const sum = Object.values(want).reduce((x, y) => x + y, 0);
+      const total = own.filter((b) => b.kind === 'farm').length;
+      const count = new Map<CropKind, number>();
       for (const f of own) if (f.kind === 'farm') count.set(f.cropKind ?? 'wheat', (count.get(f.cropKind ?? 'wheat') ?? 0) + 1);
-      for (const f of farms) {
+      // the crop furthest below its share of the fields
+      const lacking = () => (Object.keys(want) as CropKind[]).reduce((best, k) => (want[k] / sum) * total - (count.get(k) ?? 0) > (want[best] / sum) * total - (count.get(best) ?? 0) ? k : best, 'wheat' as CropKind);
+      // only young fields switch, the ones with too much of their crop first
+      for (const f of [...farms].sort((x, y) => x.id - y.id)) {
+        if (f.cropT >= 0.35) continue;
         const cur = f.cropKind ?? 'wheat';
+        let next: CropKind;
+        if (total <= 3) {
+          // a town with few fields changes crops month by month, more often to what it needs most
+          let h = Math.imul(f.id ^ Math.imul(Math.floor(eco.day / 30) + 1, 0x9e3779b1), 0x85ebca6b);
+          h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+          let r = (((h ^ (h >>> 16)) >>> 0) / 4294967296) * sum;
+          next = (Object.keys(want) as CropKind[]).find((k) => (r -= want[k]) < 0) ?? 'wheat';
+        } else {
+          const over = (count.get(cur) ?? 0) - (want[cur] / sum) * total;
+          next = lacking();
+          if (over < 0.75) continue;
+        }
+        if (next === cur) continue;
         count.set(cur, (count.get(cur) ?? 1) - 1);
-        let want: CropKind = has('mill') ? 'wheat' : 'vegetables';
-        if (has('ranch') && city.feed < 20 && !(count.get('corn') ?? 0)) want = 'corn';
-        else if (has('clothes') && city.cotton < 15 && !(count.get('cotton') ?? 0) && farms.length >= 2) want = 'cotton';
-        else if (month >= 4 && month <= 7 && !(count.get('melons') ?? 0) && farms.length >= 3) want = 'melons';
-        count.set(want, (count.get(want) ?? 0) + 1);
-        if (want !== cur && f.cropT < 0.35) {
-          f.cropKind = want;
-          this.c.buildings.updateCrop(f);
-        } else if (want !== cur) { count.set(want, (count.get(want) ?? 1) - 1); count.set(cur, (count.get(cur) ?? 0) + 1); }
+        count.set(next, (count.get(next) ?? 0) + 1);
+        f.cropKind = next;
+        this.c.buildings.updateCrop(f);
       }
     }
   }
@@ -3409,6 +3432,18 @@ export class Life {
   }
 
   /** Builders waiting at the yard pick up the next site. */
+  /** Work clothes: worn at work and on the way there and back; senior staff wear the chief's (officer, doctor, pilot…). */
+  private uniformFor(id: number): Uniform | undefined {
+    const c = this.c.pop.citizens.get(id);
+    if (!c || c.job < 0 || c.age < 18) return undefined;
+    const work = c.at === c.job || c.activity === 'Walking to work' || c.activity === 'Cycling to work' || (c.state === 'away' && c.activity !== 'At home' && this.busyBuilders.has(c.id));
+    if (!work && !(c.state === 'away' && c.at === c.job)) return undefined;
+    const b = this.c.buildings.get(c.job);
+    const u = b && UNIFORM_OF[b.kind];
+    if (!u) return undefined;
+    return c.skill === 2 && u[1] ? u[1] : u[0];
+  }
+
   /** The tile where a road is being laid in a town (set by the game), and the builders at work on it. */
   roadSite?: (cityId: number) => { key: number; x: number; z: number } | null;
   private roadCrews = new Map<number, Set<number>>();
