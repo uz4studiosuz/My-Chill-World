@@ -15,6 +15,10 @@ export interface DecisionCtx {
   heal(points: number): void;
   tourists(n: number): void;
   say(text: string): void;
+  /** The town has a working building of one of these kinds (staffed, when it has jobs). */
+  has(...kinds: string[]): boolean;
+  /** People living in the town. */
+  people: number;
 }
 
 export interface DecisionOption { label: string; note: string; act: (c: DecisionCtx) => void }
@@ -26,6 +30,7 @@ export interface Decision { id: string; title: string; text: string; when?: (c: 
 export const DECISIONS: Decision[] = [
   {
     id: 'investor', title: 'An investor knocks on the door',
+    when: (c) => c.people >= 30,
     text: 'A businessman wants to buy land at the edge of town for a workshop. He pays well, but people worry about smoke.',
     options: [
       { label: 'Sell the land', note: '+$2500, people a little unhappy for 5 days', act: (c) => { c.add('money', 2500, 'Land sold to an investor'); c.mood(-3, 5); } },
@@ -34,6 +39,7 @@ export const DECISIONS: Decision[] = [
   },
   {
     id: 'teachers', title: 'Teachers ask for a raise',
+    when: (c) => c.has('school', 'kindergarten', 'university') && c.city.money >= 600,
     text: 'The teachers say their wages are too low and the children deserve better lessons.',
     options: [
       { label: 'Give a bonus', note: '−$600, people happier for 5 days', act: (c) => { c.add('money', -600, 'Bonus for teachers'); c.mood(4, 5); } },
@@ -51,6 +57,7 @@ export const DECISIONS: Decision[] = [
   },
   {
     id: 'concert', title: 'A famous singer is on tour',
+    when: (c) => c.people >= 40 && c.city.money >= 900,
     text: 'A star offers to give a concert on the town square.',
     options: [
       { label: 'Book the concert', note: '−$900, +8 happiness for 3 days, tourists come', act: (c) => { c.add('money', -900, 'Concert'); c.mood(8, 3); c.tourists(30); } },
@@ -59,6 +66,7 @@ export const DECISIONS: Decision[] = [
   },
   {
     id: 'iron', title: 'A merchant with iron',
+    when: (c) => c.city.money >= 450,
     text: 'A travelling merchant offers 60 iron at a good price.',
     options: [
       { label: 'Buy the iron', note: '−$450, +60 iron', act: (c) => { c.add('money', -450, 'Bought from merchants'); c.add('iron', 60, 'Bought from merchants'); } },
@@ -68,7 +76,7 @@ export const DECISIONS: Decision[] = [
   {
     id: 'water', title: 'Residents ask for water',
     text: 'There is not enough clean water. People ask the town hall to bring water tankers until a new tower is built.',
-    when: (c) => c.city.water < 0.9,
+    when: (c) => c.city.water < 0.9 && c.people > 0 && c.city.money >= 500,
     options: [
       { label: 'Send water tankers', note: '−$500, everyone feels better', act: (c) => { c.add('money', -500, 'Water tankers'); c.heal(20); c.mood(2, 3); } },
       { label: 'They must wait', note: 'People are angry (−4 for 4 days)', act: (c) => c.mood(-4, 4) },
@@ -77,7 +85,7 @@ export const DECISIONS: Decision[] = [
   {
     id: 'strike', title: 'Strike at the factory',
     text: 'Factory workers stopped the machines and demand higher wages.',
-    when: (c) => c.hasFactory,
+    when: (c) => c.hasFactory && c.city.money >= 700,
     options: [
       { label: 'Agree to their demands', note: '−$700, +3 happiness', act: (c) => { c.add('money', -700, 'Wage agreement'); c.mood(3, 4); } },
       { label: 'Refuse', note: 'Unrest: −5 happiness for 4 days', act: (c) => c.mood(-5, 4) },
@@ -94,6 +102,7 @@ export const DECISIONS: Decision[] = [
   },
   {
     id: 'trees', title: 'Children want to plant trees',
+    when: (c) => c.has('school') && c.city.money >= 300,
     text: 'Schoolchildren want to plant trees along the streets and ask the town hall for saplings.',
     options: [
       { label: 'Buy the saplings', note: '−$300, +3 happiness for 6 days', act: (c) => { c.add('money', -300, 'Saplings for the children'); c.mood(3, 6); } },
@@ -102,6 +111,7 @@ export const DECISIONS: Decision[] = [
   },
   {
     id: 'loan', title: 'The bank offers a cheap loan',
+    when: (c) => c.has('bank') && c.city.loan < 6000,
     text: 'The bank offers $3000 now; the town pays back $3600 over the next days.',
     options: [
       { label: 'Take the money', note: '+$3000 now, −$3600 later', act: (c) => { c.add('money', 3000, 'Cheap loan'); c.city.loan += 3600; } },

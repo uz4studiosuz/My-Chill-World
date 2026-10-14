@@ -416,6 +416,7 @@ export class Game implements ToolHost {
       openResource: (key) => { this.news?.hide(); this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.resPanel?.toggle(key); },
       openPhoto: () => this.togglePhoto(),
       setLayer: (l) => { this.mapLayer = this.mapLayer === l ? 'none' : l; this.overlayT = 0; this.hud?.setLayer(this.mapLayer); if (this.mapLayer !== 'none') this.hud?.toast(t(LAYER_NOTE[this.mapLayer])); },
+      goHome: () => this.goHome(),
       openWorld: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
       openTrade: () => { this.resPanel?.hide(); this.stats?.hide(); this.trade.newDay(this.eco.day); this.tradePanel?.toggle(); },
       openDrive: () => (this.drive.active ? this.drive.stop() : this.startDrive()),
@@ -1518,6 +1519,8 @@ export class Game implements ToolHost {
       city,
       freeHomes: this.life.freeHomes(city.id).length,
       hasFactory: this.buildings.list.some((b) => b.city === city.id && (b.kind === 'factory' || b.kind === 'carfactory') && b.workers > 0),
+      has: (...kinds) => this.buildings.list.some((b) => b.city === city.id && kinds.includes(b.kind) && b.built >= 1 && (!BUILDINGS[b.kind].jobs || b.workers > 0)),
+      people: this.life.populationByCity().get(city.id) ?? 0,
       add: (res, amount, reason) => this.eco.add(city, res, amount, reason),
       mood: (points, days) => {
         const old = this.life.moodBoost.get(city.id);
@@ -1545,7 +1548,9 @@ export class Game implements ToolHost {
       tourists: (n) => { city.tourists += n; },
       say: (text) => this.life.events.push(text),
     };
-    const options = DECISIONS.filter((d) => !d.when || d.when(ctx));
+    // the made-up 'neighbouring town' letter only when there are no real neighbour towns on the map
+    const realNeighbours = [...this.eco.cities.values()].some((c) => c.ai);
+    const options = DECISIONS.filter((d) => (!d.when || d.when(ctx)) && !(d.id === 'neighbour' && realNeighbours));
     // now and then a neighbour town writes to the town hall
     const towns = [...this.eco.cities.values()].filter((c) => c.ai);
     const town = towns[Math.floor(Math.random() * towns.length)];
@@ -2744,6 +2749,14 @@ export class Game implements ToolHost {
       ] });
     }
     return { title: `${city.name}${city.ai ? ` · ${t('Neighbour town')}` : ''}`, subtitle: `${t('Day {n}', { n: this.eco.day })} · ${t('{n} people', { n: pop })} · ${t('{n} families', { n: fams.length })}`, tabs };
+  }
+
+  /** Fly to the player's own town hall and open it. */
+  private goHome() {
+    const hall = this.buildings.townHall(this.eco.city.id) ?? this.buildings.halls().find((h) => !this.eco.cities.get(h.city)?.ai);
+    if (!hall) return;
+    this.cam.setState(hall.mesh.position.x, hall.mesh.position.z, this.cam.yaw, Math.min(Math.max(this.cam.viewHalf, 6), 12));
+    this.select({ type: 'building', id: hall.id });
   }
 
   /** Write down something that happened with a neighbour town (money: + you got, − you paid). */

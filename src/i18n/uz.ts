@@ -2120,4 +2120,6 @@ export const UZ: Record<string, string> = {
   "Goods per day (made − used)": "Kunlik tovar (ishlab chiqarilgan − sarflangan)",
   "Neighbour town": "Qo'shni shahar",
   "Street lamps": "Ko'cha chiroqlari",
+  "My town (H)": "Mening shahrim (H)",
+  "My town": "Mening shahrim",
 };

@@ -158,6 +158,8 @@ export interface HudHandlers {
   openPhoto: () => void;
   openTrade: () => void;
   openWorld: () => void;
+  /** Fly to your own town. */
+  goHome: () => void;
   setLayer: (l: 'power' | 'water' | 'happy') => void;
   /** Details of one readout: where it comes from and where it goes. */
   openResource: (key: string) => void;
@@ -328,7 +330,18 @@ export class Hud {
     mUndo.innerHTML = icon('undo');
     mUndo.setAttribute('aria-label', t('Undo'));
     mUndo.addEventListener('click', h.undo);
-    mob.append(this.playBtn, this.stepBtn, mUndo);
+    // find my town: the camera flies back to your town hall
+    const home = (cls: string) => {
+      const b = el('button', cls);
+      b.innerHTML = icon('home');
+      b.title = t('My town (H)');
+      b.setAttribute('aria-label', t('My town'));
+      b.addEventListener('click', h.goHome);
+      return b;
+    };
+    rot.appendChild(home('sbtn home-btn'));
+    mob.append(this.playBtn, this.stepBtn, home('sbtn home-btn'), mUndo);
+    window.addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey) h.goHome(); });
     corner.append(speeds, mob, rot, ver);
 
     this.drawer = el('div', 'drawer');

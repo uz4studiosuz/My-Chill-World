@@ -1384,3 +1384,5 @@ button.chip:hover { background: var(--raised); }
   .snote { font-size: 12px; }
   .stats-body .chart canvas, .cr-chart, .world-panel .chart canvas { height: 130px !important; }
 }
+
+.home-btn { color: var(--accent); }
