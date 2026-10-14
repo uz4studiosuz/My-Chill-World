@@ -1514,18 +1514,25 @@ export class Life {
     let active = 0;
     for (const id of this.porters) if (pop.citizens.get(id)?.job === b.id) active++;
     if (active >= 2) return;
-    const worker = [...pop.citizens.values()].find((c) => c.job === b.id && c.state === 'away' && c.at === b.id && !this.porters.has(c.id) && !c.walker);
+    // anyone on shift: idle inside, or hacking at the rock face (who then goes back to it)
+    const onShift = (c: Citizen) => c.job === b.id && c.state === 'away' && c.at === b.id && !this.porters.has(c.id) && this.c.eco.timeOfDay < c.returnAt;
+    const worker = [...pop.citizens.values()].find((c) => onShift(c) && !c.walker) ?? [...pop.citizens.values()].find((c) => onShift(c) && !!c.walker && !c.walker.leaving);
     if (!worker) return;
+    const outside = !!worker.walker && !worker.walker.leaving;
+    const from = outside ? { x: worker.walker!.x, z: worker.walker!.z } : buildings.door(b);
+    const fromTile = outside ? tileAt(from) : buildings.frontTile(b);
     this.porters.add(worker.id);
     b.stored -= QUARRY.truckLoad;
     worker.activity = 'Carrying stone';
     const finish = () => {
       this.porters.delete(worker.id);
       if (!this.alive(worker)) return;
+      // back at the quarry: on to the rock face again while the shift lasts
+      if (worker.state === 'away' && worker.at === b.id && this.c.eco.timeOfDay < worker.returnAt && BUILDINGS[b.kind].work === 'miner') { this.mineLoop(worker, b); return; }
       if (worker.walker) { this.c.walkers.dismiss(worker.walker); worker.walker = undefined; }
       if (worker.state === 'away') worker.activity = 'At work';
     };
-    this.walk(worker, buildings.door(b), buildings.frontTile(b), th, () => {
+    this.walk(worker, from, fromTile, th, () => {
       if (!this.alive(worker)) { this.porters.delete(worker.id); return; }
       const own = eco.cities.get(b.city);
       if (own) this.c.eco.add(own, 'stone', QUARRY.truckLoad, 'Quarries (on foot)');
