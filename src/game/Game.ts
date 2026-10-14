@@ -42,6 +42,7 @@ import { WaterLife } from '../fx/WaterLife';
 import { Trade, Good, GOOD_NAME } from './Trade';
 import { AutoCity, findTownSite, TOWN_TINTS, TOWN_STYLES, STYLE_NAME } from './AutoCity';
 import { WorldPanel, WorldTown } from '../ui/WorldPanel';
+import { CityReport, CityReportView, ReportSection } from '../ui/CityReport';
 import { mulberry32 } from '../utils/rng';
 import { TradePanel } from '../ui/TradePanel';
 import { DECISIONS, DecisionCtx } from './Decisions';
@@ -168,6 +169,11 @@ export class Game implements ToolHost {
   readonly trade = new Trade();
   private autoCity!: AutoCity;
   private worldPanel?: WorldPanel;
+  private cityReport?: CityReport;
+  /** Each town day by day (people, treasury, happiness) for the World window and the city report. */
+  private worldHistory = new Map<number, { day: number; pop: number; money: number; happy: number }[]>();
+  /** What happened between each neighbour town and the player: deals, gifts, letters (newest first). */
+  private dealings = new Map<number, { day: number; text: string; money: number }[]>();
   private tradePanel?: TradePanel;
   private airports!: Airports;
   private overlays = new Overlays();
@@ -457,6 +463,7 @@ export class Game implements ToolHost {
         this.eco.add(me, 'food', -50, 'Gift to a neighbour town');
         this.eco.add(town, 'food', 50, 'Gift from a neighbour town');
         town.relation = Math.min(100, (town.relation ?? 40) + 8);
+        this.deal(town.id, t('Gift: 50 food (relations +8)'), 0);
         sound.play('coin');
         this.hud?.toast(t('{city} thanks you for the gift', { city: town.name }));
       },
@@ -472,7 +479,8 @@ export class Game implements ToolHost {
       this.refreshHud();
       this.worldPanel?.render();
       this.hud?.toast(t('Now building for {name}', { name: this.eco.city.name }));
-    }, () => this.eco.active);
+    }, () => this.eco.active, (id) => { this.worldPanel?.hide(); this.cityReport?.open(id); });
+    this.cityReport = new CityReport(this.hud.root, (id) => this.cityReportView(id));
     this.resPanel = new ResourcePanel(this.hud.root, (key) => this.resourceView(key));
     this.decision = new DecisionPanel(this.hud.root);
     this.lifeBook = new LifeBook(this.hud.root, (d) => `${t(MONTHS[monthOf(d)])}, ${t('Year {n}', { n: yearOf(d) })}`);
@@ -1128,6 +1136,7 @@ export class Game implements ToolHost {
   }
 
   private onNewDay() {
+    this.recordTowns();
     this.maybeDecide();
     this.trade.newDay(this.eco.day);
     for (const v of this.airLog.values()) v.flights = 0;
@@ -1256,7 +1265,7 @@ export class Game implements ToolHost {
       if (best) return this.select({ type: 'person', id: best.id });
     }
     const b = tile ? this.buildings.at(idx(tile.x, tile.z)) : undefined;
-    if (b?.kind === 'townhall') {
+    if (b?.kind === 'townhall' && !this.eco.cities.get(b.city)?.ai) {
       this.eco.active = b.city;
       this.refreshHud();
     }
@@ -1553,6 +1562,7 @@ export class Game implements ToolHost {
             if (city[need] < amount) return this.hud?.toast(t('Not enough to send'));
             this.eco.add(city, need, -amount, 'Gift to a neighbour town'); this.eco.add(town, need, amount, 'Gift from a neighbour town');
             town.relation = Math.min(100, (town.relation ?? 40) + 15);
+            this.deal(town.id, t('Helped: gave {n} {good} (relations +15)', { n: amount, good: name }), 0);
           } },
           { label: t('Sell it to them'), note: t('+${m}, a little friendlier', { m: Math.round(amount * TRADE_PRICE[need] * 1.3) }), act: () => {
             const m = Math.round(amount * TRADE_PRICE[need] * 1.3);
@@ -1560,8 +1570,9 @@ export class Game implements ToolHost {
             this.eco.add(city, need, -amount, 'Sold to a neighbour town'); this.eco.add(town, need, amount, 'Bought from a neighbour town');
             this.eco.add(town, 'money', -m, 'Trade with neighbour towns'); this.eco.add(city, 'money', m, 'Trade with neighbour towns');
             town.relation = Math.min(100, (town.relation ?? 40) + 4);
+            this.deal(town.id, t('Sold {n} {good} on request (relations +4)', { n: amount, good: name }), m);
           } },
-          { label: t('Refuse'), note: t('They will remember it'), act: () => { town.relation = Math.max(0, (town.relation ?? 40) - 10); } },
+          { label: t('Refuse'), note: t('They will remember it'), act: () => { town.relation = Math.max(0, (town.relation ?? 40) - 10); this.deal(town.id, t('Refused their request for {good} (relations −10)', { good: name }), 0); } },
         ],
       });
     }
@@ -2210,13 +2221,16 @@ export class Game implements ToolHost {
 
   private refreshHud() {
     const e = this.eco;
+    // the top bar always shows one of the player's own towns, never a neighbour town
+    if (e.city.ai) { const mine = [...e.cities.values()].find((c) => !c.ai); if (mine) e.active = mine.id; }
     // never rebuild a panel while the player is pressing one of its buttons
     const busy = uiBusy();
     this.hud?.setBadge('mail', this.life.leisure.petitions.filter((p) => p.state === 'open' && p.city === this.eco.active).length);
     if (this.petitions?.visible && ++this.petitionTick % 12 === 0 && !busy) this.petitions.render();
     if (this.resPanel?.visible && this.petitionTick++ % 4 === 0 && !busy) this.resPanel.render();
     if (this.tradePanel?.visible && this.petitionTick % 8 === 0 && !busy) this.tradePanel.render();
-    if (this.worldPanel?.visible && this.petitionTick % 8 === 0 && !busy) this.worldPanel.render();
+    if (this.worldPanel?.visible && this.petitionTick % 12 === 0 && !busy) this.worldPanel.render();
+    if (this.cityReport?.visible && this.petitionTick % 12 === 0 && !busy) this.cityReport.render();
     const mine = (c: Citizen) => this.cityOfCitizen(c) === e.active;
     const counts = this.pop.counts(mine);
     this.hud!.setStats({
@@ -2579,6 +2593,179 @@ export class Game implements ToolHost {
     ];
   }
 
+  /**
+   * Everything about one town in tabs: overview with history, electricity / water / food / garbage, money,
+   * people, buildings and trade — key figures, bars, ring diagrams and charts.
+   */
+  private cityReportView(id: number): CityReportView | null {
+    const city = this.eco.cities.get(id);
+    if (!city) return null;
+    const n = (v: number) => Math.round(v).toLocaleString('en-US');
+    const money = (v: number) => `${v < 0 ? '−' : ''}$${n(Math.abs(v))}`;
+    const own = this.buildings.list.filter((b) => b.city === id && !b.removed);
+    const built = own.filter((b) => b.built >= 1);
+    const fams = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === id);
+    const people = fams.flatMap((f) => this.pop.members(f));
+    const counts = this.pop.counts((c) => this.cityOfCitizen(c) === id);
+    const pop = people.length;
+    const hist = [...(this.worldHistory.get(id) ?? []), { day: this.eco.day, pop, money: Math.round(city.money), happy: Math.round(city.happiness) }];
+    const day = (h: { day: number }) => h.day;
+    void day;
+    const homes = built.filter((b) => BUILDINGS[b.kind].units);
+    const units = homes.reduce((a, b) => a + BUILDINGS[b.kind].units, 0);
+    let jobs = 0, staff = 0;
+    for (const b of built) { jobs += BUILDINGS[b.kind].jobs; staff += b.workers; }
+    const C = ['#6fb6ff', '#7be08f', '#f2b33d', '#f28cb8', '#b9a3e0', '#ff7a6e', '#c98a5a', '#aab4be', '#4fd1c5', '#e8e46a'];
+    const catOf = (b: Building) => BUILDINGS[b.kind].units ? 'Homes' : ({ buildings: 'Town', services: 'Services', business: 'Business', production: 'Industry', decor: 'Decor' } as Record<string, string>)[ITEMS.find((i) => i.tool === b.kind)?.cat ?? ''] ?? 'Town';
+    // ---- electricity, water, food, garbage ----
+    const use = new Map<string, number>();
+    let byBuildings = 0;
+    for (const b of built) {
+      const e = BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1);
+      if (!e) continue;
+      byBuildings += e;
+      use.set(catOf(b), (use.get(catOf(b)) ?? 0) + e);
+    }
+    const lamps = Math.max(0, city.energyDemand - byBuildings);
+    if (lamps > 0.5) use.set('Street lamps', lamps);
+    const towers = built.filter((b) => b.kind === 'watertower').length;
+    const fy = city.foodYesterday;
+    const bins = homes.filter((b) => (b.trash ?? 0) >= TRASH.full).length;
+    const ledger = city.ledgerDays;
+    const net = (res: Res) => [...ledger].reverse().map((l) => Object.values(l[res] ?? {}).reduce((a, v) => a + v, 0));
+    const made = (res: Res) => [...ledger].reverse().map((l) => Object.values(l[res] ?? {}).reduce((a, v) => a + Math.max(0, v), 0));
+    const spent = (res: Res) => [...ledger].reverse().map((l) => -Object.values(l[res] ?? {}).reduce((a, v) => a + Math.min(0, v), 0));
+    // ---- money ----
+    const bal = city.balance;
+    const income: [string, number][] = [['Income tax', bal.incomeTax], ['Business tax', bal.businessTax], ['Property tax', bal.propertyTax], ['Utility bills', bal.utilities], ['Food sales', bal.foodSales], ['Bus fares', bal.fares ?? 0], ['Services (hospital, parking)', bal.services ?? 0]];
+    const costs: [string, number][] = [['Public wages', bal.publicWages], ['Upkeep', bal.upkeep]];
+    const yLedger = ledger[0]?.money ?? city.ledger.money;
+    const items = Object.entries(yLedger).filter(([, v]) => Math.abs(v) >= 1).sort((a, b) => b[1] - a[1]);
+    // ---- people ----
+    const age = (lo: number, hi: number) => people.filter((c) => c.age >= lo && c.age < hi).length;
+    const skill = [0, 1, 2].map((s) => people.filter((c) => c.age >= 18 && c.skill === s).length);
+    const wealth: [string, number][] = [['Below $500', fams.filter((f) => f.money < 500).length], ['$500 – 2,000', fams.filter((f) => f.money >= 500 && f.money < 2000).length],
+      ['$2,000 – 10,000', fams.filter((f) => f.money >= 2000 && f.money < 10000).length], ['Millionaires ($10,000+)', fams.filter((f) => f.money >= 10000).length]];
+    const richest = [...fams].sort((a, b) => b.money - a.money).slice(0, 6);
+    // ---- buildings ----
+    const byCat = new Map<string, number>();
+    for (const b of own) byCat.set(catOf(b), (byCat.get(catOf(b)) ?? 0) + 1);
+    const byKind = new Map<string, number>();
+    for (const b of own) byKind.set(t(BUILDINGS[b.kind].name), (byKind.get(t(BUILDINGS[b.kind].name)) ?? 0) + 1);
+    const empty = built.filter((b) => BUILDINGS[b.kind].jobs && b.workers === 0).length;
+    const dark = built.filter((b) => BUILDINGS[b.kind].energy && !b.powered).length;
+    const series = (label: string, color: string, values: number[]) => ({ label, color, values });
+    const tabs: CityReportView['tabs'] = [];
+    const overview: ReportSection[] = [
+      { title: t('Key figures'), kpis: [
+        [t('People'), n(pop), t('{n} families', { n: fams.length })],
+        [t('Households'), `${fams.length}/${units}`, t('{n} free homes', { n: Math.max(0, units - fams.length) }), units > fams.length],
+        [t('Homes'), n(homes.length), t('{a} houses · {b} apartment blocks', { a: homes.filter((b) => b.kind === 'house').length, b: homes.filter((b) => b.kind === 'apartment').length })],
+        [t('Jobs'), `${staff}/${jobs}`, t('{n} open jobs', { n: Math.max(0, jobs - staff) }), staff >= jobs],
+        [t('Unemployed'), n(Math.max(0, counts.workforce - counts.workers)), t('of {n} able to work', { n: counts.workforce }), counts.workforce <= counts.workers],
+        [t('Pupils'), n(counts.students), ''],
+        [t('Treasury'), money(city.money), `${t('yesterday')} ${bal.net >= 0 ? '+' : ''}${money(bal.net)}`, bal.net >= 0],
+        [t('Happiness'), `${Math.round(city.happiness)}%`, city.happiness >= 60 ? t('people are content') : t('could be better'), city.happiness >= 55],
+        [t('Tax'), `${Math.round(city.taxRate * 100)}%`, city.loan ? `${t('Loan')} ${money(city.loan)}` : ''],
+        [t('Food'), n(city.food), t('{n} days of food', { n: pop ? (city.food / pop).toFixed(1) : '∞' }), !pop || city.food > pop * 3],
+      ] },
+      { title: t('People'), chart: { series: [series(t('People'), '#6fb6ff', hist.map((h) => h.pop))] } },
+      { title: t('Treasury'), chart: { series: [series(t('Treasury'), '#f2b33d', hist.map((h) => h.money))], format: 'money' } },
+      { title: t('Happiness'), chart: { series: [series(t('Happiness'), '#f28cb8', hist.map((h) => h.happy))], format: 'pct' } },
+      { title: t('Why people feel this way'), bars: city.mood.filter(([k]) => k !== 'Base mood').map(([k, v]) => [t(k), v, v >= 0 ? '#7be08f' : '#ff7a6e', `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`] as [string, number, string, string]) },
+    ];
+    tabs.push({ id: 'overview', label: t('Overview'), sections: overview });
+    tabs.push({ id: 'utilities', label: t('Electricity, water, food'), sections: [
+      { title: t('Electricity'), kpis: [
+        [t('Made now'), kw(city.energyCapacity), t('all power plants together'), city.energyCapacity >= city.energyDemand],
+        [t('Used'), kw(city.energyDemand), t('homes, workplaces and street lamps')],
+        [t('Covered'), `${Math.round(city.powered * 100)}%`, '', city.powered > 0.95],
+        [t('Per household'), kw(fams.length ? (use.get('Homes') ?? 0) / fams.length : 0), t('homes use {n}', { n: kw(use.get('Homes') ?? 0) })],
+        [t('Without power'), `${dark}`, t('buildings'), dark === 0],
+      ] },
+      { title: t('Who uses electricity'), donut: [...use.entries()].map(([k, v], i) => [t(k), v, C[i % C.length]] as [string, number, string]) },
+      { title: t('Biggest users'), bars: [...built].filter((b) => BUILDINGS[b.kind].energy).map((b) => [b, BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1)] as const)
+        .sort((a, b) => b[1] - a[1]).slice(0, 10).map(([b, v]) => [t(BUILDINGS[b.kind].name), v, b.powered ? '#ffe066' : '#ff7a6e', kw(v)] as [string, number, string, string]) },
+      { title: t('Water'), kpis: [
+        [t('Clean water'), `${Math.round(city.water * 100)}%`, t('of the people'), city.water > 0.98],
+        [t('Capacity'), n(towers * BUILDINGS.watertower.water), t('{n} towers · {p} people', { n: towers, p: pop }), towers * BUILDINGS.watertower.water >= pop],
+        [t('Per household'), `${fams.length ? (pop / fams.length).toFixed(1) : 0} ${t('people')}`, t('each person needs clean water every day')],
+        [t('Connected homes'), `${Math.round(city.piped * 100)}%`, '', city.piped > 0.95],
+        [t('Sewage treated'), `${Math.round((this.life.sanitation.get(id) ?? 1) * 100)}%`, '', (this.life.sanitation.get(id) ?? 1) > 0.95],
+      ] },
+      { title: t('Food'), kpis: [
+        [t('Made yesterday'), n(fy.made), ''], [t('Eaten yesterday'), n(fy.eaten), t('{n} per person', { n: pop ? (fy.eaten / pop).toFixed(2) : 0 })],
+        [t('In stock'), n(city.food), t('{n} days of food', { n: pop ? (city.food / pop).toFixed(1) : '∞' }), !pop || city.food > pop * 3],
+        [t('Price'), `×${city.priceFactor.toFixed(2)}`, '', city.priceFactor <= 1.05],
+      ] },
+      { title: t('Food: made and eaten per day'), chart: { series: [series(t('Made'), '#7be08f', made('food')), series(t('Eaten / used'), '#ff7a6e', spent('food'))] } },
+      { title: t('Garbage and heating'), rows: [
+        [t('Full bins'), `${bins}/${homes.length}`, bins ? 'bad' : 'good'],
+        [t('Garbage trucks'), `${built.filter((b) => b.kind === 'landfill' || b.kind === 'recycling').length}`],
+        [t('Wood in stock (firewood, fuel)'), n(city.wood), city.wood < 30 ? 'bad' : undefined],
+        [t('Coal in stock'), n(city.coal)],
+      ] },
+    ] });
+    tabs.push({ id: 'money', label: t('Money'), sections: [
+      { title: t("Yesterday's budget"), kpis: [
+        [t('Income'), money(income.reduce((a, [, v]) => a + v, 0)), '', true], [t('Costs'), money(costs.reduce((a, [, v]) => a + v, 0)), '', false],
+        [t('Net'), money(bal.net), '', bal.net >= 0], [t('Treasury'), money(city.money), ''], [t('Bank loan'), city.loan ? money(city.loan) : '—', '', !city.loan],
+      ] },
+      { title: t('Where the money comes from'), donut: income.filter(([, v]) => v > 0).map(([k, v], i) => [t(k), v, C[i % C.length]] as [string, number, string]) },
+      { title: t('Income and costs'), bars: [...income.map(([k, v]) => [t(k), v, '#7be08f', `+${money(v)}`] as [string, number, string, string]), ...costs.map(([k, v]) => [t(k), v, '#ff7a6e', `−${money(v)}`] as [string, number, string, string])] },
+      { title: t('Net per day'), chart: { series: [series(t('Net'), '#f2b33d', net('money'))], format: 'money' } },
+      { title: t('Every entry yesterday'), rows: items.slice(0, 24).map(([k, v]) => [t(k), `${v >= 0 ? '+' : '−'}${money(Math.abs(v))}`, v >= 0 ? 'good' : 'bad'] as [string, string, ('good' | 'bad')?]) },
+    ] });
+    tabs.push({ id: 'people', label: t('People'), sections: [
+      { title: t('Who lives here'), donut: [[t('Men'), counts.men, '#6fb6ff'], [t('Women'), counts.women, '#f28cb8'], [t('Boys'), counts.boys, '#8fc8ff'], [t('Girls'), counts.girls, '#f7b9d4'], [t('Babies'), counts.babies, '#f2ede2'], [t('Elders'), counts.elders, '#b9a3e0']] },
+      { title: t('Ages'), bars: ([['0–5', 0, 6], ['6–17', 6, 18], ['18–29', 18, 30], ['30–44', 30, 45], ['45–64', 45, 65], ['65+', 65, 200]] as const).map(([k, a, b], i) => [k, age(a, b), C[i], `${age(a, b)}`] as [string, number, string, string]) },
+      { title: t('Education of adults'), bars: [[t('No trade'), skill[0], '#aab4be', `${skill[0]}`], [t('Learnt a trade'), skill[1], '#6fb6ff', `${skill[1]}`], [t('University degree'), skill[2], '#7be08f', `${skill[2]}`]] },
+      { title: t('Family savings'), bars: wealth.map(([k, v], i) => [t(k), v, ['#ff7a6e', '#f2b33d', '#6fb6ff', '#7be08f'][i], `${v}`] as [string, number, string, string]) },
+      { title: t('Richest families'), rows: richest.map((f) => [t('{family} family', { family: f.surname }), money(f.money), f.money >= 10000 ? 'good' : undefined] as [string, string, ('good' | 'bad')?]) },
+      { title: t('Health'), rows: [[t('Hungry'), `${counts.hungry}`, counts.hungry ? 'bad' : 'good'], [t('Sick'), `${counts.sick}`, counts.sick ? 'bad' : 'good'], [t('Died yesterday'), `${city.deaths}`, city.deaths ? 'bad' : undefined]] },
+    ] });
+    tabs.push({ id: 'buildings', label: t('Buildings'), sections: [
+      { title: t('Buildings by kind'), donut: [...byCat.entries()].map(([k, v], i) => [t(k), v, C[i % C.length]] as [string, number, string]) },
+      { title: t('Most common'), bars: [...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, v], i) => [k, v, C[i % C.length], `${v}`] as [string, number, string, string]) },
+      { title: t('State'), rows: [[t('Buildings'), `${own.length}`], [t('Under construction'), `${own.length - built.length}`], [t('Nobody works there'), `${empty}`, empty ? 'bad' : 'good'], [t('Without power'), `${dark}`, dark ? 'bad' : 'good']] },
+    ] });
+    if (!city.ai) {
+      const towns = [...this.eco.cities.values()].filter((c) => c.ai);
+      tabs.push({ id: 'trade', label: t('Trade'), sections: [
+        { title: t('Today'), kpis: [[t('Sold today'), money(this.trade.today.sold), t('to other regions')], [t('Bought today'), money(this.trade.today.bought), t('from traders')]] },
+        { title: t('Relations with neighbour towns'), bars: towns.map((c) => [c.name, c.relation ?? 40, c.tint ?? '#aab4be', `${Math.round(c.relation ?? 40)}/100`] as [string, number, string, string]) },
+        { title: t('Trade partners'), bars: this.trade.partners.map((p, i) => [t(p.name), Math.max(1, p.relation), C[i % C.length], `${Math.round(p.relation)}`] as [string, number, string, string]) },
+        { title: t('Goods per day (made − used)'), chart: { series: [series(t('Food'), '#7be08f', net('food')), series(t('Wood'), '#c98a5a', net('wood')), series(t('Stone'), '#aab4be', net('stone')), series(t('Iron'), '#6fb6ff', net('iron'))] } },
+      ] });
+    } else {
+      const d = this.dealings.get(id) ?? [];
+      tabs.push({ id: 'trade', label: t('Dealings with you'), sections: [
+        { title: t('Dealings with you'), rows: d.length ? d.slice(0, 30).map((x) => [`${t('Day {n}', { n: x.day })} · ${x.text}`, x.money ? `${x.money > 0 ? '+' : '−'}${money(Math.abs(x.money))}` : '—', x.money > 0 ? 'good' : x.money < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]) : [[t('No deals yet — open Trade to sell them what they need'), '—']] },
+      ] });
+    }
+    return { title: `${city.name}${city.ai ? ` · ${t('Neighbour town')}` : ''}`, subtitle: `${t('Day {n}', { n: this.eco.day })} · ${t('{n} people', { n: pop })} · ${t('{n} families', { n: fams.length })}`, tabs };
+  }
+
+  /** Write down something that happened with a neighbour town (money: + you got, − you paid). */
+  private deal(cityId: number, text: string, money: number) {
+    const list = this.dealings.get(cityId) ?? [];
+    list.unshift({ day: this.eco.day, text, money });
+    if (list.length > 60) list.length = 60;
+    this.dealings.set(cityId, list);
+  }
+
+  /** Once a day: how many people, how much money and how happy every town is. */
+  private recordTowns() {
+    const pops = this.life.populationByCity();
+    for (const c of this.eco.cities.values()) {
+      const h = this.worldHistory.get(c.id) ?? [];
+      if (h.length && h[h.length - 1].day === this.eco.day) continue;
+      h.push({ day: this.eco.day, pop: pops.get(c.id) ?? 0, money: Math.round(c.money), happy: Math.round(c.happiness) });
+      if (h.length > 90) h.shift();
+      this.worldHistory.set(c.id, h);
+    }
+  }
+
   /** Every town on the map for the World window: what it is like, how it is doing and its news. */
   private worldView(): WorldTown[] {
     const pops = this.life.populationByCity();
@@ -2600,6 +2787,11 @@ export class Game implements ToolHost {
         richest: fams.slice(0, 2).map((f) => ({ name: t('{family} family', { family: f.surname }), money: f.money })),
         relation: c.ai ? c.relation ?? 40 : undefined,
         news: c.ai ? this.autoCity.log.get(c.id) ?? [] : [],
+        homes: own.filter((b) => BUILDINGS[b.kind].units).reduce((a, b) => a + BUILDINGS[b.kind].units, 0),
+        res: ([['Food', 'food'], ['Wood', 'wood'], ['Stone', 'stone'], ['Iron', 'iron'], ['Grain', 'grain'], ['Flour', 'flour'], ['Milk', 'milk'], ['Planks', 'planks'], ['Bricks', 'bricks'], ['Steel', 'steel'], ['Coal', 'coal'], ['Cotton', 'cotton']] as const)
+          .map(([label, k]) => [t(label), Math.round(c[k])] as [string, number]).filter(([, v], i) => i < 4 || v > 0),
+        history: [...(this.worldHistory.get(c.id) ?? []), { day: this.eco.day, pop: people, money: Math.round(c.money), happy: Math.round(c.happiness) }],
+        dealings: this.dealings.get(c.id) ?? [],
       });
     }
     return out.sort((a, b) => Number(b.mine) - Number(a.mine) || b.people - a.people);
@@ -2637,6 +2829,7 @@ export class Game implements ToolHost {
     this.eco.add(to, 'money', -money, 'Trade with neighbour towns');
     this.eco.add(from, 'money', money, 'Trade with neighbour towns');
     town.relation = Math.min(100, (town.relation ?? 40) + n / 12);
+    this.deal(town.id, selling ? t('Sold {n} {good}', { n, good: t(GOOD_NAME[g]).toLowerCase() }) : t('Bought {n} {good}', { n, good: t(GOOD_NAME[g]).toLowerCase() }), selling ? money : -money);
     sound.play('coin');
     this.hud?.toast(selling ? t('Sold {n} {good} to {city} for ${m}', { n, good: t(GOOD_NAME[g]).toLowerCase(), city: town.name, m: money }) : t('Bought {n} {good} from {city} for ${m}', { n, good: t(GOOD_NAME[g]).toLowerCase(), city: town.name, m: money }));
     this.refreshHud();
@@ -2953,6 +3146,7 @@ export class Game implements ToolHost {
           },
         },
         ...(mayor ? [{ label: t('Show the mayor'), icon: 'people' as const, onClick: () => this.select({ type: 'person', id: mayor.id }) }] : []),
+        { label: t('Full report: charts and statistics'), icon: 'info' as const, onClick: () => this.cityReport?.open(city.id) },
         {
           label: `${t('Buy {n} stone', { n: MERCHANT.stone.amount })} · $${MERCHANT.stone.price}`, icon: 'stone' as const,
           onClick: () => this.buyMaterial(city, 'stone'),
@@ -3190,6 +3384,8 @@ export class Game implements ToolHost {
     this.canals.deserialize(s.canals);
     this.pipes.deserialize(s.pipes);
     this.trade.load(s.trade);
+    for (const [id, h] of s.worldHistory ?? []) this.worldHistory.set(id, h);
+    for (const [id, d] of s.dealings ?? []) this.dealings.set(id, d);
     this.pipes.rebuild();
     this.terrain.clearTiles(s.cleared);
     this.terrain.loadStumps(s.stumps);
@@ -3237,6 +3433,8 @@ export class Game implements ToolHost {
       canals: this.canals.serialize(),
       pipes: this.pipes.serialize(),
       trade: this.trade.save(),
+      worldHistory: [...this.worldHistory.entries()],
+      dealings: [...this.dealings.entries()],
       terrain: { height: Array.from(this.map.height), water: Array.from(this.map.water) },
       cleared: this.terrain.clearedList(),
       stumps: this.terrain.stumpList(),

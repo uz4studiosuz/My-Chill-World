@@ -12,7 +12,7 @@ import { PRESETS, PresetPart } from './presets';
 
 /** One box of a voxel model — the same shape the game's models are made of: box(w, h, d, x, y, z, color). */
 /** A part of the model: a box, or a round / sloped shape, turned along an axis. */
-interface Part { id: number; w: number; h: number; d: number; x: number; y: number; z: number; color: string; name?: string; shape?: ShapeKind; axis?: 'x' | 'y' | 'z'; /** Rounded corners (boxes): radius in tiles. */ r?: number; /** Group: parts of a group are selected and moved together. */ g?: number; /** Group name. */ gn?: string; /** Hidden in the editor (still exported). */ hide?: boolean }
+interface Part { id: number; w: number; h: number; d: number; x: number; y: number; z: number; color: string; name?: string; shape?: ShapeKind; axis?: 'x' | 'y' | 'z'; /** Rounded corners (boxes): radius in tiles. */ r?: number; /** Group: parts of a group are selected and moved together. */ g?: number; /** Group name. */ gn?: string; /** Hidden in the editor (still exported). */ hide?: boolean; /** Turn in degrees around X, Y, Z. */ rx?: number; ry?: number; rz?: number }
 
 interface ModelFile { format: 'mcw-model'; version: 1; name: string; size: 1 | 2 | 3; parts: Omit<Part, 'id'>[] }
 
@@ -23,6 +23,8 @@ const PALETTE = [
   '#3a6fd1', '#3f6fb5', '#2d4f8a', '#4fa3d1', '#a8d0e6', '#6f9fc8', '#8a5a35', '#6b4a2e', '#b0478f', '#e85a7a',
 ];
 const round = (v: number) => Math.round(v * 1000) / 1000;
+const rad = (deg?: number) => ((deg ?? 0) * Math.PI) / 180;
+const deg = (r: number) => { let v = Math.round(((r * 180) / Math.PI) * 10) / 10; if (Object.is(v, -0)) v = 0; return v; };
 const SHAPE_NAME: Record<ShapeKind, string> = { box: 'Box', cylinder: 'Cylinder', sphere: 'Sphere', cone: 'Cone', dome: 'Dome', wedge: 'Ramp', capsule: 'Capsule', torus: 'Ring', pyramid: 'Pyramid', hexagon: 'Hexagon', arch: 'Arch', tube: 'Pipe' };
 
 /**
@@ -63,8 +65,8 @@ export class Editor {
   private lastSnap = '';
   private restoring = false;
   private hovered: number | null = null;
-  private topUi!: { undo: HTMLButtonElement; redo: HTMLButtonElement; move: HTMLButtonElement; scale: HTMLButtonElement; help: HTMLDivElement };
-  private pivotStart: { center: THREE.Vector3; parts: Map<number, { pos: THREE.Vector3; scale: THREE.Vector3 }> } | null = null;
+  private topUi!: { undo: HTMLButtonElement; redo: HTMLButtonElement; move: HTMLButtonElement; scale: HTMLButtonElement; rotate: HTMLButtonElement; help: HTMLDivElement };
+  private pivotStart: { center: THREE.Vector3; parts: Map<number, { pos: THREE.Vector3; scale: THREE.Vector3; ry: number }> } | null = null;
 
   constructor(private host: HTMLElement) {
     document.title = 'My Chill World — Editor';
@@ -170,6 +172,7 @@ export class Editor {
     const redoBtn = btn('↷', () => this.redo(), 'ed-btn ed-icon', t('Redo') + ' (Ctrl+Y)');
     const moveBtn = btn('✥ ' + t('Move'), () => this.setMode('translate'), 'ed-btn ed-mode', t('Move') + ' (G)');
     const scaleBtn = btn('⤡ ' + t('Resize'), () => this.setMode('scale'), 'ed-btn ed-mode', t('Resize') + ' (S)');
+    const rotBtn = btn('⟳ ' + t('Rotate'), () => this.setMode('rotate'), 'ed-btn ed-mode', t('Rotate') + ' (R)');
     const views = h('div', 'ed-seg');
     views.append(
       btn(t('Fit'), () => this.focus(), 'ed-btn ed-small', t('Show the selection (F)')),
@@ -180,16 +183,16 @@ export class Editor {
     const edit = h('div', 'ed-seg');
     edit.append(undoBtn, redoBtn);
     const modes = h('div', 'ed-seg');
-    modes.append(moveBtn, scaleBtn);
+    modes.append(moveBtn, scaleBtn, rotBtn);
     const help = h('div', 'ed-shortcuts') as HTMLDivElement;
     help.innerHTML = `<b>${t('Keyboard')}</b>` + ([
       ['Click', 'Select (a whole group)'], ['Ctrl+click', 'Add or remove one'], ['Shift+click', 'Select a range (2 … 5)'], ['Alt+click', 'One part of a group'],
-      ['Ctrl+A', 'Select all'], ['Ctrl+G / Ctrl+Shift+G', 'Group / ungroup'], ['G / S', 'Move / resize'], ['D or Ctrl+D', 'Duplicate'], ['Delete', 'Delete'],
+      ['Ctrl+A', 'Select all'], ['Ctrl+G / Ctrl+Shift+G', 'Group / ungroup'], ['G / S / R', 'Move / resize / rotate'], ['Q / E', 'Turn 90° left / right'], ['D or Ctrl+D', 'Duplicate'], ['Delete', 'Delete'],
       ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Arrows, PgUp/PgDn', 'Nudge'], ['F', 'Show the selection'], ['1 / 3 / 7', 'Front / side / top view'], ['Esc', 'Deselect'],
     ] as const).map(([k, v]) => `<div><kbd>${k}</kbd><span>${t(v)}</span></div>`).join('');
     help.addEventListener('click', () => help.classList.remove('show'));
     const helpBtn = btn('?', () => help.classList.toggle('show'), 'ed-btn ed-icon', t('Keyboard shortcuts'));
-    this.topUi = { undo: undoBtn, redo: redoBtn, move: moveBtn, scale: scaleBtn, help };
+    this.topUi = { undo: undoBtn, redo: redoBtn, move: moveBtn, scale: scaleBtn, rotate: rotBtn, help };
     top.append(
       title, edit, modes, views, helpBtn, name, size, template,
       btn(t('New'), () => { if (confirm(t('Start a new empty model?'))) { this.pushUndo(); this.parts = []; this.imported.clear(); this.rebuild(); } }),
@@ -264,7 +267,9 @@ export class Editor {
     const tools = h('div', 'ed-grid2');
     tools.append(
       btn(t('Move') + ' (G)', () => this.gizmo.setMode('translate')),
-      btn(t('Resize') + ' (S)', () => this.gizmo.setMode('scale')),
+      btn(t('Resize') + ' (S)', () => this.setMode('scale')),
+      btn(t('Rotate') + ' (R)', () => this.setMode('rotate')),
+      btn('⟲ 90° (Q)', () => this.turnBy(90)),
       btn(t('Duplicate') + ' (D)', () => this.duplicate()),
       btn(t('Delete') + ' (Del)', () => this.remove()),
       btn(t('Mirror X'), () => this.mirror()),
@@ -384,6 +389,26 @@ export class Editor {
     const grid = document.createElement('div');
     grid.className = 'ed-fields';
     grid.append(field('w', t('Width')), field('h', t('Height')), field('d', t('Depth')), field('x', 'X'), field('y', 'Y'), field('z', 'Z'));
+    // turning in degrees
+    const rot = (key: 'rx' | 'ry' | 'rz', label: string) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'ed-field';
+      wrap.innerHTML = `<span>${label}</span>`;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.step = '15';
+      inp.value = `${p[key] ?? 0}`;
+      inp.addEventListener('change', () => {
+        const v = parseFloat(inp.value);
+        if (!Number.isFinite(v)) return;
+        const n = Math.round((((v % 360) + 540) % 360 - 180) * 10) / 10;
+        p[key] = n ? n : undefined;
+        this.rebuild();
+      });
+      wrap.appendChild(inp);
+      return wrap;
+    };
+    grid.append(rot('rx', `${t('Turn')} X°`), rot('ry', `${t('Turn')} Y°`), rot('rz', `${t('Turn')} Z°`));
     const nm = document.createElement('input');
     nm.className = 'ed-input';
     nm.placeholder = t('Part name');
@@ -469,6 +494,8 @@ export class Editor {
     acts.append(
       oneGroup ? b(t('Ungroup'), () => this.ungroup()) : b(t('Group') + ' (Ctrl+G)', () => this.group(), 'ed-btn primary'),
       b(t('To ground'), () => this.toGround()),
+      b('⟲ 90°', () => this.turnBy(90)),
+      b('⟳ 90°', () => this.turnBy(-90)),
       b(t('Duplicate'), () => this.duplicate()),
       b(t('Mirror X'), () => this.mirror()),
       b(t('Centre on plot'), () => { for (const q of sel) { q.x = round(q.x - c.x); q.z = round(q.z - c.z); } this.rebuild(); }),
@@ -524,6 +551,7 @@ export class Editor {
       const m = new THREE.Mesh(this.geometryOf(p), new THREE.MeshLambertMaterial({ color: p.color }));
       m.scale.set(p.w, p.h, p.d);
       m.position.set(p.x, p.y, p.z);
+      m.rotation.set(rad(p.rx), rad(p.ry), rad(p.rz));
       m.castShadow = true;
       m.receiveShadow = true;
       m.userData.part = p.id;
@@ -576,10 +604,38 @@ export class Editor {
   }
 
   /** Mode of the arrows on the selection. */
-  private setMode(m: 'translate' | 'scale') {
+  private setMode(m: 'translate' | 'scale' | 'rotate') {
     this.gizmo.setMode(m);
     this.topUi.move.classList.toggle('on', m === 'translate');
     this.topUi.scale.classList.toggle('on', m === 'scale');
+    this.topUi.rotate.classList.toggle('on', m === 'rotate');
+    this.limitGizmo();
+  }
+
+  /** A group of parts turns only around the vertical axis (like turning a building on its plot). */
+  private limitGizmo() {
+    const multi = this.selected.length > 1 && this.gizmo.getMode() === 'rotate';
+    this.gizmo.showX = !multi;
+    this.gizmo.showZ = !multi;
+    this.gizmo.setRotationSnap(this.snap ? (15 * Math.PI) / 180 : null);
+  }
+
+  /** Turn the selection by some degrees around Y (a group around its centre). */
+  private turnBy(a: number) {
+    const sel = this.parts.filter((p) => this.selected.includes(p.id));
+    if (!sel.length) return;
+    if (sel.length === 1) { sel[0].ry = ((((sel[0].ry ?? 0) + a) % 360) + 360) % 360 || undefined; return this.rebuild(); }
+    let cx = 0, cz = 0;
+    for (const p of sel) { cx += p.x; cz += p.z; }
+    cx /= sel.length; cz /= sel.length;
+    const r = (a * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r);
+    for (const p of sel) {
+      const ox = p.x - cx, oz = p.z - cz;
+      p.x = round(cx + ox * cs + oz * sn);
+      p.z = round(cz - ox * sn + oz * cs);
+      p.ry = ((((p.ry ?? 0) + a) % 360) + 360) % 360 || undefined;
+    }
+    this.rebuild();
   }
 
   /** Camera: frame the selection (or the whole plot). */
@@ -667,6 +723,7 @@ export class Editor {
       this.pivot.updateMatrixWorld();
       this.gizmo.attach(this.pivot);
     } else this.gizmo.detach();
+    if (this.topUi) this.limitGizmo();
     const p = this.parts.find((q) => q.id === this.selected[0]);
     if (p) { this.color = p.color; this.ui.swatch.value = p.color; }
     this.renderList();
@@ -683,8 +740,11 @@ export class Editor {
     const q = (v: number) => round(Math.round(v / s) * s);
     p.x = q(m.position.x); p.y = q(m.position.y); p.z = q(m.position.z);
     p.w = Math.max(0.005, q(Math.abs(m.scale.x))); p.h = Math.max(0.005, q(Math.abs(m.scale.y))); p.d = Math.max(0.005, q(Math.abs(m.scale.z)));
+    const a = (r: number) => { const v = deg(r); return v ? v : undefined; };
+    p.rx = a(m.rotation.x); p.ry = a(m.rotation.y); p.rz = a(m.rotation.z);
     if (commit) {
       m.position.set(p.x, p.y, p.z);
+      m.rotation.set(rad(p.rx), rad(p.ry), rad(p.rz));
       if (p.r) this.rebuildOne(p);
       m.scale.set(p.w, p.h, p.d);
       this.renderProps();
@@ -696,8 +756,8 @@ export class Editor {
   /** The pivot was dragged: move (and scale) every selected part around it. */
   private syncGroup(commit: boolean) {
     if (!this.pivotStart) {
-      const parts = new Map<number, { pos: THREE.Vector3; scale: THREE.Vector3 }>();
-      for (const id of this.selected) { const m = this.meshes.get(id); if (m) parts.set(id, { pos: m.position.clone(), scale: m.scale.clone() }); }
+      const parts = new Map<number, { pos: THREE.Vector3; scale: THREE.Vector3; ry: number }>();
+      for (const id of this.selected) { const m = this.meshes.get(id); if (m) parts.set(id, { pos: m.position.clone(), scale: m.scale.clone(), ry: m.rotation.y }); }
       // the pivot already moved a little: its start is where the selection's centre was
       const box = new THREE.Box3();
       for (const id of this.selected) { const m = this.meshes.get(id); if (m) box.expandByObject(m); }
@@ -705,11 +765,14 @@ export class Editor {
     }
     const st = this.pivotStart;
     const s = this.pivot.scale, d = this.pivot.position.clone().sub(st.center);
+    const ang = this.pivot.rotation.y, cs = Math.cos(ang), sn = Math.sin(ang);
     for (const [id, p0] of st.parts) {
       const m = this.meshes.get(id);
       if (!m) continue;
-      m.position.set(st.center.x + (p0.pos.x - st.center.x) * s.x + d.x, st.center.y + (p0.pos.y - st.center.y) * s.y + d.y, st.center.z + (p0.pos.z - st.center.z) * s.z + d.z);
+      const ox = (p0.pos.x - st.center.x) * s.x, oz = (p0.pos.z - st.center.z) * s.z;
+      m.position.set(st.center.x + ox * cs + oz * sn + d.x, st.center.y + (p0.pos.y - st.center.y) * s.y + d.y, st.center.z - ox * sn + oz * cs + d.z);
       m.scale.set(p0.scale.x * s.x, p0.scale.y * s.y, p0.scale.z * s.z);
+      m.rotation.y = p0.ry + ang;
     }
     if (!commit) return;
     const q = (v: number) => { const sn = this.snap || 0.001; return round(Math.round(v / sn) * sn); };
@@ -718,6 +781,8 @@ export class Editor {
       if (!m || !st.parts.has(p.id)) continue;
       p.x = q(m.position.x); p.y = q(m.position.y); p.z = q(m.position.z);
       p.w = Math.max(0.005, q(Math.abs(m.scale.x))); p.h = Math.max(0.005, q(Math.abs(m.scale.y))); p.d = Math.max(0.005, q(Math.abs(m.scale.z)));
+      const ry = deg(m.rotation.y);
+      p.ry = ry ? ry : undefined;
     }
     this.rebuild();
   }
@@ -771,7 +836,7 @@ export class Editor {
     const ids: number[] = [];
     for (const p of this.parts.filter((q) => this.selected.includes(q.id))) {
       const id = this.nextId++;
-      this.parts.push({ ...p, id, g: p.g === undefined ? undefined : regroup(p.g), x: round(-p.x) });
+      this.parts.push({ ...p, id, g: p.g === undefined ? undefined : regroup(p.g), x: round(-p.x), ry: p.ry ? -p.ry : undefined, rz: p.rz ? -p.rz : undefined });
       ids.push(id);
     }
     this.rebuild();
@@ -794,8 +859,9 @@ export class Editor {
       units.clear();
       units.set('all', sel);
     }
+    const low = (p: Part) => { const m = this.meshes.get(p.id); if (!m) return p.y - p.h / 2; m.updateMatrixWorld(); return new THREE.Box3().setFromObject(m).min.y; };
     for (const list of units.values()) {
-      const bottom = Math.min(...list.map((p) => p.y - p.h / 2));
+      const bottom = Math.min(...list.map(low));
       for (const p of list) p.y = round(p.y - bottom);
     }
     this.rebuild();
@@ -875,6 +941,9 @@ export class Editor {
     if (ctrl) return;
     if (k === 'KeyG') return this.setMode('translate');
     if (k === 'KeyS') return this.setMode('scale');
+    if (k === 'KeyR') return this.setMode('rotate');
+    if (k === 'KeyQ') return this.turnBy(90);
+    if (k === 'KeyE') return this.turnBy(-90);
     if (k === 'KeyD') return this.duplicate();
     if (k === 'KeyF') return this.focus();
     if (k === 'Digit7' || k === 'Numpad7') return this.view('top');
@@ -1002,17 +1071,19 @@ export class Editor {
     const num = (v: number) => { const r = round(v); return Object.is(r, -0) ? '0' : `${r}`; };
     const usesShape = this.parts.some((p) => p.shape && p.shape !== 'box');
     const usesRound = this.parts.some((p) => p.r && (!p.shape || p.shape === 'box'));
+    const usesTurn = this.parts.some((p) => p.rx || p.ry || p.rz);
     const lines = this.parts.map((p) => {
       const color = /^#[0-9a-fA-F]{6}$/.test(p.color) ? p.color.toLowerCase() : '#ffffff';
       const dims = `${num(p.w)}, ${num(p.h)}, ${num(p.d)}, ${num(p.x)}, ${num(p.y)}, ${num(p.z)}, '${color}'`;
-      const call = !p.shape || p.shape === 'box' ? (p.r ? `roundBox(${dims}, ${num(p.r)})` : `box(${dims})`) : `shape('${p.shape}', ${dims}${p.axis && p.axis !== 'y' ? `, '${p.axis}'` : ''})`;
+      let call = !p.shape || p.shape === 'box' ? (p.r ? `roundBox(${dims}, ${num(p.r)})` : `box(${dims})`) : `shape('${p.shape}', ${dims}${p.axis && p.axis !== 'y' ? `, '${p.axis}'` : ''})`;
+      if (p.rx || p.ry || p.rz) call = `turn(${call}, ${num(p.x)}, ${num(p.y)}, ${num(p.z)}, ${num(p.rx ?? 0)}, ${num(p.ry ?? 0)}, ${num(p.rz ?? 0)})`;
       const note = p.name ? ` // ${p.name.replace(/[\r\n]+/g, ' ').replace(/\*\//g, '')}` : '';
       return `    ${call},${note}`;
     });
     // a whole file: save it as src/models/custom/${fn}.ts — it compiles as it is (one element per file, like every model)
     return [
       `import * as THREE from 'three';`,
-      `import { ${['box', 'merge', ...(usesRound ? ['roundBox'] : []), ...(usesShape ? ['shape'] : [])].join(', ')} } from '../../utils/voxel';`,
+      `import { ${['box', 'merge', ...(usesRound ? ['roundBox'] : []), ...(usesShape ? ['shape'] : []), ...(usesTurn ? ['turn'] : [])].join(', ')} } from '../../utils/voxel';`,
       ``,
       `/** ${this.name.replace(/\*\//g, '')} — ${this.size}×${this.size} tiles (${this.parts.length} parts), made in the model editor. Faces +z (the road). */`,
       `export function ${fn}Geometry(): THREE.BufferGeometry {`,

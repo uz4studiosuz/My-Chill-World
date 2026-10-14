@@ -92,6 +92,16 @@ export function roundBoxUnit(w: number, h: number, d: number, r: number, seg = 4
   return new RoundedBoxGeometry(w, h, d, seg, rr).scale(1 / w, 1 / h, 1 / d);
 }
 
+/**
+ * Turn a placed part around its own centre (x, y, z) by angles in degrees (X, then Y, then Z — like the editor).
+ * Example: turn(box(0.3, 0.1, 0.1, 0, 0.2, 0, '#c4553d'), 0, 0.2, 0, 0, 45, 0)
+ */
+export function turn(g: THREE.BufferGeometry, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) {
+  const d = Math.PI / 180;
+  const m = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx * d, ry * d, rz * d, 'XYZ'));
+  return g.translate(-x, -y, -z).applyMatrix4(m).translate(x, y, z);
+}
+
 /** Round cylinder lying along the x axis (wheels, pipes, logs). */
 export function cylX(r: number, len: number, x: number, y: number, z: number, color = '#ffffff', seg = 14) {
   return paint(new THREE.CylinderGeometry(r, r, len, seg).rotateZ(Math.PI / 2).translate(x, y, z), color);

@@ -229,7 +229,9 @@ export class Hud {
     const nav = el('div', 'navgroup');
     const more = el('div', 'navmenu');
     const panels: [IconName, string, () => void, boolean][] = [
-      ['stats', 'Statistics', h.openStats, false], ['globe', 'Trade', h.openTrade, false], ['eye', 'World', h.openWorld, false], ['trophy', 'Goals', h.openGoals, false], ['mail', 'Letters', h.openPetitions, false],
+      // always visible: statistics and letters; everything else lives in the "more" menu
+      ['stats', 'Statistics', h.openStats, false], ['mail', 'Letters', h.openPetitions, false],
+      ['globe', 'Trade', h.openTrade, true], ['buildings', 'World: all towns', h.openWorld, true], ['trophy', 'Goals', h.openGoals, true],
       ['list', 'Chronicle', h.openLog, true], ['car', 'Drive a car', h.openDrive, true], ['camera', 'Photo mode', h.openPhoto, true], ['book', 'Guide', h.openGuide, true],
     ];
     nav.appendChild(this.iconButton('menu', t('Menu'), h.openMenu));

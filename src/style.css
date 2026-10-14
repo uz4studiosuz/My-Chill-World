@@ -1323,3 +1323,40 @@ button.chip:hover { background: var(--raised); }
 .wt-empty { color: var(--muted); font-size: 12px; }
 .wt-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 @media (max-width: 560px) { .wt-grid { grid-template-columns: repeat(3, 1fr); } }
+
+/* ---------- compact top bar: only statistics, letters and "more" stay on the bar ---------- */
+.nav-sec, .nav-snd { display: none !important; }
+.nav-more { display: flex !important; }
+.navgroup .rbtn { width: 32px; height: 30px; }
+.chip-group .chip { height: 30px !important; padding: 0 8px !important; font-size: 12.5px; }
+.chips { gap: 5px !important; }
+.navmenu { min-width: 210px; }
+.city-report .cr-titles { display: flex; flex-direction: column; }
+.city-report .cr-titles small { color: var(--muted); font-size: 12px; }
+.cr-donut { display: flex; align-items: center; gap: 14px; }
+.cr-donut canvas { width: 130px; height: 130px; flex: none; }
+.cr-legend { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; min-width: 0; }
+.cr-legend div { display: flex; align-items: center; gap: 6px; }
+.cr-legend i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.cr-legend span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-chart { width: 100%; height: 160px; display: block; }
+.wt-bar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr auto; align-items: center; gap: 8px; font-size: 12px; padding: 2px 0; }
+.wt-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.wt-bar div { height: 9px; background: var(--base); border-radius: 6px; overflow: hidden; }
+.wt-bar i { display: block; height: 100%; border-radius: 6px; }
+.wt-bar b { font-size: 12px; min-width: 44px; text-align: right; }
+.world-panel .wt-dot, .stab .wt-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; border: 1px solid rgba(255,255,255,.5); }
+.wt-table { display: grid; grid-template-columns: minmax(120px, 1.6fr) repeat(9, minmax(52px, 1fr)); gap: 0; font-size: 12px; overflow-x: auto; }
+.wt-th { color: var(--muted); font-size: 11px; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.wt-td { padding: 6px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.wt-td.pos { color: var(--good, #7be08f); }
+.wt-td.neg { color: var(--bad, #ff6b5e); }
+.wt-td.link { cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.wt-td.link:hover b { color: var(--accent); }
+.wt-td small { font-size: 10.5px; margin-left: 4px; }
+.world-panel .chart canvas { height: 150px; }
+@media (max-width: 640px) {
+  .wt-table { grid-template-columns: minmax(110px, 1.6fr) repeat(9, 56px); }
+  .cr-donut canvas { width: 104px; height: 104px; }
+  .navgroup .rbtn { width: 34px; height: 32px; }
+}
