@@ -141,6 +141,9 @@ export class CityReport {
   render() {
     if (!this.visible) return;
     if (hoverBusy(this.root)) return;
+    // the player is typing (a wage…): don't rebuild the window under the cursor
+    const typing = document.activeElement;
+    if (typing instanceof HTMLInputElement && this.root.contains(typing)) return;
     const v = this.get(this.id);
     if (!v) return this.hide();
     const key = `${this.id}|${this.tab}|${JSON.stringify(v)}`;

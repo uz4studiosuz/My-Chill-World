@@ -137,6 +137,9 @@ export class StatsPanel {
   render() {
     if (!this.visible) return;
     if (hoverBusy(this.root)) return;
+    // the player is typing a wage: leave the page alone until Enter (or leaving the field)
+    const typing = document.activeElement;
+    if (typing instanceof HTMLInputElement && this.root.contains(typing)) return;
     this.tabBtns.forEach((b, id) => b.classList.toggle('active', id === this.tab));
     const s = this.get();
     // nothing changed: keep the page as it is (no flicker)
@@ -277,9 +280,20 @@ export class StatsPanel {
           input.step = '1';
           input.value = String(Math.round(j.wage));
           input.title = t('Type the pay per day and press Enter');
-          const apply = () => { const v = Math.max(1, Math.round(Number(input.value))); if (isFinite(v) && v !== Math.round(j.wage)) this.setWage(j.kind, v - j.wage); };
-          input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') apply(); });
-          input.addEventListener('change', apply);
+          let done = false;
+          const apply = () => {
+            if (done) return;
+            done = true;
+            const v = Math.max(1, Math.round(Number(input.value)));
+            input.blur();
+            this.last = '';
+            if (isFinite(v) && v !== Math.round(j.wage)) this.setWage(j.kind, v - j.wage);
+            else this.render();
+          };
+          input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); apply(); } else if (e.key === 'Escape') { input.value = String(Math.round(j.wage)); input.blur(); } });
+          input.addEventListener('keyup', (e) => e.stopPropagation());
+          input.addEventListener('focus', () => input.select());
+          input.addEventListener('blur', () => { if (!done && Number(input.value) !== Math.round(j.wage)) apply(); });
           seg.appendChild(input);
           row.append(name, pay, seg);
           wbox.appendChild(row);

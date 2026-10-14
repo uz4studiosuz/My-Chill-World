@@ -1521,7 +1521,7 @@ button.chip:hover { background: var(--raised); }
 .stats .srows { padding: 10px 14px; }
 
 /* typed wage */
-.seg .wage-input { width: 54px; border: 0; border-left: 1px solid var(--line); background: rgba(255,255,255,.06); color: inherit; font: inherit; font-weight: 700; text-align: center; padding: 0 4px; -moz-appearance: textfield; }
+.seg .wage-input { width: 64px; min-height: 28px; font-size: 13px; border: 0; border-left: 1px solid var(--line); background: rgba(255,255,255,.06); color: inherit; font: inherit; font-weight: 700; text-align: center; padding: 0 4px; -moz-appearance: textfield; }
 .seg .wage-input::-webkit-outer-spin-button, .seg .wage-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
 /* all buildings list */
