@@ -1537,3 +1537,29 @@ button.chip:hover { background: var(--raised); }
 .blist-info.bad { color: #ff8a7e; }
 .blist-go { color: var(--muted); width: 18px; height: 18px; }
 .blist-go svg { width: 18px; height: 18px; }
+
+/* a person's ID card */
+.passport { --pp: #2f6b4f; margin: 10px 0 4px; border-radius: 14px; overflow: hidden; color: #1f2a33;
+  background: linear-gradient(135deg, #f6f1e3 0%, #e9f0ea 55%, #e6ecf3 100%);
+  box-shadow: 0 6px 18px rgba(0,0,0,.35), inset 0 0 0 1px rgba(0,0,0,.08); position: relative; }
+.passport::before { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .18;
+  background: repeating-radial-gradient(circle at 80% 30%, transparent 0 6px, var(--pp) 6px 7px); }
+.pp-top { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; background: var(--pp); color: #fff;
+  font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 800; position: relative; }
+.pp-top b { font-family: var(--font-display); letter-spacing: .04em; font-size: 12.5px; }
+.pp-body { display: grid; grid-template-columns: 78px 1fr; gap: 10px; padding: 10px 12px 4px; position: relative; }
+.pp-photo { width: 78px; height: 94px; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,.25); }
+.pp-photo svg { width: 100%; height: 100%; display: block; }
+.pp-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; min-width: 0; }
+.pp-f { min-width: 0; }
+.pp-f.wide { grid-column: span 2; }
+.pp-f small { display: block; font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; color: #5d6b78; font-weight: 700; }
+.pp-f b { display: block; font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+.pp-stamp { position: absolute; right: 14px; bottom: -6px; width: 62px; height: 62px; border-radius: 50%; border: 2px solid var(--pp); color: var(--pp);
+  display: grid; place-items: center; text-align: center; font-size: 8.5px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase;
+  transform: rotate(-16deg); opacity: .55; box-shadow: inset 0 0 0 3px rgba(255,255,255,.4), inset 0 0 0 4px var(--pp); padding: 6px; line-height: 1.1; }
+.pp-sign { display: flex; align-items: baseline; gap: 8px; padding: 2px 12px 6px 100px; position: relative; }
+.pp-sign small { font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; color: #5d6b78; font-weight: 700; }
+.pp-sign i { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Brush Script MT', 'Segoe Script', cursive; font-size: 17px; color: #22406e; }
+.pp-mrz { white-space: pre; font-family: 'OCR B', 'Consolas', 'Courier New', monospace; font-size: 10.5px; letter-spacing: .06em; line-height: 1.35;
+  padding: 6px 12px 8px; background: rgba(255,255,255,.55); border-top: 1px dashed rgba(0,0,0,.15); overflow: hidden; color: #2a333c; position: relative; }

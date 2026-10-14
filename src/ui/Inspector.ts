@@ -21,6 +21,40 @@ export interface InspectorView {
   listTitle?: string;
   people?: InspectorPerson[];
   actions?: InspectorAction[];
+  /** A person's ID card, drawn like a passport page. */
+  passport?: Passport;
+}
+
+export interface Passport {
+  /** Issuing town and its colour. */
+  town: string;
+  tint: string;
+  photo: { skin: string; cloth: string; hair: string; female: boolean };
+  surname: string;
+  name: string;
+  sex: string;
+  birth: string;
+  birthplace: string;
+  number: string;
+  issued: string;
+  expires: string;
+  mrz: [string, string];
+}
+
+/** A small portrait in the person's own colours. */
+function portrait(p: Passport['photo']) {
+  const hair = p.female
+    ? `<path d="M22 30c0-14 9-21 18-21s18 7 18 21v22h-7V32H29v20h-7z" fill="${p.hair}"/>`
+    : `<path d="M25 28c0-11 7-17 15-17s15 6 15 17v3h-4c0-6-3-9-11-9s-11 3-11 9h-4z" fill="${p.hair}"/>`;
+  return `<svg viewBox="0 0 80 96" xmlns="http://www.w3.org/2000/svg">
+    <rect width="80" height="96" fill="#dfe6ee"/>
+    <path d="M10 96c2-20 14-28 30-28s28 8 30 28z" fill="${p.cloth}"/>
+    <rect x="34" y="52" width="12" height="14" fill="${p.skin}"/>
+    <rect x="27" y="22" width="26" height="34" rx="11" fill="${p.skin}"/>
+    ${hair}
+    <rect x="33" y="36" width="4" height="4" rx="1" fill="#26292e"/><rect x="43" y="36" width="4" height="4" rx="1" fill="#26292e"/>
+    <rect x="36" y="47" width="8" height="2" rx="1" fill="#9b5a4a"/>
+  </svg>`;
 }
 
 /** Side panel describing the selected person or building, styled like a game inspector. */
@@ -68,6 +102,46 @@ export class Inspector {
     x.addEventListener('click', this.onClose);
     head.append(badge, titles, x);
     this.root.appendChild(head);
+
+    if (v.passport) {
+      const p = v.passport;
+      const card = el('div', 'passport');
+      card.style.setProperty('--pp', p.tint);
+      const top = el('div', 'pp-top');
+      top.innerHTML = `<span>${t('ID card')}</span><b></b>`;
+      (top.querySelector('b') as HTMLElement).textContent = p.town;
+      const body = el('div', 'pp-body');
+      const photo = el('div', 'pp-photo');
+      photo.innerHTML = portrait(p.photo);
+      const fields = el('div', 'pp-fields');
+      const field = (label: string, value: string, wide = false) => {
+        const f = el('div', `pp-f${wide ? ' wide' : ''}`);
+        const l = el('small', '');
+        l.textContent = label;
+        const val = el('b', '');
+        val.textContent = value;
+        f.append(l, val);
+        fields.appendChild(f);
+      };
+      field(t('Surname'), p.surname, true);
+      field(t('Given name'), p.name, true);
+      field(t('Sex'), p.sex);
+      field(t('Date of birth'), p.birth);
+      field(t('Place of birth'), p.birthplace, true);
+      field(t('Document No.'), p.number);
+      field(t('Issued'), p.issued);
+      field(t('Valid until'), p.expires);
+      const stamp = el('div', 'pp-stamp');
+      stamp.textContent = p.town;
+      body.append(photo, fields, stamp);
+      const sign = el('div', 'pp-sign');
+      sign.innerHTML = `<small>${t('Signature')}</small><i></i>`;
+      (sign.querySelector('i') as HTMLElement).textContent = `${p.name} ${p.surname}`;
+      const mrz = el('div', 'pp-mrz');
+      mrz.textContent = `${p.mrz[0]}\n${p.mrz[1]}`;
+      card.append(top, body, sign, mrz);
+      this.root.appendChild(card);
+    }
 
     if (v.tags?.length) {
       const tags = el('div', 'ins-tags');

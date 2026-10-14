@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { believer } from './Leisure';
+import { SKIN, SHIRTS, DRESSES } from '../models/people/_shared';
 import { DAY_SECONDS, DAYS_PER_YEAR, IS_TOUCH, MAP_SIZE } from '../config';
 import { DIRS, N, Tile, idx, inBounds, tileToWorld } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
@@ -2505,8 +2507,62 @@ export class Game implements ToolHost {
     const waiter = this.life.passengerWaiter(c.id);
     if (waiter) tags.push({ text: t('Waiting for bus'), tone: 'info' });
     const job = c.job >= 0 ? this.buildings.get(c.job) : c.school >= 0 ? this.buildings.get(c.school) : undefined;
+    // ---- the ID card ----
+    const town = home ? this.cityOf(home) : this.eco.city;
+    const hash = (n: number) => { let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) >>> 0; };
+    // game year 1 is 2026; a person is born on a day of the month that stays the same
+    const dmy = (day: number, salt: number) => {
+      const m = (((day - 1 + 2) % 12) + 12) % 12, y = 2025 + Math.floor((day - 1 + 2) / 12) + 1;
+      return `${String(1 + (hash(c.id * 7 + salt) % 28)).padStart(2, '0')}.${String(m + 1).padStart(2, '0')}.${y}`;
+    };
+    const born = Math.round(this.eco.day - c.age * 12);
+    const issuedDay = c.age >= 16 ? born + 16 * 12 + Math.floor(Math.max(0, c.age - 16) / 10) * 120 : born + 12;
+    const expiresDay = issuedDay + (c.age >= 16 ? 120 : 60);
+    const firstPlace = c.story?.find((s) => s.p && typeof s.p.city === 'string')?.p?.city as string | undefined;
+    const letters = (town.name.replace(/[^A-Za-z]/g, '').toUpperCase() + 'XX').slice(0, 2);
+    const number = `${letters}${String(hash(c.id) % 10000000).padStart(7, '0')}`;
+    const latin = (s: string) => s.normalize('NFD').replace(/[^A-Za-z]/g, '').toUpperCase();
+    const mrz1 = `P<${latin(town.name).slice(0, 3).padEnd(3, '<')}${latin(f?.surname ?? '')}<<${latin(c.name)}`.padEnd(44, '<').slice(0, 44);
+    const bd = dmy(born, 1).split('.');
+    const mrz2 = `${number}<${latin(town.name).slice(0, 3).padEnd(3, '<')}${bd[2].slice(2)}${bd[1]}${bd[0]}${c.sex === 'm' ? 'M' : 'F'}${dmy(expiresDay, 3).split('.').reverse().join('').slice(2)}`.padEnd(44, '<').slice(0, 44);
+    const female = c.sex !== 'm';
+    const passport = {
+      town: town.name, tint: town.tint ?? '#2f6b4f',
+      photo: { skin: female ? SKIN[(c.variant - 3) % 4] ?? SKIN[0] : SKIN[c.variant % 4], cloth: female ? DRESSES[c.variant - 4] ?? DRESSES[0] : SHIRTS[c.variant] ?? SHIRTS[0], hair: female ? '#4a2c1a' : '#3a2a20', female },
+      surname: f?.surname ?? '—', name: c.name, sex: c.sex === 'm' ? t('Male') : t('Female'),
+      birth: dmy(born, 1), birthplace: firstPlace ?? town.name, number,
+      issued: dmy(issuedDay, 2), expires: dmy(expiresDay, 3), mrz: [mrz1, mrz2] as [string, string],
+    };
+    // ---- personal details ----
+    const members = f ? this.pop.members(f) : [];
+    const spouse = c.role === 'parent' ? members.find((m) => m.id !== c.id && m.role === 'parent') : undefined;
+    const kids = c.role !== 'child' ? members.filter((m) => m.role === 'child') : [];
+    const parents = c.role === 'child' ? members.filter((m) => m.role === 'parent') : [];
+    const workplace = c.job >= 0 ? this.buildings.get(c.job) : undefined;
+    const pay = workplace ? this.pop.wage(c, workplace) : 0;
+    const eduText = c.skill === 2 ? t('University degree') : c.skill === 1 ? t('Learnt a trade') : c.edu >= 0.99 ? t('School finished') : age < 6 ? t('Too young for school') : c.school >= 0 ? t('Studying ({n}%)', { n: Math.round(c.edu * 100) }) : t('No education');
+    const personal: [string, string, ('good' | 'bad')?][] = [
+      [t('Age'), t('{n} years', { n: age })],
+      [t('Marital status'), age < 18 ? t('Child') : spouse ? (c.sex === 'm' ? t('Married to {name}', { name: spouse.name }) : t('Married to {name}', { name: spouse.name })) : t('Single')],
+      ...(kids.length ? [[t('Children'), kids.map((k) => `${k.name} (${Math.floor(k.age)})`).join(', ')] as [string, string]] : []),
+      ...(parents.length ? [[t('Parents'), parents.map((k) => k.name).join(', ')] as [string, string]] : []),
+      [t('Education'), eduText, c.skill === 2 ? 'good' : undefined],
+      [t('Faith'), believer(c) ? t('Believer') : t('Not religious')],
+      [t('Health'), c.health >= 80 ? t('Healthy') : c.health >= 50 ? t('Feels unwell') : t('Ill'), c.health < 50 ? 'bad' : c.health >= 80 ? 'good' : undefined],
+      [t('Address'), home ? `${t(BUILDINGS[home.kind].name)} · ${this.cityOf(home).name}` : t('No home'), home ? undefined : 'bad'],
+    ];
+    const work: [string, string, ('good' | 'bad')?][] = age >= 18 || c.job >= 0 ? [
+      [t('Profession'), this.professionOf(c)],
+      [t('Workplace'), workplace ? `${t(BUILDINGS[workplace.kind].name)} · ${this.cityOf(workplace).name}` : c.role === 'elder' ? t('Retired') : t('Unemployed'), workplace || c.role === 'elder' ? undefined : 'bad'],
+      ...(workplace ? [[t('Wage'), `$${pay.toFixed(1)}/${t('day')}${c.night ? ` · ${t('night shift')}` : ''}`] as [string, string]] : []),
+      ...(f ? [[t('Family income'), `$${Math.round(f.income).toLocaleString('en-US')}/${t('day')}`, f.income < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]] : []),
+      ...(f?.loan ? [[t('Bank loan'), `$${Math.round(f.loan).toLocaleString('en-US')}`, 'bad'] as [string, string, ('good' | 'bad')?]] : []),
+      [t('Transport'), f?.car ? t('Family car') : f?.bike ? t('Bicycle') : t('On foot')],
+    ] : [];
     return {
       key: `p${c.id}`,
+      passport,
+      sections: [{ title: t('Personal details'), rows: personal }, ...(work.length ? [{ title: t('Work and money'), rows: work }] : [])],
       badge: this.personIcon(c),
       badgeColor: c.sex === 'm' ? '#3a6fd1' : '#d9568f',
       title: `${c.name} ${f?.surname ?? ''}`,
