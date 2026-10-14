@@ -6,7 +6,7 @@ import { box, merge, shape } from '../../utils/voxel';
  * a lit entrance and a roof with a water tank. Walls in `wall`, trim and balconies in `trim`.
  */
 export function towerGeometry(floors: number, size: number, wall: string, trim: string): THREE.BufferGeometry {
-  const fh = 0.16;
+  const fh = 0.2;
   const w = size * 0.78, d = size * 0.62;
   const z0 = -size * 0.1;
   const h = floors * fh + 0.12;
@@ -39,9 +39,9 @@ export function towerGeometry(floors: number, size: number, wall: string, trim: 
   return merge(parts);
 }
 
-/** 15 flats: five floors. */
-export const tower15Geometry = () => towerGeometry(5, 2, '#e6dccb', '#c4553d');
-/** 30 flats: nine floors. */
-export const tower30Geometry = () => towerGeometry(9, 2, '#dbe5ec', '#3f6fb5');
-/** 50 flats: fourteen floors on a big plot. */
-export const tower50Geometry = () => towerGeometry(14, 3, '#efe6d2', '#4f7d4a');
+/** 15 flats: eight floors. */
+export const tower15Geometry = () => towerGeometry(8, 2, '#e6dccb', '#c4553d');
+/** 30 flats: twelve floors. */
+export const tower30Geometry = () => towerGeometry(12, 2, '#dbe5ec', '#3f6fb5');
+/** 50 flats: sixteen floors on a big plot. */
+export const tower50Geometry = () => towerGeometry(16, 3, '#efe6d2', '#4f7d4a');

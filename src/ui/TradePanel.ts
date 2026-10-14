@@ -20,7 +20,9 @@ export interface TradeHost {
   gift(id: number): void;
 }
 
-export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[]; carPrice?: number }
+export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[];
+  /** Every good the town buys (its price rises when it has little) and sells (cheap when it has plenty). */
+  buys: { g: Good; price: number; room: number }[]; sells: { g: Good; price: number; have: number }[]; carPrice?: number }
 
 /** Trade window: today's prices for every good (from the neighbour towns or the merchants), with buttons to sell and buy. */
 export class TradePanel {
@@ -77,9 +79,9 @@ export class TradePanel {
       let seller: { id: number; name: string; price: number } | undefined;
       let buyer: { id: number; name: string; price: number } | undefined;
       for (const n of towns) {
-        const w = n.wants.find((x) => x.g === g);
+        const w = n.buys.find((x) => x.g === g && x.room >= lot);
         if (w && w.price > (buyer?.price ?? merchant) && n.money >= w.price * lot) buyer = { id: n.id, name: n.name, price: w.price };
-        const o = n.offers.find((x) => x.g === g);
+        const o = n.sells.find((x) => x.g === g);
         if (o && o.have >= lot && o.price < (seller?.price ?? this.trade.buyPrice(g, linked))) seller = { id: n.id, name: n.name, price: o.price };
       }
       const best = { price: buyer?.price ?? merchant, partner: { name: buyer?.name ?? t('Travelling merchants') } };

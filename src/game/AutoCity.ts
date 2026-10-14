@@ -53,6 +53,7 @@ export interface TownNews { day: number; text: string }
 export type TownMood = 'growing' | 'boom' | 'crisis' | 'stable' | 'shrinking';
 
 /** What a town cannot live without: built even when money is short. */
+const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const ESSENTIAL = new Set<string>(['construction', 'watertower', 'powerplant', 'windturbine', 'farm', 'orchard', 'woodcutter', 'quarry']);
 
 /** Colours that tell the towns apart (a soft tint over the buildings, and the dot in the panels). */
@@ -333,6 +334,7 @@ export class AutoCity {
       const score = outside ? Math.abs(d - radius * 0.8) : d;
       if (score >= bd) continue;
       if (!buildings.check(kind, x, z).ok) continue;
+      if (!this.leavesRoom(hall.city, kind, x, z)) continue;
       if (kind === 'busstop' && own.some((b) => b.kind === 'busstop' && Math.abs(b.x - x) + Math.abs(b.z - z) < 7)) continue;
       if (kind === 'farm' && !this.h.isWatered(x, z, 3) && map.arid[idx(x, z)] > 0.5) continue;
       if (kind === 'farm' && !this.h.isWatered(x, z, 3) && !this.nearWater(x, z, 14)) continue;
@@ -340,6 +342,65 @@ export class AutoCity {
       bd = score;
     }
     return best;
+  }
+
+  /**
+   * Does a building here leave room for the town's future streets? Nothing is built just past the end of a street
+   * (it goes on there later), nor beside a street every 6 tiles (a side street turns off there).
+   */
+  leavesRoom(cityId: number, kind: BuildingKind, x: number, z: number): boolean {
+    const { buildings, net } = this.h;
+    const hall = buildings.townHall(cityId);
+    if (!hall) return true;
+    const road = (a: number, b: number) => inBounds(a, b) && !!net.type[idx(a, b)];
+    for (const f of buildings.footprint(kind, x, z)) {
+      for (const [dx, dz] of DIRS4) {
+        for (let k = 1; k <= 3; k++) {
+          const rx = f.x - dx * k, rz = f.z - dz * k;
+          if (!road(rx, rz)) continue;
+          const along = road(rx - dx, rz - dz);
+          if (along && k <= 3) return false; // a dead end points here
+          const across = road(rx + dz, rz + dx) || road(rx - dz, rz - dx);
+          const pos = dx !== 0 ? rz - hall.z : rx - hall.x;
+          if (across && ((pos % 6) + 6) % 6 === 0) return false;
+          break;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Hemmed in: no street can grow. Pull down one small building that stands in the way of a street (a road end
+   * first) when there is free land behind it; its family moves to a free home.
+   */
+  private clearWay(city: City, hall: Building, r: number) {
+    const { net, buildings, map } = this.h;
+    if (city.money < 1500) return;
+    const road = (a: number, b: number) => inBounds(a, b) && !!net.type[idx(a, b)];
+    let best: Building | null = null, bd = Infinity;
+    for (let z = hall.z - r; z <= hall.z + r; z++) for (let x = hall.x - r; x <= hall.x + r; x++) {
+      if (!road(x, z)) continue;
+      for (const [dx, dz] of DIRS4) {
+        const ax = x + dx, az = z + dz;
+        if (!inBounds(ax, az)) continue;
+        const id = buildings.occ[idx(ax, az)];
+        if (id === -1) continue;
+        const b = buildings.get(id);
+        if (!b || b.city !== city.id || b.built < 1 || BUILDINGS[b.kind].size !== 1 || b.kind === 'townhall' || b.kind === 'watertower' || b.kind === 'busstop') continue;
+        let ok = true;
+        for (let k = 2; k <= 4 && ok; k++) {
+          const tx = x + dx * k, tz = z + dz * k;
+          ok = inBounds(tx, tz) && map.isLand(idx(tx, tz)) && buildings.occ[idx(tx, tz)] === -1 && !net.type[idx(tx, tz)] && !this.h.isBlocked(idx(tx, tz));
+        }
+        if (!ok) continue;
+        const score = Math.abs(x - hall.x) + Math.abs(z - hall.z) - (road(x - dx, z - dz) ? 10 : 0) + (b.kind === 'house' ? 3 : 0);
+        if (score < bd) { bd = score; best = b; }
+      }
+    }
+    if (!best) return;
+    this.note(city, t('A {name} was pulled down to make way for a new street', { name: t(BUILDINGS[best.kind].name) }));
+    this.h.demolish(best);
   }
 
   /** Is there a river or lake within `r` tiles (a canal can reach it)? */
@@ -395,7 +456,7 @@ export class AutoCity {
         if (score < best) { best = score; pick = run; }
       }
     }
-    if (!pick) return;
+    if (!pick) { this.clearWay(city, hall, r); return; }
     const cost = pick.filter((tl) => !net.type[idx(tl.x, tl.z)]).length;
     if (city.money < cost * ROAD_COST[2].money + 500 || city.stone < cost * ROAD_COST[2].stone) {
       if (city.stone < cost * ROAD_COST[2].stone && city.money > cost * 12 + 800) {

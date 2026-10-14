@@ -39,7 +39,7 @@ import type { Res } from '../sim/Economy';
 import { Airports } from './Airports';
 import { Overlays, Problem } from '../fx/Overlays';
 import { WaterLife } from '../fx/WaterLife';
-import { Trade, Good, GOOD_NAME } from './Trade';
+import { Trade, Good, GOOD_NAME, GOODS } from './Trade';
 import { AutoCity, findTownSite, TOWN_TINTS, TOWN_STYLES, STYLE_NAME } from './AutoCity';
 import { WorldPanel, WorldTown } from '../ui/WorldPanel';
 import { CityReport, CityReportView, ReportSection } from '../ui/CityReport';
@@ -321,6 +321,7 @@ export class Game implements ToolHost {
       return o === 'high' ? 0 : o === 'low' ? 7 : JOB_PRIORITY[b.kind] ?? 5;
     };
     this.pop.wageFactor = (b) => this.eco.cities.get(b.city)?.wages[b.kind] ?? 1;
+    this.life.streetRoom = (id, k, x, z) => !this.eco.cities.get(id)?.ai || !this.autoCity || this.autoCity.leavesRoom(id, k, x, z);
     this.life.onForeign = (id, msg) => { const c = this.eco.cities.get(id); if (c) this.autoCity?.note(c, msg); };
     this.buildings.tintOf = (id) => this.eco.cities.get(id)?.tint;
     // the town hall keeps some goods; every warehouse keeps much more
@@ -1194,6 +1195,11 @@ export class Game implements ToolHost {
     this.recordTowns();
     this.maybeDecide();
     this.trade.newDay(this.eco.day);
+    // stores are not endless: what lies beyond the room of the town hall and the warehouses slowly spoils
+    for (const c of this.eco.cities.values()) for (const r of GOODS) {
+      const extra = c[r] - this.eco.capacity(c, r);
+      if (extra > 0) this.eco.add(c, r, -Math.ceil(Math.max(extra * 0.25, Math.min(extra, 20))), 'Spoiled — no room in the stores');
+    }
     // neighbour towns pay back the player's investments (what they can; the rest a few days later)
     for (const c of this.eco.cities.values()) {
       if (!c.ai || !c.owes || c.owes.day > this.eco.day) continue;
@@ -2013,11 +2019,12 @@ export class Game implements ToolHost {
   private apartmentView(b: Building): InspectorView {
     const families = [...this.pop.families.values()].filter((f) => f.home === b.id);
     const owner = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
+    const units = BUILDINGS[b.kind].units;
     return {
-      key: `b${b.id}`, badge: '🏢', badgeColor: KIND_BADGE.apartment[1], title: t('Apartment Block'),
-      subtitle: t('{a} of {b} flats taken', { a: families.length, b: BUILDINGS.apartment.units }),
+      key: `b${b.id}`, badge: '🏢', badgeColor: KIND_BADGE[b.kind][1], title: t(BUILDINGS[b.kind].name),
+      subtitle: t('{a} of {b} flats taken', { a: families.length, b: units }),
       tags: b.built < 1 ? [{ text: t('Under construction'), tone: 'info' }] : [],
-      bars: [{ label: t('Flats'), value: families.length / BUILDINGS.apartment.units, color: '#6fb6ff', text: `${families.length}/${BUILDINGS.apartment.units}` }],
+      bars: [{ label: t('Flats'), value: families.length / units, color: '#6fb6ff', text: `${families.length}/${units}` }],
       rows: [
         [t('City'), this.cityOf(b).name],
         [t('Owner'), owner ? t('{name} family', { name: owner.surname }) : t('City-owned')],
@@ -2674,6 +2681,25 @@ export class Game implements ToolHost {
         key, icon: 'heart', title: t('Happiness'), value: `${Math.round(city.happiness)}%`, sub: t('Moves towards the sum of the reasons below every day'),
         sections: [{ title: t('Why people feel this way'), rows: city.mood.length ? city.mood.map(([k, v]) => [t(k), `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`, k === 'Base mood' ? undefined : v >= 0 ? 'good' : 'bad'] as [string, string, ('good' | 'bad')?]) : [[t('Known after the first day'), '—']] }],
       };
+      case 'allres': {
+        const goods: Good[] = ['food', 'wood', 'stone', 'iron', 'coal', 'planks', 'bricks', 'steel', 'grain', 'flour', 'milk', 'cotton'];
+        const wh = own.filter((b) => b.kind === 'warehouse').length;
+        const y = city.ledgerDays[0];
+        const net = (r: Good) => Object.values(y?.[r] ?? {}).reduce((a, v) => a + v, 0);
+        return {
+          key, icon: 'list', title: t('All resources'), value: `$${n(city.money)}`,
+          sub: wh ? t('Stored in the town hall and {n} warehouses', { n: wh }) : t('Only the town hall stores goods — build a warehouse for more room'),
+          sections: [
+            { title: t('In the stores'), bars: goods.map((r) => { const cap = this.eco.capacity(city, r); return [t(GOOD_NAME[r]), Math.min(1, Math.max(0, city[r]) / cap), `${n(city[r])} / ${n(cap)}`] as [string, number, string]; }),
+              note: t('The town hall keeps {a} of each good ({b} food); every warehouse keeps {c} more ({d} food). What does not fit spoils.', { a: STORAGE.hall, b: STORAGE.hallFood, c: STORAGE.warehouse, d: STORAGE.warehouseFood }) },
+            { title: t('Yesterday (net change)'), rows: goods.map((r) => { const v = net(r); return [t(GOOD_NAME[r]), `${v >= 0 ? '+' : '−'}${n(Math.abs(v))}`, v > 0 ? 'good' : v < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]; }) },
+            { title: t('Other'), rows: [
+              [t('Money'), `$${n(city.money)}`], [t('Bank loan'), city.loan ? `$${n(city.loan)}` : t('None'), city.loan ? 'bad' : undefined],
+              [t('Cars in the car markets'), n(this.life.carsInMarkets(city.id))], [t('Warehouses'), `${wh}`],
+            ] },
+          ],
+        };
+      }
       case 'jobs': {
         const c = this.pop.counts((x) => this.cityOfCitizen(x) === city.id);
         const open = new Map<string, number>();
@@ -3156,15 +3182,25 @@ export class Game implements ToolHost {
       if (!c.ai) continue;
       const people = pops.get(c.id) ?? 0;
       const rel = c.relation ?? 40;
-      const need: Record<string, number> = { food: people * 4, wood: 80, stone: 80, iron: 30, planks: 10, bricks: 10 };
-      const wants = (Object.keys(need) as Good[]).filter((g) => c[g] < need[g]).slice(0, 3).map((g) => ({ g, price: TRADE_PRICE[g] * (1.15 + rel / 400) }));
-      const offers = (['food', 'wood', 'stone', 'iron', 'grain', 'milk', 'cotton', 'planks'] as Good[]).filter((g) => c[g] > (need[g] ?? 30) * 2.5 + 40).slice(0, 3)
-        .map((g) => ({ g, price: TRADE_PRICE[g] * (1.05 - rel / 500), have: Math.floor(c[g] - (need[g] ?? 30) * 2) }));
+      // every good has its own price in every town: scarce is dear, plenty is cheap (friends get a better deal)
+      const target: Record<Good, number> = { food: people * 4 + 40, wood: 80, stone: 80, iron: 30, coal: 30, planks: 20, bricks: 20, steel: 15, grain: 40, flour: 30, milk: 30, cotton: 30 };
+      const buys: { g: Good; price: number; room: number; ratio: number }[] = [];
+      const sells: { g: Good; price: number; have: number }[] = [];
+      for (const g of GOODS) {
+        const ratio = c[g] / target[g];
+        const factor = Math.max(0.55, Math.min(1.7, 1.7 - 0.7 * ratio));
+        const room = Math.floor(this.eco.capacity(c, g) - c[g]);
+        if (ratio < 2 && room >= 10) buys.push({ g, price: TRADE_PRICE[g] * factor * (1 + rel / 400), room, ratio });
+        const have = Math.floor(c[g] - target[g] * 1.2);
+        if (have >= 10) sells.push({ g, price: TRADE_PRICE[g] * factor * 1.1 * (1 - rel / 500), have });
+      }
+      const wants = buys.filter((w) => w.ratio < 1).sort((a, b) => a.ratio - b.ratio).slice(0, 3);
+      const offers = sells.slice().sort((a, b) => b.have - a.have).slice(0, 3);
       // a neighbour with a car market but no car factory buys cars when it runs short
       const hasMarket = this.buildings.list.some((b) => b.kind === 'carmarket' && b.city === c.id && b.built >= 1);
       const hasFactory = this.buildings.list.some((b) => b.kind === 'carfactory' && b.city === c.id && b.built >= 1 && b.workers > 0);
       const carPrice = hasMarket && !hasFactory && this.life.carsInMarkets(c.id) < 3 ? Math.round(CAR_PRICE * (0.95 + rel / 400)) : undefined;
-      out.push({ id: c.id, name: c.name, tint: c.tint ?? '#cccccc', people, money: c.money, relation: rel, wants, offers, carPrice });
+      out.push({ id: c.id, name: c.name, tint: c.tint ?? '#cccccc', people, money: c.money, relation: rel, wants, offers, buys, sells, carPrice });
     }
     return out;
   }
@@ -3174,8 +3210,8 @@ export class Game implements ToolHost {
     const me = this.eco.city, town = this.eco.cities.get(id);
     if (!town) return;
     const nb = this.neighbours().find((x) => x.id === id);
-    const item = selling ? nb?.wants.find((w) => w.g === g) : nb?.offers.find((o) => o.g === g);
-    if (!item) return;
+    const item = selling ? nb?.buys.find((w) => w.g === g && w.room >= n) : nb?.sells.find((o) => o.g === g && o.have >= n);
+    if (!item) { sound.play('error'); return this.hud?.toast(t('They do not trade that right now')); }
     const money = Math.round(item.price * n);
     const from = selling ? me : town, to = selling ? town : me;
     if (from[g] < n || to.money < money) { sound.play('error'); return this.hud?.toast(selling ? t('They cannot pay right now') : t('Not enough money')); }

@@ -140,6 +140,8 @@ export class Life {
   private mouths = new Map<number, number>();
   /** News of a neighbour town goes into that town's own chronicle (set by the game). */
   onForeign?: (cityId: number, msg: string) => void;
+  /** May a private builder put a building here (neighbour towns keep room for their future streets)? */
+  streetRoom?: (cityId: number, kind: BuildingKind, x: number, z: number) => boolean;
 
   /** Something happened in a town: the player's news go to the chronicle, a neighbour's to its own news. */
   cityEvent(cityId: number | undefined, msg: string) {
@@ -476,7 +478,7 @@ export class Life {
         if (b.city !== city.id || b.built < 1) continue;
         const d = BUILDINGS[b.kind];
         if (d.energy && this.gridIds.has(b.id)) demand += d.energy * (b.kind === 'house' ? b.level : 1);
-        if (d.power && b.access >= 0) {
+        if (d.power && (b.access >= 0 || !d.needsRoad)) {
           if (CLEAN_POWER[b.kind]) {
             const sun = b.kind === 'hydro' ? 1 : b.kind === 'solarfarm' ? (eco.timeOfDay > 0.25 && eco.timeOfDay < 0.78 ? 1 : 0.1) : 0.7 + 0.3 * Math.sin(eco.day * 1.7 + eco.timeOfDay * 9);
             const p = d.power * Math.max(0.6, Math.min(1, b.workers / d.jobs)) * sun;
@@ -1048,6 +1050,7 @@ export class Life {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const x = home.x + dx, z = home.z + dz;
         if (!buildings.check(kind, x, z).ok) continue;
+        if (this.streetRoom && !this.streetRoom(home.city, kind, x, z)) continue;
         if (!build(x, z)) return false;
         terrain.clearTiles(buildings.footprint(kind, x, z).map((tl) => tl.z * N + tl.x));
         this.rebuildGrid();
