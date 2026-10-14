@@ -54,8 +54,16 @@ export class Editor {
   private down = { x: 0, y: 0 };
   /** Several parts selected: the gizmo moves this pivot and every part follows (moved and scaled together). */
   private pivot = new THREE.Object3D();
+  private gizmoBusy = false;
   /** Groups folded in the layers list. */
   private folded = new Set<number>();
+  /** Last part clicked: Shift+click selects everything from here to the clicked part. */
+  private anchor: number | null = null;
+  /** The model as it was after the last change (undo works by comparing with it). */
+  private lastSnap = '';
+  private restoring = false;
+  private hovered: number | null = null;
+  private topUi!: { undo: HTMLButtonElement; redo: HTMLButtonElement; move: HTMLButtonElement; scale: HTMLButtonElement; help: HTMLDivElement };
   private pivotStart: { center: THREE.Vector3; parts: Map<number, { pos: THREE.Vector3; scale: THREE.Vector3 }> } | null = null;
 
   constructor(private host: HTMLElement) {
@@ -95,19 +103,23 @@ export class Editor {
     this.gizmo.setSize(0.8);
     this.gizmo.addEventListener('dragging-changed', (e) => {
       this.orbit.enabled = !e.value;
-      if (e.value) this.pushUndo();
-      else this.syncFromGizmo();
+      this.gizmoBusy = !!e.value;
+      if (!e.value) { this.syncFromGizmo(); setTimeout(() => { this.gizmoBusy = false; }, 0); this.gizmoBusy = true; }
     });
     this.gizmo.addEventListener('objectChange', () => this.syncFromGizmo(false));
     this.scene.add(this.gizmo.getHelper(), this.pivot);
 
     this.buildUi();
+    this.gizmo.setMode('translate');
+    this.topUi.move.classList.add('on');
     this.load();
     this.drawFootprint();
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('keydown', (e) => this.key(e));
     canvas.addEventListener('pointerdown', (e) => { this.down = { x: e.clientX, y: e.clientY }; });
-    canvas.addEventListener('pointerup', (e) => { if (Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) < 5) this.pick(e); });
+    canvas.addEventListener('pointerup', (e) => { if (e.button === 0 && !this.gizmoBusy && Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) < 5) this.pick(e); });
+    canvas.addEventListener('pointermove', (e) => this.hover(e));
+    canvas.addEventListener('pointerleave', () => { this.hovered = null; this.paintSelection(); });
     this.resize();
     this.renderer.setAnimationLoop(() => {
       this.orbit.update();
@@ -154,8 +166,32 @@ export class Editor {
       template.appendChild(o);
     }
     template.addEventListener('change', () => { if (template.value) this.fromGame(template.value as BuildingKind); template.value = ''; });
+    const undoBtn = btn('↶', () => this.undo(), 'ed-btn ed-icon', t('Undo') + ' (Ctrl+Z)');
+    const redoBtn = btn('↷', () => this.redo(), 'ed-btn ed-icon', t('Redo') + ' (Ctrl+Y)');
+    const moveBtn = btn('✥ ' + t('Move'), () => this.setMode('translate'), 'ed-btn ed-mode', t('Move') + ' (G)');
+    const scaleBtn = btn('⤡ ' + t('Resize'), () => this.setMode('scale'), 'ed-btn ed-mode', t('Resize') + ' (S)');
+    const views = h('div', 'ed-seg');
+    views.append(
+      btn(t('Fit'), () => this.focus(), 'ed-btn ed-small', t('Show the selection (F)')),
+      btn(t('Top'), () => this.view('top'), 'ed-btn ed-small', '7'),
+      btn(t('Front'), () => this.view('front'), 'ed-btn ed-small', '1'),
+      btn(t('Side'), () => this.view('side'), 'ed-btn ed-small', '3'),
+    );
+    const edit = h('div', 'ed-seg');
+    edit.append(undoBtn, redoBtn);
+    const modes = h('div', 'ed-seg');
+    modes.append(moveBtn, scaleBtn);
+    const help = h('div', 'ed-shortcuts') as HTMLDivElement;
+    help.innerHTML = `<b>${t('Keyboard')}</b>` + ([
+      ['Click', 'Select (a whole group)'], ['Ctrl+click', 'Add or remove one'], ['Shift+click', 'Select a range (2 … 5)'], ['Alt+click', 'One part of a group'],
+      ['Ctrl+A', 'Select all'], ['Ctrl+G / Ctrl+Shift+G', 'Group / ungroup'], ['G / S', 'Move / resize'], ['D or Ctrl+D', 'Duplicate'], ['Delete', 'Delete'],
+      ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Arrows, PgUp/PgDn', 'Nudge'], ['F', 'Show the selection'], ['1 / 3 / 7', 'Front / side / top view'], ['Esc', 'Deselect'],
+    ] as const).map(([k, v]) => `<div><kbd>${k}</kbd><span>${t(v)}</span></div>`).join('');
+    help.addEventListener('click', () => help.classList.remove('show'));
+    const helpBtn = btn('?', () => help.classList.toggle('show'), 'ed-btn ed-icon', t('Keyboard shortcuts'));
+    this.topUi = { undo: undoBtn, redo: redoBtn, move: moveBtn, scale: scaleBtn, help };
     top.append(
-      title, name, size, template,
+      title, edit, modes, views, helpBtn, name, size, template,
       btn(t('New'), () => { if (confirm(t('Start a new empty model?'))) { this.pushUndo(); this.parts = []; this.imported.clear(); this.rebuild(); } }),
       btn(t('Import'), () => file.click(), 'ed-btn', t('JSON from this editor, or a .glb / .gltf / .obj model')),
       btn(t('Export JSON'), () => this.exportJson(), 'ed-btn primary'),
@@ -243,17 +279,18 @@ export class Editor {
     for (const v of [0, 0.005, 0.01, 0.02, 0.05, 0.1]) { const o = h('option') as HTMLOptionElement; o.value = `${v}`; o.textContent = v ? `${t('Snap')} ${v}` : t('No snap'); if (v === this.snap) o.selected = true; snapSel.appendChild(o); }
     snapSel.addEventListener('change', () => { this.snap = +snapSel.value; this.applySnap(); });
     left.append(tools, snapSel);
-    const help = h('div', 'ed-help', t('Click a box to select it, Shift+click to select several. Drag the arrows to move. The yellow outline is the building plot; the arrow points to the road (front).'));
-    left.append(help);
+    const tip = h('div', 'ed-help', t('Click a part to select it (a whole group), Ctrl+click to add, Shift+click for a range, Alt+click for one part of a group. Drag the arrows to move. The yellow outline is the plot; the arrow points to the road. Press ? for all shortcuts.'));
+    left.append(tip);
 
     const right = h('div', 'ed-panel ed-right');
     const props = h('div', 'ed-props') as HTMLDivElement;
     const list = h('div', 'ed-list') as HTMLDivElement;
     right.append(h('div', 'ed-h', t('Selected')), props, h('div', 'ed-h', t('Parts')), list);
     const status = h('div', 'ed-status') as HTMLDivElement;
-    this.host.append(top, left, right, status);
+    this.host.append(top, left, right, status, help);
     this.ui = { list, props, status, name, size, swatch };
     this.injectStyle();
+    this.updateUndoUi();
   }
 
   private renderList() {
@@ -275,7 +312,7 @@ export class Editor {
       (row.querySelector('span') as HTMLElement).textContent = `${p.name ?? t(SHAPE_NAME[p.shape ?? 'box'])} ${i + 1}`;
       row.appendChild(eye(!!p.hide, () => { p.hide = !p.hide || undefined; this.rebuild(); }));
       // a click on a part inside a group picks just that part
-      row.addEventListener('click', (e) => this.select(p.id, e.shiftKey, nested));
+      row.addEventListener('click', (e) => this.select(p.id, e.shiftKey ? 'range' : e.ctrlKey || e.metaKey ? 'toggle' : nested || e.altKey ? 'single' : 'replace'));
       return row;
     };
     const seen = new Set<number>();
@@ -307,13 +344,14 @@ export class Editor {
       count.textContent = `${members.length}`;
       const hidden = members.every(([q]) => q.hide);
       head.append(caret, name, count, eye(hidden, () => { for (const [q] of members) q.hide = !hidden || undefined; this.rebuild(); }));
-      head.addEventListener('click', (e) => this.select(p.id, e.shiftKey));
+      head.addEventListener('click', (e) => this.select(p.id, e.shiftKey ? 'range' : e.ctrlKey || e.metaKey ? 'toggle' : 'replace'));
       list.appendChild(head);
       if (!this.folded.has(g)) for (const [q, j] of members) list.appendChild(partRow(q, j, true));
     });
     list.scrollTop = scroll;
     const n = this.imported.children.length;
-    this.ui.status.textContent = `${this.parts.length} ${t('parts')}${n ? ` · ${n} ${t('imported models')}` : ''} · ${t('Plot')} ${this.size}×${this.size}`;
+    const groups = new Set(this.parts.filter((p) => p.g !== undefined).map((p) => p.g)).size;
+    this.ui.status.textContent = `${this.parts.length} ${t('parts')} · ${t('{n} groups', { n: groups })}${this.selected.length ? ` · ${t('{n} selected', { n: this.selected.length })}` : ''}${n ? ` · ${n} ${t('imported models')}` : ''} · ${t('Plot')} ${this.size}×${this.size} · ${t('Press ? for shortcuts')}`;
   }
 
   private renderProps() {
@@ -321,9 +359,10 @@ export class Editor {
     props.replaceChildren();
     const p = this.parts.find((q) => q.id === this.selected[0]);
     if (!p) {
-      props.innerHTML = `<div class="ed-empty">${t('Nothing selected')}</div>`;
+      props.innerHTML = `<div class="ed-empty">${t('Nothing selected')}<small>${t('Click a part, or add a shape on the left')}</small></div>`;
       return;
     }
+    if (this.selected.length > 1) return this.renderMulti();
     const field = (key: 'w' | 'h' | 'd' | 'x' | 'y' | 'z', label: string) => {
       const wrap = document.createElement('label');
       wrap.className = 'ed-field';
@@ -390,6 +429,57 @@ export class Editor {
     props.appendChild(nm);
   }
 
+  /** Several parts selected: where the selection is, its size, and what can be done with all of them. */
+  private renderMulti() {
+    const { props } = this.ui;
+    const sel = this.parts.filter((q) => this.selected.includes(q.id));
+    const groups = new Set(sel.map((q) => q.g));
+    const oneGroup = groups.size === 1 && sel[0].g !== undefined;
+    const box = new THREE.Box3();
+    for (const q of sel) box.union(new THREE.Box3(new THREE.Vector3(q.x - q.w / 2, q.y - q.h / 2, q.z - q.d / 2), new THREE.Vector3(q.x + q.w / 2, q.y + q.h / 2, q.z + q.d / 2)));
+    const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+    const head = document.createElement('div');
+    head.className = 'ed-multi';
+    head.innerHTML = '<b></b><small></small>';
+    (head.querySelector('b') as HTMLElement).textContent = oneGroup ? (sel[0].gn ?? `${t('Group')} ${sel[0].g}`) : t('{n} parts selected', { n: sel.length });
+    (head.querySelector('small') as HTMLElement).textContent = `${round(sz.x)} × ${round(sz.y)} × ${round(sz.z)}${oneGroup ? ` · ${t('{n} parts', { n: sel.length })}` : ''}`;
+    // moving the whole selection by its centre (and its bottom)
+    const grid = document.createElement('div');
+    grid.className = 'ed-fields';
+    const field = (label: string, value: number, apply: (v: number) => void) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'ed-field';
+      wrap.innerHTML = `<span>${label}</span>`;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.step = '0.01';
+      inp.value = `${round(value)}`;
+      inp.addEventListener('change', () => { const v = parseFloat(inp.value); if (Number.isFinite(v)) { apply(v); this.rebuild(); } });
+      wrap.appendChild(inp);
+      return wrap;
+    };
+    grid.append(
+      field('X', c.x, (v) => { for (const q of sel) q.x = round(q.x + v - c.x); }),
+      field(t('Bottom'), box.min.y, (v) => { for (const q of sel) q.y = round(q.y + v - box.min.y); }),
+      field('Z', c.z, (v) => { for (const q of sel) q.z = round(q.z + v - c.z); }),
+    );
+    const acts = document.createElement('div');
+    acts.className = 'ed-grid2';
+    const b = (label: string, fn: () => void, cls = 'ed-btn') => { const e = document.createElement('button'); e.className = cls; e.textContent = label; e.addEventListener('click', fn); return e; };
+    acts.append(
+      oneGroup ? b(t('Ungroup'), () => this.ungroup()) : b(t('Group') + ' (Ctrl+G)', () => this.group(), 'ed-btn primary'),
+      b(t('To ground'), () => this.toGround()),
+      b(t('Duplicate'), () => this.duplicate()),
+      b(t('Mirror X'), () => this.mirror()),
+      b(t('Centre on plot'), () => { for (const q of sel) { q.x = round(q.x - c.x); q.z = round(q.z - c.z); } this.rebuild(); }),
+      b(t('Delete'), () => this.remove(), 'ed-btn danger'),
+    );
+    const note = document.createElement('div');
+    note.className = 'ed-help';
+    note.textContent = t('A colour from the palette paints all selected parts. Drag the arrows to move or resize them together.');
+    props.append(head, grid, acts, note);
+  }
+
   // ---------- model ----------
 
   private add(p: Partial<Part> & Pick<Part, 'w' | 'h' | 'd' | 'x' | 'y' | 'z'>) {
@@ -446,13 +536,101 @@ export class Editor {
     this.save();
   }
 
-  private select(id: number | null, add = false, single = false) {
-    const p = id === null ? undefined : this.parts.find((q) => q.id === id);
-    const ids = p && p.g !== undefined && !single ? this.parts.filter((q) => q.g === p.g).map((q) => q.id) : id === null ? [] : [id];
-    if (id === null) this.selected = [];
-    else if (add) this.selected = ids.every((i) => this.selected.includes(i)) ? this.selected.filter((s) => !ids.includes(s)) : [...new Set([...this.selected, ...ids])];
-    else this.selected = ids;
+  /**
+   * Select parts. 'replace' = only this one (its whole group), 'toggle' = add / remove (Ctrl+click),
+   * 'range' = everything in the list from the last clicked part to this one (Shift+click), 'single' = one part of a group.
+   */
+  private select(id: number | null, mode: 'replace' | 'toggle' | 'range' | 'single' = 'replace') {
+    if (id === null) { this.selected = []; this.anchor = null; this.refreshSelection(); return; }
+    const p = this.parts.find((q) => q.id === id);
+    if (!p) return;
+    const ids = p.g !== undefined && mode !== 'single' ? this.parts.filter((q) => q.g === p.g).map((q) => q.id) : [id];
+    if (mode === 'range' && this.anchor !== null) {
+      const order = this.order();
+      const a = order.indexOf(this.anchor), b = order.indexOf(id);
+      if (a >= 0 && b >= 0) {
+        const span = order.slice(Math.min(a, b), Math.max(a, b) + 1);
+        this.selected = [...new Set([...this.selected, ...span])];
+      } else this.selected = ids;
+    } else if (mode === 'toggle') {
+      this.selected = ids.every((i) => this.selected.includes(i)) ? this.selected.filter((s) => !ids.includes(s)) : [...new Set([...this.selected, ...ids])];
+      this.anchor = id;
+    } else {
+      this.selected = ids;
+      this.anchor = id;
+    }
     this.refreshSelection();
+  }
+
+  /** The parts in the order of the layers list (a group's parts together, where the group starts). */
+  private order() {
+    const out: number[] = [];
+    const seen = new Set<number>();
+    for (const p of this.parts) {
+      if (p.g === undefined) { out.push(p.id); continue; }
+      if (seen.has(p.g)) continue;
+      seen.add(p.g);
+      for (const q of this.parts) if (q.g === p.g) out.push(q.id);
+    }
+    return out;
+  }
+
+  /** Mode of the arrows on the selection. */
+  private setMode(m: 'translate' | 'scale') {
+    this.gizmo.setMode(m);
+    this.topUi.move.classList.toggle('on', m === 'translate');
+    this.topUi.scale.classList.toggle('on', m === 'scale');
+  }
+
+  /** Camera: frame the selection (or the whole plot). */
+  private focus() {
+    const ids = this.selected.length ? this.selected : this.parts.map((p) => p.id);
+    const box = new THREE.Box3();
+    for (const id of ids) { const m = this.meshes.get(id); if (m && m.visible) box.expandByObject(m); }
+    if (box.isEmpty()) return this.fit();
+    const c = box.getCenter(new THREE.Vector3()), r = Math.max(0.15, box.getSize(new THREE.Vector3()).length());
+    const dir = this.camera.position.clone().sub(this.orbit.target).normalize();
+    this.orbit.target.copy(c);
+    this.camera.position.copy(c).addScaledVector(dir, r * 1.6 + 0.3);
+  }
+
+  private view(v: 'top' | 'front' | 'side') {
+    const t0 = this.orbit.target, d = this.camera.position.distanceTo(t0);
+    if (v === 'top') this.camera.position.set(t0.x, t0.y + d, t0.z + 0.001);
+    if (v === 'front') this.camera.position.set(t0.x, t0.y + d * 0.15, t0.z + d);
+    if (v === 'side') this.camera.position.set(t0.x + d, t0.y + d * 0.15, t0.z);
+  }
+
+  /** The part under the mouse lights up a little. */
+  private hover(e: PointerEvent) {
+    if (this.gizmoBusy || e.buttons) return;
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    this.ray.setFromCamera(ndc, this.camera);
+    const hit = this.ray.intersectObjects([...this.meshes.values()].filter((m) => m.visible), false)[0];
+    const id = hit ? hit.object.userData.part as number : null;
+    if (id === this.hovered) return;
+    this.hovered = id;
+    this.paintSelection();
+    this.renderer.domElement.style.cursor = id !== null ? 'pointer' : '';
+  }
+
+  /** Selected parts glow orange, the hovered part (and its group) a little. */
+  private paintSelection() {
+    const hp = this.hovered !== null ? this.parts.find((p) => p.id === this.hovered) : undefined;
+    const hov = new Set(hp ? (hp.g !== undefined ? this.parts.filter((q) => q.g === hp.g).map((q) => q.id) : [hp.id]) : []);
+    for (const [id, m] of this.meshes) {
+      const mat = m.material as THREE.MeshLambertMaterial;
+      mat.emissive.set(this.selected.includes(id) ? '#3a2a00' : hov.has(id) ? '#1d2630' : '#000000');
+    }
+  }
+
+  private updateUndoUi() {
+    if (!this.topUi) return;
+    this.topUi.undo.disabled = !this.undoStack.length;
+    this.topUi.redo.disabled = !this.redoStack.length;
+    this.topUi.undo.title = `${t('Undo')} (Ctrl+Z) · ${this.undoStack.length}`;
+    this.topUi.redo.title = `${t('Redo')} (Ctrl+Y) · ${this.redoStack.length}`;
   }
 
   /** Make one group of the selected parts (Ctrl+G): from now on they move together. */
@@ -474,10 +652,7 @@ export class Editor {
   }
 
   private refreshSelection() {
-    for (const [id, m] of this.meshes) {
-      const mat = m.material as THREE.MeshLambertMaterial;
-      mat.emissive.set(this.selected.includes(id) ? '#3a2a00' : '#000000');
-    }
+    this.paintSelection();
     const first = this.selected.length === 1 ? this.meshes.get(this.selected[0]) : undefined;
     this.pivotStart = null;
     if (first) this.gizmo.attach(first);
@@ -604,10 +779,25 @@ export class Editor {
     this.refreshSelection();
   }
 
+  /** Put the selection on the ground: a group (or several selected parts) keeps its shape and lands as one piece. */
   private toGround() {
     if (!this.selected.length) return;
-    this.pushUndo();
-    for (const p of this.parts) if (this.selected.includes(p.id)) p.y = round(p.h / 2);
+    const sel = this.parts.filter((p) => this.selected.includes(p.id));
+    // units: each group is one piece; loose parts selected together are one piece too
+    const units = new Map<string, Part[]>();
+    for (const p of sel) {
+      const key = p.g !== undefined ? `g${p.g}` : 'loose';
+      units.set(key, [...(units.get(key) ?? []), p]);
+    }
+    if (units.size > 1 && units.has('loose')) {
+      // loose parts selected with groups: everything lands together
+      units.clear();
+      units.set('all', sel);
+    }
+    for (const list of units.values()) {
+      const bottom = Math.min(...list.map((p) => p.y - p.h / 2));
+      for (const p of list) p.y = round(p.y - bottom);
+    }
     this.rebuild();
   }
 
@@ -667,27 +857,33 @@ export class Editor {
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.ray.setFromCamera(ndc, this.camera);
     const hit = this.ray.intersectObjects([...this.meshes.values()].filter((m) => m.visible), false)[0];
-    if (hit) this.select(hit.object.userData.part as number, e.shiftKey, e.altKey);
-    else if (!e.shiftKey) this.select(null);
+    const mode = e.altKey ? 'single' : e.shiftKey ? 'range' : e.ctrlKey || e.metaKey ? 'toggle' : 'replace';
+    if (hit) this.select(hit.object.userData.part as number, mode);
+    else if (mode === 'replace') this.select(null);
   }
 
   private key(e: KeyboardEvent) {
     if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT') return;
     const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
-    if (ctrl && e.key.toLowerCase() === 'y') { e.preventDefault(); this.redo(); return; }
-    if (ctrl && e.key.toLowerCase() === 'd') { e.preventDefault(); this.duplicate(); return; }
-    if (ctrl && e.key.toLowerCase() === 'g') { e.preventDefault(); if (e.shiftKey) this.ungroup(); else this.group(); return; }
-    if (ctrl && e.key.toLowerCase() === 'a') { e.preventDefault(); this.selected = this.parts.map((p) => p.id); this.refreshSelection(); return; }
+    // e.code is the physical key: shortcuts work with any keyboard language
+    const k = e.code;
+    if (ctrl && k === 'KeyZ') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); return; }
+    if (ctrl && k === 'KeyY') { e.preventDefault(); this.redo(); return; }
+    if (ctrl && k === 'KeyD') { e.preventDefault(); this.duplicate(); return; }
+    if (ctrl && k === 'KeyG') { e.preventDefault(); if (e.shiftKey) this.ungroup(); else this.group(); return; }
+    if (ctrl && k === 'KeyA') { e.preventDefault(); this.selected = this.parts.map((p) => p.id); this.refreshSelection(); return; }
     if (ctrl) return;
+    if (k === 'KeyG') return this.setMode('translate');
+    if (k === 'KeyS') return this.setMode('scale');
+    if (k === 'KeyD') return this.duplicate();
+    if (k === 'KeyF') return this.focus();
+    if (k === 'Digit7' || k === 'Numpad7') return this.view('top');
+    if (k === 'Digit1' || k === 'Numpad1') return this.view('front');
+    if (k === 'Digit3' || k === 'Numpad3') return this.view('side');
+    if (e.key === '?' || (k === 'Slash' && e.shiftKey)) { this.topUi.help.classList.toggle('show'); return; }
     switch (e.key) {
       case 'Delete': case 'Backspace': this.remove(); break;
-      case 'g': case 'G': this.gizmo.setMode('translate'); break;
-      case 's': case 'S': this.gizmo.setMode('scale'); break;
-      case 'd': case 'D': this.duplicate(); break;
-      case 'z': case 'Z': this.undo(); break;
-      case 'y': case 'Y': this.redo(); break;
-      case 'Escape': this.select(null); break;
+      case 'Escape': this.topUi.help.classList.remove('show'); this.select(null); break;
       case 'ArrowLeft': case 'ArrowRight': case 'ArrowUp': case 'ArrowDown': case 'PageUp': case 'PageDown': {
         e.preventDefault();
         if (!this.selected.length) return;
@@ -711,11 +907,8 @@ export class Editor {
 
   private snapshot() { return JSON.stringify({ parts: this.parts, size: this.size, name: this.name }); }
 
-  private pushUndo() {
-    this.undoStack.push(this.snapshot());
-    if (this.undoStack.length > 100) this.undoStack.shift();
-    this.redoStack.length = 0;
-  }
+  /** Kept for the callers: the undo step is written when the change is saved (see save()). */
+  private pushUndo() { /* nothing to do */ }
 
   private restore(json: string) {
     const s = JSON.parse(json) as { parts: Part[]; size: 1 | 2 | 3; name: string };
@@ -731,20 +924,37 @@ export class Editor {
 
   private undo() {
     const s = this.undoStack.pop();
-    if (!s) return;
-    this.redoStack.push(this.snapshot());
+    if (!s) return this.toast(t('Nothing to undo'));
+    this.redoStack.push(this.lastSnap);
+    this.restoring = true;
     this.restore(s);
+    this.restoring = false;
+    this.lastSnap = s;
+    this.updateUndoUi();
   }
 
   private redo() {
     const s = this.redoStack.pop();
-    if (!s) return;
-    this.undoStack.push(this.snapshot());
+    if (!s) return this.toast(t('Nothing to redo'));
+    this.undoStack.push(this.lastSnap);
+    this.restoring = true;
     this.restore(s);
+    this.restoring = false;
+    this.lastSnap = s;
+    this.updateUndoUi();
   }
 
+  /** Store the model; when it changed since the last save, the old state becomes an undo step. */
   private save() {
-    try { localStorage.setItem(KEY, this.snapshot()); } catch { /* ignore */ }
+    const s = this.snapshot();
+    if (!this.restoring && this.lastSnap && s !== this.lastSnap) {
+      this.undoStack.push(this.lastSnap);
+      if (this.undoStack.length > 150) this.undoStack.shift();
+      this.redoStack.length = 0;
+    }
+    if (!this.restoring) this.lastSnap = s;
+    this.updateUndoUi();
+    try { localStorage.setItem(KEY, s); } catch { /* ignore */ }
   }
 
   private load() {
@@ -896,7 +1106,28 @@ export class Editor {
 
   private injectStyle() {
     const css = document.createElement('style');
-    css.textContent = `
+    css.textContent = `.ed-top { gap: 6px; }
+.ed-seg .ed-small { padding: 4px 8px !important; min-width: 0; white-space: nowrap; }
+@media (max-width: 1350px) { .ed-title { display: none; } }
+.ed-seg { display: flex; gap: 2px; background: #15181d; border: 1px solid #343a43; border-radius: 9px; padding: 2px; }
+.ed-seg .ed-btn { border: 0; }
+.ed-icon { min-width: 34px; font-size: 16px !important; padding: 4px 8px !important; }
+.ed-btn:disabled { opacity: .35; cursor: default; }
+.ed-mode.on { background: #f2a93b !important; color: #1d1406 !important; }
+.ed-btn.danger { background: #5a2626; color: #ffd9d6; }
+.ed-btn.danger:hover { background: #7a2f2f; }
+.ed-multi { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 9px; background: #3a2f17; border: 1px solid #f2a93b; margin-bottom: 8px; }
+.ed-multi b { font-size: 14px; }
+.ed-multi small { color: #d8c49a; font-size: 11.5px; }
+.ed-empty small { display: block; margin-top: 4px; color: #6f7883; font-size: 11.5px; }
+.ed-shortcuts { position: fixed; right: 260px; top: 60px; z-index: 6; display: none; background: #1a1d22; border: 1px solid #f2a93b; border-radius: 12px; padding: 12px 14px; color: #eceef1; font: 12.5px Nunito, system-ui, sans-serif; box-shadow: 0 12px 30px rgba(0,0,0,.45); min-width: 300px; }
+.ed-shortcuts.show { display: block; }
+.ed-shortcuts b { display: block; margin-bottom: 8px; color: #f2a93b; font-size: 14px; }
+.ed-shortcuts div { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-bottom: 1px solid #23272e; }
+.ed-shortcuts kbd { font: 700 11.5px ui-monospace, monospace; background: #272b32; border: 1px solid #3d4148; border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+.ed-shortcuts span { color: #aab4be; text-align: right; }
+@media (max-width: 900px) { .ed-shortcuts { right: 10px; } }
+
 body.editor-page { overflow: hidden; background: var(--base, #1a1d22); }
 body.editor-page #loading { display: none; }
 .ed-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
@@ -939,6 +1170,7 @@ body.editor-page #loading { display: none; }
 .ed-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
 .ed-field { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; font-weight: 800; color: #8e96a1; }
 .ed-field input { width: 100%; background: #272b32; color: #eceef1; border: 1px solid #343a43; border-radius: 6px; padding: 5px; font: inherit; font-size: 12px; }
+.ed-props { min-height: 268px; }
 .ed-props .ed-input { width: 100%; margin-top: 6px; }
 .ed-empty { font-size: 12px; color: #8e96a1; }
 .ed-list { display: flex; flex-direction: column; gap: 3px; }
