@@ -29,6 +29,19 @@ export interface Neighbour { id: number; name: string; tint: string; people: num
   /** Every good the town buys (its price rises when it has little) and sells (cheap when it has plenty). */
   buys: { g: Good; price: number; room: number }[]; sells: { g: Good; price: number; have: number }[]; carPrice?: number }
 
+/** A button's tooltip (what the deal brings or costs). */
+const tip = (b: HTMLButtonElement, text: string) => { if (text) b.title = text; return b; };
+
+/** Column names above the goods: what you get when you sell, what you pay when you buy. */
+function tradeHead() {
+  const h = el('div', 'trade-row trade-head');
+  h.innerHTML = '<span></span><span></span><span></span>';
+  (h.children[0] as HTMLElement).textContent = t('Good · in your stores');
+  (h.children[1] as HTMLElement).textContent = t('Sell price — you get · Buy price — you pay');
+  (h.children[2] as HTMLElement).textContent = t('− sell · + buy');
+  return h;
+}
+
 /** Trade window: today's prices for every good (from the neighbour towns or the merchants), with buttons to sell and buy. */
 export class TradePanel {
   private root: HTMLDivElement;
@@ -121,6 +134,7 @@ export class TradePanel {
     if (sel) { this.townTable(body, sec, city, sel); this.finish(head, body, scroll, lines); return; }
     sec(t('Goods'));
     const table = el('div', 'trade-table');
+    table.appendChild(tradeHead());
     for (const g of GOODS) {
       const have = Math.floor(city[g]);
       const lot = g === 'food' ? 50 : 10;
@@ -150,9 +164,9 @@ export class TradePanel {
       });
       const offer = el('div', 'trade-offer');
       offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
-      (offer.querySelector('.pos') as HTMLElement).textContent = buyer ? `${t('Sell')} $${best.price.toFixed(1)}` : t('Nobody buys');
-      (offer.querySelector('small') as HTMLElement).textContent = seller && seller.name !== best.partner.name ? `${best.partner.name} / ${seller.name}` : best.partner.name;
-      (offer.querySelector('.neg') as HTMLElement).textContent = seller ? `${t('Buy')} $${buy.toFixed(1)}` : t('Nobody sells');
+      (offer.querySelector('.pos') as HTMLElement).textContent = buyer ? `${t('Sell price')}: $${best.price.toFixed(1)}` : `${t('Sell price')}: — (${t('nobody buys')})`;
+      (offer.querySelector('small') as HTMLElement).textContent = [buyer ? `${t('buys')}: ${buyer.name}` : '', seller ? `${t('sells')}: ${seller.name}` : ''].filter(Boolean).join(' · ');
+      (offer.querySelector('.neg') as HTMLElement).textContent = seller ? `${t('Buy price')}: $${buy.toFixed(1)}` : `${t('Buy price')}: — (${t('nobody sells')})`;
       const btns = el('div', 'trade-btns');
       const mk = (label: string, cls: string, on: boolean, fn: () => void) => {
         const b = el('button', `btn-mini ${cls}`);
@@ -162,9 +176,9 @@ export class TradePanel {
         return b;
       };
       btns.append(
-        mk(`−${lot}`, 'sell', !!buyer && have >= lot, () => this.host.deal(buyer!.id, g, lot, true)),
-        mk(`−${lot * 5}`, 'sell', !!buyer && have >= lot * 5, () => this.host.deal(buyer!.id, g, lot * 5, true)),
-        mk(`+${lot}`, 'buy', !!seller && city.money >= buy * lot, () => this.host.deal(seller!.id, g, lot, false)),
+        tip(mk(`−${lot}`, 'sell', !!buyer && have >= lot, () => this.host.deal(buyer!.id, g, lot, true)), buyer ? t('Sell {n} for ${m}', { n: lot, m: Math.round(best.price * lot) }) : ''),
+        tip(mk(`−${lot * 5}`, 'sell', !!buyer && have >= lot * 5, () => this.host.deal(buyer!.id, g, lot * 5, true)), buyer ? t('Sell {n} for ${m}', { n: lot * 5, m: Math.round(best.price * lot * 5) }) : ''),
+        tip(mk(`+${lot}`, 'buy', !!seller && city.money >= buy * lot, () => this.host.deal(seller!.id, g, lot, false)), seller ? t('Buy {n} for ${m}', { n: lot, m: Math.round(buy * lot) }) : ''),
       );
       row.append(name, offer, btns);
       table.appendChild(row);
@@ -268,6 +282,7 @@ export class TradePanel {
     info.appendChild(gift);
     body.appendChild(info);
     const table = el('div', 'trade-table');
+    table.appendChild(tradeHead());
     for (const g of GOODS) {
       const lot = g === 'food' ? 50 : 10;
       const have = Math.floor(city[g]);
@@ -287,15 +302,15 @@ export class TradePanel {
       (name.querySelector('small') as HTMLElement).textContent = `${t('You: {n}', { n: have })} · ${this.trend(v) || '•'}`;
       const offer = el('div', 'trade-offer');
       offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
-      (offer.querySelector('.pos') as HTMLElement).textContent = buy ? `${t('They pay')} $${buy.price.toFixed(1)}` : t('They do not need it');
-      (offer.querySelector('small') as HTMLElement).textContent = sell ? t('They have {n} to sell', { n: sell.have }) : '';
-      (offer.querySelector('.neg') as HTMLElement).textContent = sell ? `${t('They ask')} $${sell.price.toFixed(1)}` : t('Nothing to sell');
+      (offer.querySelector('.pos') as HTMLElement).textContent = buy ? `${t('Sell price')}: $${buy.price.toFixed(1)}` : `${t('Sell price')}: — (${t('they do not buy it')})`;
+      (offer.querySelector('small') as HTMLElement).textContent = [buy ? t('they take up to {n}', { n: buy.room }) : '', sell ? t('They have {n} to sell', { n: sell.have }) : ''].filter(Boolean).join(' · ');
+      (offer.querySelector('.neg') as HTMLElement).textContent = sell ? `${t('Buy price')}: $${sell.price.toFixed(1)}` : `${t('Buy price')}: — (${t('they do not sell it')})`;
       const btns = el('div', 'trade-btns');
       const mk = (label: string, cls: string, on: boolean, fn: () => void) => { const b = el('button', `btn-mini ${cls}`); b.textContent = label; b.disabled = !on; b.addEventListener('click', () => { fn(); this.render(); }); return b; };
       btns.append(
-        mk(`−${lot}`, 'sell', !!buy && have >= lot && buy.room >= lot && n.money >= buy.price * lot, () => this.host.deal(n.id, g, lot, true)),
-        mk(`−${lot * 5}`, 'sell', !!buy && have >= lot * 5 && buy.room >= lot * 5 && n.money >= buy.price * lot * 5, () => this.host.deal(n.id, g, lot * 5, true)),
-        mk(`+${lot}`, 'buy', !!sell && sell.have >= lot && city.money >= sell.price * lot, () => this.host.deal(n.id, g, lot, false)),
+        tip(mk(`−${lot}`, 'sell', !!buy && have >= lot && buy.room >= lot && n.money >= buy.price * lot, () => this.host.deal(n.id, g, lot, true)), buy ? t('Sell {n} for ${m}', { n: lot, m: Math.round(buy.price * lot) }) : ''),
+        tip(mk(`−${lot * 5}`, 'sell', !!buy && have >= lot * 5 && buy.room >= lot * 5 && n.money >= buy.price * lot * 5, () => this.host.deal(n.id, g, lot * 5, true)), buy ? t('Sell {n} for ${m}', { n: lot * 5, m: Math.round(buy.price * lot * 5) }) : ''),
+        tip(mk(`+${lot}`, 'buy', !!sell && sell.have >= lot && city.money >= sell.price * lot, () => this.host.deal(n.id, g, lot, false)), sell ? t('Buy {n} for ${m}', { n: lot, m: Math.round(sell.price * lot) }) : ''),
       );
       row.append(name, offer, btns);
       table.appendChild(row);

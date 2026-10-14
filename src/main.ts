@@ -56,7 +56,7 @@ async function boot() {
   const setGame = (g: Game) => {
     game?.dispose();
     game = g;
-    if (import.meta.env.DEV) (window as unknown as { __game: Game }).__game = g;
+    if (import.meta.env.DEV) Object.assign(window as unknown as Record<string, unknown>, { __game: g, __renderer: renderer });
     resize();
   };
 
