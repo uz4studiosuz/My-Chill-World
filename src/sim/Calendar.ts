@@ -1,4 +1,12 @@
 import { DAYS_PER_YEAR } from '../config';
+import { t } from '../i18n/i18n';
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** A game day as people read it: the month and the year ("March, Year 2"); one game day is one month. */
+export function dateLabel(day: number) {
+  return `${t(MONTH_NAMES[monthOf(day)])}, ${t('Year {n}', { n: yearOf(day) })}`;
+}
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 

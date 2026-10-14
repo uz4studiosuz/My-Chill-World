@@ -1,3 +1,4 @@
+import { pager } from './CityReport';
 import { el, icon, IconName, hoverBusy } from './dom';
 import { t } from '../i18n/i18n';
 
@@ -36,6 +37,7 @@ export class Inspector {
   private sig = '';
   private savedPanelScroll = 0;
   private savedListScroll = 0;
+  private page = 0;
 
   show(v: InspectorView) {
     // nothing changed: keep the DOM (and the buttons under the cursor) as they are
@@ -121,7 +123,11 @@ export class Inspector {
         this.root.appendChild(lt);
       }
       const l = el('div', 'ins-list');
-      for (const p of v.people) {
+      // 10 people a page
+      const pages = Math.ceil(v.people.length / 10);
+      if (!same) this.page = 0;
+      this.page = Math.min(this.page, pages - 1);
+      for (const p of v.people.slice(this.page * 10, this.page * 10 + 10)) {
         const row = el('button', `person${p.warn ? ' warn' : ''}`);
         const ic = el('span', 'pic');
         ic.textContent = p.icon;
@@ -136,6 +142,7 @@ export class Inspector {
         l.appendChild(row);
       }
       this.root.appendChild(l);
+      if (pages > 1) this.root.appendChild(pager(this.page, pages, v.people.length, (pg) => { this.page = pg; this.sig = ''; this.show(v); }));
       l.addEventListener('scroll', () => { if (l.scrollTop > 0) this.savedListScroll = l.scrollTop; }, { passive: true });
       l.scrollTop = scroll;
       requestAnimationFrame(() => { if (scroll > 0) l.scrollTop = scroll; });

@@ -1,3 +1,4 @@
+import { dateLabel } from '../sim/Calendar';
 import { el, icon } from './dom';
 import { t } from '../i18n/i18n';
 import { drawChart } from './Chart';
@@ -250,7 +251,7 @@ export class WorldPanel {
       for (const n of tw.dealings.slice(0, 20)) {
         const line = el('div', 'info-row');
         line.innerHTML = '<span></span><span></span>';
-        (line.children[0] as HTMLElement).textContent = `${t('Day {n}', { n: n.day })} · ${n.text}`;
+        (line.children[0] as HTMLElement).textContent = `${dateLabel(n.day)} · ${n.text}`;
         const m = line.children[1] as HTMLElement;
         m.textContent = n.money ? `${n.money > 0 ? '+' : '−'}$${num(Math.abs(n.money))}` : '—';
         m.className = n.money > 0 ? 'pos' : n.money < 0 ? 'neg' : '';
@@ -282,7 +283,7 @@ export class WorldPanel {
       const line = el('div', 'info-row');
       line.innerHTML = '<span></span><span></span>';
       (line.children[0] as HTMLElement).textContent = n.text;
-      (line.children[1] as HTMLElement).textContent = t('Day {n}', { n: n.day });
+      (line.children[1] as HTMLElement).textContent = dateLabel(n.day);
       news.appendChild(line);
     }
     if (!tw.news.length) { const e = el('div', 'wt-empty'); e.textContent = tw.mine ? t('Your news is in the Chronicle') : t('Nothing has happened yet'); news.appendChild(e); }

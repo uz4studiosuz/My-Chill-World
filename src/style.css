@@ -1494,3 +1494,8 @@ button.chip:hover { background: var(--raised); }
 .city-report .cr-actions .btn-mini svg { color: var(--accent); }
 .city-report .cr-actions .btn-mini:hover:not(:disabled) { border-color: var(--accent); background: rgba(242, 179, 61, .14); }
 .city-report .cr-actions .btn-mini.active { background: var(--accent); color: #1d1a14; }
+
+.pager { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; grid-column: 1 / -1; }
+.pager small { color: var(--muted); font-weight: 700; min-width: 70px; text-align: center; }
+.pager .btn-mini { min-width: 34px; font-size: 15px; padding: 3px 10px; }
+.pager .btn-mini:disabled { opacity: .35; }

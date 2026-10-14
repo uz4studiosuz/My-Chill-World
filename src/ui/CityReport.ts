@@ -32,6 +32,25 @@ export interface CityReportView { title: string; subtitle: string; tabs: ReportT
 /** A window that can live inside the town hall window (trade). */
 export interface Embed { el: () => HTMLElement; open: (page?: string) => void; close: () => void }
 
+const PAGE = 10;
+
+/** Page buttons under a long list: ‹ 2 / 5 (43) › */
+export function pager(page: number, pages: number, total: number, go: (p: number) => void) {
+  const nav = el('div', 'pager');
+  const prev = el('button', 'btn-mini ghost');
+  prev.textContent = '‹';
+  prev.disabled = page <= 0;
+  prev.addEventListener('click', (e) => { e.stopPropagation(); go(page - 1); });
+  const label = el('small', '');
+  label.textContent = `${page + 1} / ${pages} · ${total}`;
+  const next = el('button', 'btn-mini ghost');
+  next.textContent = '›';
+  next.disabled = page >= pages - 1;
+  next.addEventListener('click', (e) => { e.stopPropagation(); go(page + 1); });
+  nav.append(prev, label, next);
+  return nav;
+}
+
 const fmtOf = (f?: string) => (n: number) => f === 'money' ? `$${Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : Math.round(n)}` : f === 'pct' ? `${Math.round(n)}%` : f === 'kw' ? `${Math.round(n)} kW` : Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`;
 
 /** Draw a ring diagram with the shares in the middle. */
@@ -76,6 +95,8 @@ export class CityReport {
   onClose?: () => void;
   private last = '';
   private shownTab = '';
+  /** Page of each long list (by tab and section). */
+  private pages = new Map<string, number>();
 
   /** Embedded window currently shown, and where it came from. */
   private embedded: { key: string; page?: string; el: HTMLElement; home: HTMLElement | null } | null = null;
@@ -231,7 +252,12 @@ export class CityReport {
           const ch = sec.chart;
           later.push(() => drawChart(c, ch.series, fmtOf(ch.format)));
         }
-        for (const [k, val, tone, show] of sec.rows ?? []) {
+        // long lists: 10 rows a page, with buttons to turn the pages
+        const all = sec.rows ?? [];
+        const pkey = `${this.tab}|${(cur?.sections ?? []).indexOf(sec)}`;
+        const pagesN = Math.ceil(all.length / PAGE);
+        const page = Math.min(this.pages.get(pkey) ?? 0, Math.max(0, pagesN - 1));
+        for (const [k, val, tone, show] of all.slice(page * PAGE, page * PAGE + PAGE)) {
           const r = el('div', 'info-row');
           r.innerHTML = '<span></span><span></span>';
           (r.children[0] as HTMLElement).textContent = k;
@@ -247,6 +273,7 @@ export class CityReport {
           }
           box.appendChild(r);
         }
+        if (pagesN > 1) box.appendChild(pager(page, pagesN, all.length, (p) => { this.pages.set(pkey, p); this.last = ''; this.render(); }));
         if (sec.actions?.length) {
           const acts = el('div', 'cr-actions');
           for (const a of sec.actions) {

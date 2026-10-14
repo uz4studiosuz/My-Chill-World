@@ -14,7 +14,7 @@ import { Buildings, Building, rotToDir } from '../buildings/Buildings';
 import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
-import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
+import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel } from '../sim/Calendar';
 import { Population, Citizen, Family } from '../people/Population';
 import { clanName, firstName, townName } from '../people/names';
 import { sound } from '../audio/Sound';
@@ -492,7 +492,7 @@ export class Game implements ToolHost {
     });
     this.goalsPanel = new GoalsPanel(this.hud.root, this.goals, () => this.goalContext());
     const keep = this.eventLog?.entries.slice() ?? this.savedLog;
-    this.eventLog = new EventLog(this.hud.root, (d) => `${t('Day {n}', { n: d })} · ${t(MONTHS[monthOf(d)]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(d) })}`,
+    this.eventLog = new EventLog(this.hud.root, (d) => dateLabel(d),
       () => [...this.eco.cities.values()].filter((c) => c.ai).flatMap((c) => (this.autoCity.log.get(c.id) ?? []).map((e) => ({ ...e, town: c.name, tint: c.tint ?? '#aab4be' }))));
     this.eventLog.load(keep);
     this.guide = new Guide(this.hud.root);
@@ -2150,11 +2150,18 @@ export class Game implements ToolHost {
       const arr = this.cityOf(b).arrivals ?? [];
       const month = arr.filter((a) => a.day > this.eco.day - 30).length;
       view.sections = [...(view.sections ?? []), { title: t('Newcomers'), rows: [[t('Registered in the last 30 days'), `${month} ${t('families')}`], [t('Effect'), t('+1 family a day, they come even at 40% happiness')]] }];
+      const cid = b.city;
+      const homeCity = (c: Citizen) => this.buildings.get(this.pop.families.get(c.family)?.home ?? -1)?.city;
+      const inc = [...this.pop.citizens.values()].filter((c) => c.job >= 0 && this.buildings.get(c.job)?.city === cid && homeCity(c) !== cid);
+      const out = [...this.pop.citizens.values()].filter((c) => c.job >= 0 && homeCity(c) === cid && this.buildings.get(c.job)?.city !== cid);
+      view.sections.push({ title: t('Workers from other towns ({n})', { n: inc.length }), rows: inc.slice(0, 10).map((c) => [`${c.name} ${this.pop.families.get(c.family)?.surname ?? ''} · ${t('from {city}', { city: this.eco.cities.get(homeCity(c) ?? -1)?.name ?? '—' })}`, t(BUILDINGS[this.buildings.get(c.job)!.kind].name)] as [string, string]) },
+        { title: t('Our people working in other towns ({n})', { n: out.length }), rows: out.slice(0, 10).map((c) => [`${c.name} ${this.pop.families.get(c.family)?.surname ?? ''} · ${t('in {city}', { city: this.cityOf(this.buildings.get(c.job)!).name })}`, t(BUILDINGS[this.buildings.get(c.job)!.kind].name)] as [string, string]) });
+      if (inc.length > 10 || out.length > 10) view.sections.push({ title: '', rows: [[t('All of them'), t('Town hall → Migration')]] });
       view.listTitle = t('Registered families');
-      view.people = arr.slice(0, 25).map((a) => {
+      view.people = arr.map((a) => {
         const fam = this.pop.families.get(a.family);
         const jobs = fam ? this.pop.members(fam).filter((m) => m.job >= 0).map((m) => t(BUILDINGS[this.buildings.get(m.job)?.kind ?? 'house'].name)) : [];
-        return { id: -1, icon: '🧳', name: t('{name} family', { name: a.surname }), detail: `${t('Day {n}', { n: a.day })} · ${t('from {city}', { city: a.from })} · ${jobs.length ? jobs.join(', ') : t('looking for work')}`, onClick: () => { if (fam) this.showFamily(fam); } };
+        return { id: -1, icon: '🧳', name: t('{name} family', { name: a.surname }), detail: `${dateLabel(a.day)} · ${t('from {city}', { city: a.from })} · ${jobs.length ? jobs.join(', ') : t('looking for work')}`, onClick: () => { if (fam) this.showFamily(fam); } };
       });
     }
     if (foreign) view.tags = [{ text: t('Neighbour town: {city}', { city: this.cityOf(b).name }), tone: 'info' }, ...(view.tags ?? [])];
@@ -2669,7 +2676,7 @@ export class Game implements ToolHost {
     if (b.kind === 'stadium') {
       const lz = this.life.leisure;
       rows.push([t('Next match'), lz.matchDay ? t('Today at 17:00') : t('Tomorrow')], [t('Ticket'), `$${FOOTBALL.ticket}`]);
-      for (const m of lz.matches.slice(0, 4)) rows.push([`${t('Day {n}', { n: m.day })}`, `${m.home} ${m.hs}:${m.as} ${m.away}`]);
+      for (const m of lz.matches.slice(0, 4)) rows.push([`${dateLabel(m.day)}`, `${m.home} ${m.hs}:${m.as} ${m.away}`]);
       if (!lz.matches.length) rows.push([t('Results'), t('No matches yet')]);
     }
     if (b.kind === 'airport') {
@@ -2715,7 +2722,7 @@ export class Game implements ToolHost {
         id: -1000 - i,
         icon: '🪦',
         name: `${g.name} ${g.family}`.trim(),
-        detail: `${t('{n} years', { n: g.age })} · ${t('Day {n}', { n: g.day })}`,
+        detail: `${t('{n} years', { n: g.age })} · ${dateLabel(g.day)}`,
         warn: false,
       })) as any;
     }
@@ -2962,7 +2969,7 @@ export class Game implements ToolHost {
     const money = res === 'money';
     const days = city.ledgerDays;
     const net = (l: Record<string, number>) => Object.values(l).reduce((a, v) => a + v, 0);
-    const chart = [...days].reverse().map((l, i) => ({ label: t('Day {n}', { n: this.eco.day - days.length + i }), value: net(l[res]) }));
+    const chart = [...days].reverse().map((l, i) => ({ label: dateLabel(this.eco.day - days.length + i), value: net(l[res]) }));
     chart.push({ label: t('Today'), value: net(city.ledger[res]) });
     // in short: how much there is, how much came in and went out yesterday, and how long it lasts
     const y = days[0]?.[res] ?? {};
@@ -3306,7 +3313,7 @@ export class Game implements ToolHost {
     } else {
       const d = this.dealings.get(id) ?? [];
       tabs.push({ id: 'trade', label: t('Dealings with you'), sections: [
-        { title: t('Dealings with you'), rows: d.length ? d.slice(0, 30).map((x) => [`${t('Day {n}', { n: x.day })} · ${x.text}`, x.money ? `${x.money > 0 ? '+' : '−'}${money(Math.abs(x.money))}` : '—', x.money > 0 ? 'good' : x.money < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]) : [[t('No deals yet — open Trade to sell them what they need'), '—']] },
+        { title: t('Dealings with you'), rows: d.length ? d.map((x) => [`${dateLabel(x.day)} · ${x.text}`, x.money ? `${x.money > 0 ? '+' : '−'}${money(Math.abs(x.money))}` : '—', x.money > 0 ? 'good' : x.money < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]) : [[t('No deals yet — open Trade to sell them what they need'), '—']] },
       ] });
     }
     // ---- the town hall itself: figures and its buttons ----
@@ -3346,16 +3353,32 @@ export class Game implements ToolHost {
         const pay = BUILDINGS[job.kind].salary * (this.eco.cities.get(job.city)?.wages[job.kind] ?? 1);
         return [`${c.name} ${f?.surname ?? ''} · ${other === 'home' ? t('from {city}', { city: town }) : t('in {city}', { city: town })}`, `${t(BUILDINGS[job.kind].name)} · $${pay.toFixed(1)}`, undefined, () => this.showPerson(c)] as [string, string, ('good' | 'bad' | undefined), () => void];
       };
-      tabs.push({ id: 'relations', label: t('Relations'), sections: [
-        { title: t('Come from other towns to work here ({n})', { n: incoming.length }), wide: true, rows: incoming.length ? incoming.slice(0, 40).map((c) => who(c, 'home')) : [[t('Nobody yet — they come when your town has open jobs or pays at least 25% more'), '—']],
+      // ---- migration: who comes to work, who goes out, which families moved in ----
+      const office = own.some((b) => b.kind === 'migration' && b.built >= 1 && b.workers > 0);
+      const arrivals = city.arrivals ?? [];
+      tabs.push({ id: 'migration', label: t('Migration'), sections: [
+        { title: t('Migration'), kpis: [
+          [t('Come to work here'), n(incoming.length), t('from other towns')],
+          [t('Work in other towns'), n(outgoing.length), t('our people')],
+          [t('New families'), n(arrivals.filter((a) => a.day > this.eco.day - 30).length), t('in the last 30 days')],
+          [t('Migration Company'), office ? t('Working') : t('None'), office ? t('registers everyone who comes') : t('build one to register newcomers'), office],
+        ] },
+        { title: t('Come from other towns to work here ({n})', { n: incoming.length }), wide: true, rows: incoming.length ? incoming.map((c) => who(c, 'home')) : [[t('Nobody yet — they come when your town has open jobs or pays at least 25% more'), '—']],
           note: t('They live in their own town and come by road, footpath or train; your town pays their wage.') },
-        { title: t('Our people working in other towns ({n})', { n: outgoing.length }), rows: outgoing.length ? outgoing.slice(0, 30).map((c) => who(c, 'job')) : [[t('Nobody'), '—']] },
+        { title: t('Our people working in other towns ({n})', { n: outgoing.length }), wide: true, rows: outgoing.length ? outgoing.map((c) => who(c, 'job')) : [[t('Nobody'), '—']] },
+        { title: t('Families who moved in ({n})', { n: arrivals.length }), wide: true, rows: arrivals.length ? arrivals.map((a) => {
+          const fam = this.pop.families.get(a.family);
+          const jobs = fam ? this.pop.members(fam).filter((m) => m.job >= 0).map((m) => t(BUILDINGS[this.buildings.get(m.job)?.kind ?? 'house'].name)) : [];
+          return [`${t('{name} family', { name: a.surname })} · ${t('from {city}', { city: a.from })}`, `${dateLabel(a.day)} · ${jobs.length ? jobs.join(', ') : t('looking for work')}`, undefined, () => { if (fam) this.showFamily(fam); }] as [string, string, ('good' | 'bad' | undefined), () => void];
+        }) : [[office ? t('Nobody has moved in yet') : t('Build a Migration Company to register the families who move in'), '—']] },
+      ] });
+      tabs.push({ id: 'relations', label: t('Relations'), sections: [
         { title: t('Friendship with neighbour towns'), bars: towns.map((c) => [c.name, Math.max(1, c.relation ?? 40), c.tint ?? '#aab4be', `${Math.round(c.relation ?? 40)}/100 · ${t(this.friendship(c.relation ?? 40))}`] as [string, number, string, string]),
           note: t('0–24 cold · 25–49 neutral · 50–74 friends · 75–100 close allies. Trade, gifts and help raise it; refusing a request lowers it.') },
         ...towns.map((c) => {
           const d = this.dealings.get(c.id) ?? [];
           const total = d.reduce((a, x) => a + x.money, 0);
-          return { title: `${c.name} · ${t('Dealings with you')} · ${total >= 0 ? '+' : '−'}$${n(Math.abs(total))}`, rows: d.length ? d.slice(0, 8).map((x) => [`${t('Day {n}', { n: x.day })} · ${x.text}`, x.money ? `${x.money > 0 ? '+' : '−'}$${n(Math.abs(x.money))}` : '—', x.money > 0 ? 'good' : x.money < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]) : [[t('No deals yet — open Trade to sell them what they need'), '—']] } as ReportSection;
+          return { title: `${c.name} · ${t('Dealings with you')} · ${total >= 0 ? '+' : '−'}$${n(Math.abs(total))}`, rows: d.length ? d.slice(0, 8).map((x) => [`${dateLabel(x.day)} · ${x.text}`, x.money ? `${x.money > 0 ? '+' : '−'}$${n(Math.abs(x.money))}` : '—', x.money > 0 ? 'good' : x.money < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]) : [[t('No deals yet — open Trade to sell them what they need'), '—']] } as ReportSection;
         }),
       ] });
     }
@@ -3497,6 +3520,33 @@ export class Game implements ToolHost {
       const live: Record<string, string> = { overview: 'overview', people: 'people', jobs: 'jobs', money: 'economy', utilities: 'energy', trade: 'finance', relations: 'cities', traffic: 'traffic', nature: 'nature' };
       for (const tb of tabs) if (live[tb.id] && !tb.embed) tb.embed = `stats:${live[tb.id]}`;
       if (!tabs.some((x) => x.id === 'relations')) tabs.push({ id: 'relations', label: t('Cities'), embed: 'stats:cities' });
+      // ---- education: every school, kindergarten and university, how full it is, who has no place ----
+      const schools = own.filter((b) => BUILDINGS[b.kind].students > 0 && b.built >= 1);
+      const kids = people.filter((c) => c.age >= 6 && c.age < 18), small = people.filter((c) => c.age >= 3 && c.age < 6);
+      const uniAge = people.filter((c) => c.age >= 18 && c.age < 23 && c.edu >= 0.9 && c.skill < 2);
+      const at = (b: Building) => people.filter((c) => c.school === b.id).length;
+      const seatsOf = (k: string) => schools.filter((b) => b.kind === k).reduce((a, b) => a + BUILDINGS[b.kind].students, 0);
+      const noSchool = kids.filter((c) => c.school < 0).length, noKg = small.filter((c) => c.school < 0).length;
+      tabs.push({ id: 'education', label: t('Education'), sections: [
+        { title: t('Education'), kpis: [
+          [t('Pupils'), `${kids.length - noSchool}/${kids.length}`, noSchool ? t('{n} without a school place', { n: noSchool }) : t('every child has a place'), !noSchool],
+          [t('Kindergarten'), `${small.length - noKg}/${small.length}`, noKg ? t('{n} without a place', { n: noKg }) : t('every child has a place'), !noKg],
+          [t('Students'), n(people.filter((c) => c.school >= 0 && this.buildings.get(c.school)?.kind === 'university').length), t('{n} could study', { n: uniAge.length })],
+          [t('School places'), n(seatsOf('school')), t('{n} kindergarten places', { n: seatsOf('kindergarten') })],
+        ] },
+        { title: t('Schools and their pupils'), wide: true, rows: schools.length ? schools.map((b) => {
+          const s = at(b), cap = BUILDINGS[b.kind].students;
+          return [`${t(BUILDINGS[b.kind].name)} #${b.id}`, `${s}/${cap} ${t('pupils')} · ${t('staff')} ${b.workers}/${BUILDINGS[b.kind].jobs}${s >= cap ? ` · ${t('full')}` : ''}`, s >= cap ? 'bad' : b.workers ? 'good' : 'bad', () => { this.cityReport?.hide(); this.cam.flyTo(b.mesh.position.x, b.mesh.position.z, 6); this.select({ type: 'building', id: b.id }); }] as [string, string, ('good' | 'bad' | undefined), () => void];
+        }) : [[t('No schools yet — build a school and a kindergarten'), '—', 'bad']] },
+        { title: t('Education of adults'), bars: [[t('No trade'), skill[0], '#aab4be', `${skill[0]}`], [t('Learnt a trade'), skill[1], '#6fb6ff', `${skill[1]}`], [t('University degree'), skill[2], '#7be08f', `${skill[2]}`]],
+          note: t('Children go to the nearest school with a free place; school leavers with good marks study 4 years at a university and earn more. Academies make learning 30% faster.') },
+        { title: t('What is missing'), rows: [
+          ...(noSchool ? [[t('School places'), t('{n} more needed', { n: noSchool }), 'bad'] as [string, string, 'bad']] : []),
+          ...(noKg ? [[t('Kindergarten places'), t('{n} more needed', { n: noKg }), 'bad'] as [string, string, 'bad']] : []),
+          ...(!schools.some((b) => b.kind === 'university') && uniAge.length ? [[t('University'), t('{n} young people could study', { n: uniAge.length }), 'bad'] as [string, string, 'bad']] : []),
+          ...(!noSchool && !noKg ? [[t('Every child has a place'), '✓', 'good'] as [string, string, 'good']] : []),
+        ] },
+      ] });
       // ---- gifts: send money or goods to another town (friendship grows) ----
       const others = [...this.eco.cities.values()].filter((c) => c.id !== id);
       if (others.length) {
@@ -3514,12 +3564,12 @@ export class Game implements ToolHost {
             note: t('With a road between the towns a truck carries the goods; without one they arrive at once.') },
         ] });
       }
-      const order = ['hall', 'overview', 'taxes', 'money', 'people', 'jobs', 'professions', 'buildings', 'utilities', 'production', 'goods', 'trade', 'market', 'prices', 'relations', 'gifts', 'cities', 'traffic', 'nature'];
+      const order = ['hall', 'overview', 'taxes', 'money', 'people', 'education', 'jobs', 'migration', 'professions', 'buildings', 'utilities', 'production', 'goods', 'trade', 'market', 'prices', 'relations', 'gifts', 'cities', 'traffic', 'nature'];
       tabs.sort((a, b) => (order.indexOf(a.id) + 1 || 99) - (order.indexOf(b.id) + 1 || 99));
       const money0 = tabs.find((x) => x.id === 'money');
       if (money0) money0.label = t('Budget');
     }
-    return { title: `${city.name}${city.ai ? ` · ${t('Neighbour town')}` : ''}`, subtitle: `${t('Day {n}', { n: this.eco.day })} · ${t('{n} people', { n: pop })} · ${t('{n} families', { n: fams.length })}`, tabs };
+    return { title: `${city.name}${city.ai ? ` · ${t('Neighbour town')}` : ''}`, subtitle: `${dateLabel(this.eco.day)} · ${t('{n} people', { n: pop })} · ${t('{n} families', { n: fams.length })}`, tabs };
   }
 
   /** Fly to the player's own town hall and open it. */
@@ -4015,7 +4065,7 @@ export class Game implements ToolHost {
       badge: '🏛️',
       badgeColor: KIND_BADGE.townhall[1],
       title: city.name,
-      subtitle: `${t('Town Hall')} · ${t('Founded')} ${t('Day {n}', { n: city.founded })}`,
+      subtitle: `${t('Town Hall')} · ${t('Founded')}: ${dateLabel(city.founded)}`,
       tags,
       bars: [
         { label: t('Happiness'), value: city.happiness / 100, color: barColor(city.happiness / 100) },
@@ -4025,8 +4075,8 @@ export class Game implements ToolHost {
         { label: t('Water supplied'), value: city.water, color: '#4fa3d1' },
       ],
       rows: [
-        ...(city.promise ? [[t('Promise'), `${t(PROMISE_TEXT[city.promise.kind])} · ${t('Day {n}', { n: city.promise.until })}`] as [string, string]] : []),
-        ...(city.campaign ? [[t('Election'), t('Day {n}', { n: city.campaign.day })] as [string, string]] : []),
+        ...(city.promise ? [[t('Promise'), `${t(PROMISE_TEXT[city.promise.kind])} · ${dateLabel(city.promise.until)}`] as [string, string]] : []),
+        ...(city.campaign ? [[t('Election'), dateLabel(city.campaign.day)] as [string, string]] : []),
         [t('Air pollution'), city.pollution < 0.5 ? t('Clean') : city.pollution < 1.5 ? t('Some smog') : t('Smog'), city.pollution < 0.5 ? 'good' : city.pollution < 1.5 ? undefined : 'bad'],
         [t('Tourists'), `${city.tourists}`],
         [t('Mayor'), mayor ? `${mayor.name} ${this.pop.families.get(mayor.family)?.surname ?? ''}` : t('No mayor yet')],

@@ -979,6 +979,9 @@ export class Life {
     if (f.money < total + 100) {
       if (this.purse(f, cityId) < total + 100) return false;
       const lent = Math.ceil(total + 200 - f.money);
+      // the bank lends the town's money (it comes back with interest)
+      if (city.money < lent + 500) return false;
+      eco.add(city, 'money', -lent, 'Bank loans to families');
       f.loan = lent;
       f.money += lent;
       for (const m of this.c.pop.members(f)) if (m.age >= 18) this.c.pop.note(m, 'Took a bank loan of ${n} to build', { n: lent });
@@ -1064,7 +1067,7 @@ export class Life {
   private banking(city: City, say: (msg: string) => void) {
     const { pop, buildings } = this.c;
     const banks = buildings.list.filter((b) => b.kind === 'bank' && b.city === city.id && b.built >= 1 && b.workers > 0);
-    const st = { deposits: 0, loans: 0, paid: 0, earned: 0, borrowers: 0, savers: 0 };
+    const st: { deposits: number; loans: number; paid: number; earned: number; borrowers: number; savers: number; lent?: number } = { deposits: 0, loans: 0, paid: 0, earned: 0, borrowers: 0, savers: 0 };
     for (const f of pop.families.values()) {
       if (buildings.get(f.home)?.city !== city.id) continue;
       if (f.loan && f.loan > 0) {
@@ -1072,12 +1075,23 @@ export class Life {
         const pay = Math.min(f.loan, Math.max(10, f.loan * 0.06));
         f.money -= interest + pay;
         f.loan -= pay;
+        // the money was the town's: it comes back with the interest
+        this.c.eco.add(city, 'money', interest + pay, 'Loan repayments from families');
         st.earned += interest;
         st.borrowers++;
         if (f.loan <= 0.5) {
           f.loan = undefined;
           for (const m of pop.members(f)) if (m.age >= 18) pop.note(m, 'Paid off the bank loan');
         } else st.loans += f.loan;
+      }
+      // a working family short of money may take a small credit (a car, furniture, a better start) — from the town's money
+      if (banks.length && !f.loan && f.money < 400 && city.money > 3000 && Math.random() < 0.03 && pop.members(f).some((m) => m.job >= 0 && m.age >= 18)) {
+        const lent = 500 + Math.round(Math.random() * 10) * 100;
+        f.loan = lent;
+        f.money += lent;
+        this.c.eco.add(city, 'money', -lent, 'Bank loans to families');
+        st.lent = (st.lent ?? 0) + lent;
+        for (const m of pop.members(f)) if (m.age >= 18) pop.note(m, 'Took a bank credit of ${n}', { n: lent });
       }
       if (banks.length && f.money > 300) {
         const dep = (f.money - 300) * BANKING.saveShare;
@@ -1091,7 +1105,8 @@ export class Life {
     this.bankStats.set(city.id, st);
     if (!banks.length) return;
     // the bank also invests the deposits; what is left after the interest it pays is profit, taxed now
-    const profit = st.earned + st.deposits * 0.001 - st.paid;
+    // the interest on loans already went to the town; the bank earns on the deposits it invests
+    const profit = st.deposits * 0.002 - st.paid;
     if (profit > 0) {
       this.cash(city.id, profit * city.taxRate * 0.8, 'businessTax');
       for (const b of banks) {

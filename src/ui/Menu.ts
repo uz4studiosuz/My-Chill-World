@@ -1,3 +1,4 @@
+import { dateLabel } from '../sim/Calendar';
 import { SaveStore, WorldMeta } from '../save/SaveStore';
 import { el, icon, IconName } from './dom';
 import { Lang, getLang, setLang, t } from '../i18n/i18n';
@@ -83,7 +84,7 @@ export class Menu {
     const worlds = SaveStore.list();
     const w = worlds[0];
     this.renderHome([
-      w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${t('Day {n}', { n: w.day })} · ${t('{n} people', { n: w.population })}`, true, 'play') : null,
+      w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${dateLabel(w.day)} · ${t('{n} people', { n: w.population })}`, true, 'play') : null,
       homeItem('New World', () => this.showNew(), t('A fresh valley, a small village'), !w, 'plus'),
       worlds.length ? homeItem('Load World', () => this.showLoad(), t('{n} saved worlds', { n: worlds.length }), false, 'folder') : null,
       worlds.length ? homeItem('Records', () => this.showRecords(), undefined, false, 'trophy') : null,
@@ -205,7 +206,7 @@ export class Menu {
       const name = el('b', '');
       name.textContent = `${w.name}${w.calm ? ` · ${t('Calm mode')}` : ''}`;
       const meta = el('small', '');
-      meta.textContent = `${t('Score')} ${(w.score ?? 0).toLocaleString('en-US')} · ${t('{n} people', { n: w.population })} · ${t('Day {n}', { n: w.day })}`;
+      meta.textContent = `${t('Score')} ${(w.score ?? 0).toLocaleString('en-US')} · ${t('{n} people', { n: w.population })} · ${dateLabel(w.day)}`;
       info.append(name, meta);
       row.append(rank, info);
       list.appendChild(row);
@@ -234,7 +235,7 @@ export class Menu {
     const name = el('b', '');
     name.textContent = w.name;
     const meta = el('small', '');
-    meta.textContent = `${t('Day {n}', { n: w.day })} · ${t('{n} people', { n: w.population })} · $${Math.floor(w.money).toLocaleString('en-US')} · ${new Date(w.updated).toLocaleDateString()}`;
+    meta.textContent = `${dateLabel(w.day)} · ${t('{n} people', { n: w.population })} · $${Math.floor(w.money).toLocaleString('en-US')} · ${new Date(w.updated).toLocaleDateString()}`;
     info.append(name, meta);
     const play = button('Play', () => this.h.loadWorld(w.id), 'primary small', undefined, 'play');
     const thumb = el('div', 'world-thumb');
