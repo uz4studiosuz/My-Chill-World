@@ -2629,4 +2629,7 @@ export const UZ: Record<string, string> = {
   "profit": "foyda",
   "No business has taken any money yet": "Hali hech bir biznes pul ishlamadi",
   "Takings of all businesses yesterday: ${a}; business tax for the town: ${b}.": "Kecha barcha bizneslar tushumi: ${a}; shaharga biznes solig'i: ${b}.",
+  "Walking to a road site": "Yo'l qurilishiga ketmoqda",
+  "Laying a road": "Yo'l qurmoqda",
+  "Roads are laid by builders: build a Construction Company": "Yo'llarni ustalar quradi: Qurilish kompaniyasini quring",
 };

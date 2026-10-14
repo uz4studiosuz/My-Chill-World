@@ -348,6 +348,8 @@ export class Game implements ToolHost {
       return ok;
     };
     this.life.streetRoom = (id, k, x, z) => !this.eco.cities.get(id)?.ai || !this.autoCity || this.autoCity.leavesRoom(id, k, x, z);
+    // the builders find the road being laid in their town
+    this.life.roadSite = (cityId) => { const job = this.roadJobs.find((j) => j.city === cityId); return job ? this.roadSiteOf(job) : null; };
     this.life.onForeign = (id, msg) => { const c = this.eco.cities.get(id); if (c) this.autoCity?.note(c, msg); };
     this.buildings.tintOf = (id) => this.eco.cities.get(id)?.tint;
     // the town hall keeps some goods; every warehouse keeps much more
@@ -994,6 +996,8 @@ export class Game implements ToolHost {
     this.lights.setLit(path.filter((tl) => this.net.type[idx(tl.x, tl.z)]).map((tl) => idx(tl.x, tl.z)), kind === 'litroad');
     this.terrain.clearTiles(path.map((tl) => idx(tl.x, tl.z)));
     this.roadJobs.push({ tiles: path.map((tl) => ({ x: tl.x, z: tl.z })), done: 0, lit: kind === 'litroad', city: this.eco.active, prog: 0, money: r.money ?? 0, stone: r.stone ?? 0 });
+    if (path.some((tl) => !this.net.type[idx(tl.x, tl.z)]) && !this.buildings.list.some((b) => b.kind === 'construction' && b.city === this.eco.active && b.built >= 1))
+      this.hud?.toast(t('Roads are laid by builders: build a Construction Company'));
     this.drawRoadSites();
     this.networkChanged(false);
   }
@@ -1011,12 +1015,12 @@ export class Game implements ToolHost {
     const crews = new Map<number, number>();
     let changed = false;
     for (const job of this.roadJobs.slice(0, 3)) {
-      let crew = crews.get(job.city);
-      if (crew === undefined) {
-        crew = this.buildings.list.reduce((a, b) => a + (b.kind === 'construction' && b.city === job.city && b.built >= 1 ? b.workers : 0), 0);
-        crews.set(job.city, crew);
-      }
-      job.prog += dt * (0.12 + 0.06 * Math.min(crew, 12));
+      // only the first road of a town is worked on, and only by the builders who came to it
+      if (crews.has(job.city)) continue;
+      const site = this.roadSiteOf(job);
+      const crew = site ? this.life.roadCrew(site.key) : 0;
+      crews.set(job.city, crew);
+      job.prog += dt * 0.3 * Math.min(crew, 8);
       while (job.done < job.tiles.length) {
         const tl = job.tiles[job.done];
         const k = idx(tl.x, tl.z);
@@ -1036,7 +1040,19 @@ export class Game implements ToolHost {
     this.drawRoadSites();
   }
 
-  /** Gravel where a road is still to be laid, cones and two workers where the builders are at work. */
+  /** Where the builders of a road work now: the next tile to lay (or the last laid one, when it goes out over water). */
+  private roadSiteOf(job: { tiles: Tile[]; done: number }) {
+    for (let i = job.done; i < job.tiles.length; i++) {
+      const tl = job.tiles[i];
+      const k = idx(tl.x, tl.z);
+      if (this.net.type[k]) continue;
+      const stand = this.map.water[k] && i > 0 ? job.tiles[i - 1] : tl;
+      return { key: k, x: tileToWorld(stand.x), z: tileToWorld(stand.z) };
+    }
+    return null;
+  }
+
+  /** Gravel where a road is still to be laid, cones and a roller where the builders are at work. */
   private drawRoadSites() {
     if (!this.roadSites.parent) this.scene.add(this.roadSites);
     for (const ch of [...this.roadSites.children]) this.roadSites.remove(ch);
@@ -1073,11 +1089,6 @@ export class Game implements ToolHost {
     const gravel = box(0.92, 0.03, 0.92, 0, 0.015, 0, '#b49a6c');
     const parts: THREE.BufferGeometry[] = [
       ...[[-0.38, -0.38], [0.38, -0.38], [-0.38, 0.38], [0.38, 0.38]].map(([x, z]) => shape('cone', 0.07, 0.13, 0.07, x, 0.065, z, '#f07a1e', 'y', 8)),
-      // two road workers in orange vests with yellow helmets
-      ...[[-0.12, 0.05], [0.14, -0.08]].flatMap(([x, z]) => [
-        box(0.06, 0.1, 0.05, x, 0.05, z, '#3b4a63'), box(0.08, 0.1, 0.06, x, 0.15, z, '#f07a1e'),
-        box(0.055, 0.055, 0.055, x, 0.23, z, '#f1c9a5'), box(0.07, 0.025, 0.07, x, 0.27, z, '#f2c230'),
-      ]),
       // a small road roller
       box(0.22, 0.1, 0.12, 0.05, 0.11, 0.25, '#f2c230'), shape('cylinder', 0.14, 0.12, 0.14, -0.1, 0.07, 0.25, '#4a4f57', 'z', 12),
     ];

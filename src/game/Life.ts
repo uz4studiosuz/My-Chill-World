@@ -3275,13 +3275,49 @@ export class Life {
   }
 
   /** Builders waiting at the yard pick up the next site. */
+  /** The tile where a road is being laid in a town (set by the game), and the builders at work on it. */
+  roadSite?: (cityId: number) => { key: number; x: number; z: number } | null;
+  private roadCrews = new Map<number, Set<number>>();
+  /** Builders working on the road tile `key` right now (the road goes faster with each of them). */
+  roadCrew(key: number) { return this.roadCrews.get(key)?.size ?? 0; }
+
   private dispatchBuilders() {
     const { pop, buildings } = this.c;
     for (const c of pop.citizens.values()) {
       if (c.job < 0 || c.state !== 'away' || c.at !== c.job || this.busyBuilders.has(c.id) || c.walker) continue;
       const yard = buildings.get(c.job);
-      if (yard?.kind === 'construction' && buildings.list.some((b) => b.built < 1 && b.city === yard.city)) this.builderLoop(c, yard);
+      if (yard?.kind === 'construction' && (buildings.list.some((b) => b.built < 1 && b.city === yard.city) || this.roadSite?.(yard.city))) this.builderLoop(c, yard);
     }
+  }
+
+  /** A builder walks to the road being laid and works there until the tile is done, then on to the next one. */
+  private roadLoop(c: Citizen, yard: Building, road: { key: number; x: number; z: number }) {
+    const { buildings, walkers, eco, effects } = this.c;
+    const atWork = () => this.alive(c) && c.state === 'away' && c.at === yard.id && !yard.removed && eco.timeOfDay < c.returnAt;
+    const leave = () => { this.roadCrews.get(road.key)?.delete(c.id); };
+    this.busyBuilders.add(c.id);
+    const ang = Math.random() * Math.PI * 2;
+    const stand = { x: road.x + Math.cos(ang) * 0.3, z: road.z + Math.sin(ang) * 0.3 };
+    const outside = c.walker && !c.walker.leaving;
+    const from = outside ? { x: c.walker!.x, z: c.walker!.z } : buildings.door(yard);
+    const fromTile = outside ? tileAt(from) : buildings.frontTile(yard);
+    c.activity = 'Walking to a road site';
+    this.walk(c, from, fromTile, null, () => {
+      if (!c.walker || !atWork()) { leave(); this.busyBuilders.delete(c.id); return; }
+      // the builder has arrived: from now on the road goes faster
+      if (!this.roadCrews.has(road.key)) this.roadCrews.set(road.key, new Set());
+      this.roadCrews.get(road.key)!.add(c.id);
+      const work = () => {
+        const ww = c.walker;
+        if (!ww || !atWork()) { leave(); this.busyBuilders.delete(c.id); return; }
+        const cur = this.roadSite?.(yard.city);
+        if (!cur || cur.key !== road.key) { leave(); this.builderLoop(c, yard); return; }
+        c.activity = 'Laying a road';
+        if (Math.random() < 0.35) effects.puff(stand.x, stand.z, 0.12, 3, ['#d8c9a6', '#7d7a73']);
+        walkers.holdFor(ww, 1.6, 'chop', work, { x: road.x, z: road.z });
+      };
+      work();
+    }, 'none', stand);
   }
 
   /** A builder walks from the yard to the least-crewed unfinished building of the city and works there. */
@@ -3291,6 +3327,9 @@ export class Life {
     const leave = (site?: Building) => { if (site) this.crews.get(site.id)?.delete(c.id); };
     if (!atWork()) { this.busyBuilders.delete(c.id); return; }
     const sites = buildings.list.filter((b) => b.built < 1 && b.city === yard.city && !b.removed);
+    // a road being laid takes builders too: whichever needs hands more
+    const road = this.roadSite?.(yard.city) ?? null;
+    if (road && (!sites.length || this.roadCrew(road.key) <= Math.min(...sites.map((s) => this.crewSize(s))))) return this.roadLoop(c, yard, road);
     if (!sites.length) {
       this.busyBuilders.delete(c.id);
       c.activity = 'Waiting for a new order';
