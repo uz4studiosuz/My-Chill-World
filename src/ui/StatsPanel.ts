@@ -16,6 +16,8 @@ export interface StatsSnapshot {
   /** Extra pages and blocks (production, energy, finance…). */
   pages: Partial<Record<Tab, StatSection[]>>;
   labour: { kind: string; name: string; workers: number; jobs: number; prio: 'high' | 'normal' | 'low'; wage: number; factor: number; publicJob: boolean }[];
+  /** Prices in town compared to usual, from the average wage. */
+  priceLevel?: number;
   wageAuto: boolean;
   unemployed: number;
   cityName: string;
@@ -248,6 +250,11 @@ export class StatsPanel {
         const avgRow = el('div', 'info-row');
         avgRow.innerHTML = `<span>${t('Average wage')}</span><span>$${avg.toFixed(1)}/${t('day')}</span>`;
         wbox.appendChild(avgRow);
+        if (s.priceLevel !== undefined) {
+          const pr = el('div', 'info-row');
+          pr.innerHTML = `<span>${t('Prices in town (they follow the average wage)')}</span><span class="${s.priceLevel > 1.05 ? 'neg' : s.priceLevel < 0.95 ? 'pos' : ''}">×${s.priceLevel.toFixed(2)}</span>`;
+          wbox.appendChild(pr);
+        }
         for (const j of [...s.labour].sort((a, b) => b.wage - a.wage)) {
           const row = el('div', 'job-row');
           const name = el('span', 'job-name');
@@ -257,12 +264,23 @@ export class StatsPanel {
           pay.textContent = `$${j.wage}${Math.abs(diff) >= 0.1 ? ` (${diff > 0 ? '+' : '−'}$${Math.abs(diff)})` : ''}`;
           pay.title = j.publicJob ? t('Paid by the town hall') : t('Paid by the business');
           const seg = el('div', 'seg');
-          for (const [step, label] of [[-5, '−$5'], [-1, '−$1'], [1, '+$1'], [5, '+$5']] as const) {
+          for (const [step, label] of [[-10, '−10'], [-1, '−1'], [1, '+1'], [10, '+10']] as const) {
             const b = el('button', 'segbtn');
             b.textContent = label;
             b.addEventListener('click', () => this.setWage(j.kind, step));
             seg.appendChild(b);
           }
+          // or type the pay you want
+          const input = el('input', 'wage-input') as HTMLInputElement;
+          input.type = 'number';
+          input.min = '1';
+          input.step = '1';
+          input.value = String(Math.round(j.wage));
+          input.title = t('Type the pay per day and press Enter');
+          const apply = () => { const v = Math.max(1, Math.round(Number(input.value))); if (isFinite(v) && v !== Math.round(j.wage)) this.setWage(j.kind, v - j.wage); };
+          input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') apply(); });
+          input.addEventListener('change', apply);
+          seg.appendChild(input);
           row.append(name, pay, seg);
           wbox.appendChild(row);
         }

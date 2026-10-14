@@ -30,6 +30,8 @@ export interface City {
   furniture: number;
   /** Price of food compared to normal (scarce food is dearer). */
   priceFactor: number;
+  /** Average pay in the town compared to the usual pay (1 = usual): prices follow it. */
+  wageIndex?: number;
   /** Share of homes supplied with water through mains and pipes. */
   piped: number;
   /** Energy stored in batteries. */

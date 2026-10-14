@@ -1519,3 +1519,21 @@ button.chip:hover { background: var(--raised); }
 .srows .info-row > span:nth-child(2), .city-report .info-row > span:nth-child(2) { font-weight: 700; text-align: right; max-width: 60%; }
 .stats .srows-title { font-family: var(--font-display); font-size: 14px; font-weight: 800; opacity: 1; margin-bottom: 6px; }
 .stats .srows { padding: 10px 14px; }
+
+/* typed wage */
+.seg .wage-input { width: 54px; border: 0; border-left: 1px solid var(--line); background: rgba(255,255,255,.06); color: inherit; font: inherit; font-weight: 700; text-align: center; padding: 0 4px; -moz-appearance: textfield; }
+.seg .wage-input::-webkit-outer-spin-button, .seg .wage-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* all buildings list */
+.blist-chips { display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 8px; scrollbar-width: none; }
+.blist-chips::-webkit-scrollbar { display: none; }
+.blist-chip { flex: none; border: 1px solid var(--line); background: var(--raised); color: var(--muted); border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.blist-chip.active { background: var(--accent); color: #1b1d22; border-color: transparent; }
+.blist-row { display: grid; grid-template-columns: 30px 1fr auto 18px; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 7px 10px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; margin-bottom: 5px; }
+.blist-row:hover { border-color: var(--accent); }
+.blist-badge { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 16px; }
+.blist-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blist-info { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.blist-info.bad { color: #ff8a7e; }
+.blist-go { color: var(--muted); width: 18px; height: 18px; }
+.blist-go svg { width: 18px; height: 18px; }

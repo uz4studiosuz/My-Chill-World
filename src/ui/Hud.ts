@@ -174,6 +174,8 @@ export interface HudHandlers {
   openPhoto: () => void;
   openTrade: () => void;
   openWorld: () => void;
+  /** The list of every building in your town. */
+  openBuildings: () => void;
   /** Fly to your own town. */
   goHome: () => void;
   setLayer: (l: 'power' | 'water' | 'happy') => void;
@@ -249,7 +251,7 @@ export class Hud {
     const panels: [IconName, string, () => void, boolean][] = [
       // always visible: statistics and letters; everything else lives in the "more" menu
       // statistics live in the town hall window now; the newspaper waits behind its own button with a counter
-      ['news', 'Newspaper', h.openNews, false], ['mail', 'Letters', h.openPetitions, false], ['stats', 'Statistics', h.openStats, true],
+      ['news', 'Newspaper', h.openNews, false], ['mail', 'Letters', h.openPetitions, false], ['office', 'All buildings', h.openBuildings, false], ['stats', 'Statistics', h.openStats, true],
       ['globe', 'Trade', h.openTrade, true], ['buildings', 'World: all towns', h.openWorld, true], ['trophy', 'Goals', h.openGoals, true],
       ['list', 'Chronicle', h.openLog, true], ['car', 'Drive a car', h.openDrive, true], ['camera', 'Photo mode', h.openPhoto, true], ['book', 'Guide', h.openGuide, true],
     ];

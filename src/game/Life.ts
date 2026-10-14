@@ -1782,10 +1782,33 @@ export class Life {
     if (!ok) finish(load);
   }
 
-  /** Food is dearer when it is scarce and cheaper when the stores are full. */
+  /**
+   * The average pay in a town compared to the usual pay of the same jobs (1 = usual). Where people earn more,
+   * everything costs more: shops, food, tickets and the goods the town trades.
+   */
+  updateWageIndex(city: City) {
+    const { buildings, pop } = this.c;
+    let paid = 0, usual = 0;
+    for (const b of buildings.list) {
+      if (b.city !== city.id || b.built < 1 || b.workers <= 0) continue;
+      const base = BUILDINGS[b.kind].salary * b.workers;
+      usual += base;
+      paid += base * pop.wageFactor(b);
+    }
+    city.wageIndex = usual > 0 ? Math.round((paid / usual) * 100) / 100 : 1;
+  }
+
+  /** How dear prices are in a town because of its wages (×1 at the usual pay). */
+  priceLevel(cityId: number) {
+    const w = Math.max(0.3, this.c.eco.cities.get(cityId)?.wageIndex ?? 1);
+    return 0.4 + 0.6 * w;
+  }
+
+  /** Food is dearer when it is scarce and cheaper when the stores are full, and dearer where the pay is higher. */
   private prices(city: City, say: (msg: string) => void) {
+    this.updateWageIndex(city);
     const days = city.food / Math.max(1, this.mouths.get(city.id) ?? 1);
-    const want = days < 1 ? 1.8 : days < 2 ? 1.4 : days < 4 ? 1.1 : days > 10 ? 0.85 : 1;
+    const want = (days < 1 ? 1.8 : days < 2 ? 1.4 : days < 4 ? 1.1 : days > 10 ? 0.85 : 1) * this.priceLevel(city.id);
     const before = city.priceFactor;
     city.priceFactor += (want - before) * 0.5;
     if (before < 1.3 && city.priceFactor >= 1.3) say(t('Food got more expensive: the stores are almost empty'));
@@ -2610,7 +2633,7 @@ export class Life {
     const f = this.family(c);
     if (!range || !f || b.workers <= 0 || f.money < 20) return;
     const food = b.kind === 'grocery' || b.kind === 'market' || b.kind === 'bakery' || b.kind === 'supermarket';
-    const price = food ? this.c.eco.cities.get(b.city)?.priceFactor ?? 1 : 1;
+    const price = food ? this.c.eco.cities.get(b.city)?.priceFactor ?? 1 : this.priceLevel(b.city);
     let spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1) * price);
     const town = this.c.eco.cities.get(b.city);
     // clothes from the factory sell best; raw cotton a little; furniture sells in the markets

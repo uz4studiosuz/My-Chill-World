@@ -31,6 +31,8 @@ export interface LeisureHost {
   sell(c: Citizen, b: Building, amount: number): void;
   /** Count something the business sold today. */
   tally(b: Building, item: string, n?: number): void;
+  /** How dear prices are in a town because of its wages (×1 at the usual pay). */
+  priceLevel(cityId: number): number;
 }
 
 /** About half of the adults are believers (fixed per person). */
@@ -293,7 +295,7 @@ export class Leisure {
   stay(c: Citizen, b: Building, until: number) {
     const { walkers, pop, eco } = this.c;
     const f = pop.families.get(c.family);
-    const price = b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0;
+    const price = Math.round((b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0) * this.host.priceLevel(b.city));
     if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; this.host.tally(b, 'Tickets'); }
     if (b.kind === 'casino' && f) this.host.tally(b, 'Players');
     const visit = VISIT_PRICE[b.kind];
@@ -305,7 +307,7 @@ export class Leisure {
       if (net < 0) { this.host.sell(c, b, -net); pop.note(c, 'Lost ${n} at the casino', { n: -net }); }
       else if (net > 0) { f.money += net; b.sales = Math.max(0, (b.sales ?? 0) - net); pop.note(c, 'Won ${n} at the casino', { n: net }); }
     } else if (visit && f && f.money > visit[0]) {
-      const stake = Math.round(visit[0] + Math.random() * (visit[1] - visit[0]));
+      const stake = Math.round((visit[0] + Math.random() * (visit[1] - visit[0])) * this.host.priceLevel(b.city));
       this.host.sell(c, b, stake);
       // at the casino some win back more than their stake; most lose it
       if (b.kind === 'gym') { c.health = Math.min(100, c.health + 6); c.fit = eco.day + 6; }

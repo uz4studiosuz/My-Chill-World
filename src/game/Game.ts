@@ -23,6 +23,7 @@ import { GoalContext, Goals } from '../sim/Goals';
 import { GoalsPanel } from '../ui/GoalsPanel';
 import { Tutorial, TutorialContext } from '../ui/Tutorial';
 import { EventLog, LogEntry } from '../ui/EventLog';
+import { BuildingList } from '../ui/BuildingList';
 import { Guide } from '../ui/Guide';
 import { StreetLights } from '../roads/StreetLights';
 import { Railway, Station } from '../rail/Railway';
@@ -161,6 +162,7 @@ export class Game implements ToolHost {
   private goals = new Goals();
   private goalsPanel?: GoalsPanel;
   private eventLog?: EventLog;
+  private buildingList?: BuildingList;
   private petitions?: PetitionsPanel;
   private lifeBook?: LifeBook;
   private decision?: DecisionPanel;
@@ -464,6 +466,7 @@ export class Game implements ToolHost {
       openPhoto: () => this.togglePhoto(),
       setLayer: (l) => { this.mapLayer = this.mapLayer === l ? 'none' : l; this.overlayT = 0; this.hud?.setLayer(this.mapLayer); if (this.mapLayer !== 'none') this.hud?.toast(t(LAYER_NOTE[this.mapLayer])); },
       goHome: () => this.goHome(),
+      openBuildings: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.buildingList?.toggle(); },
       openWorld: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
       openTrade: () => { this.resPanel?.hide(); this.stats?.hide(); this.trade.newDay(this.eco.day); this.tradePanel?.toggle(); },
       openDrive: () => (this.drive.active ? this.drive.stop() : this.startDrive()),
@@ -488,12 +491,13 @@ export class Game implements ToolHost {
       if (kind === '*') city.wageAuto = !city.wageAuto;
       else {
         city.wageAuto = false;
-        // a step is dollars a day: from 30% of the usual pay up to five times it
+        // a step is dollars a day: as much as you like, but at least $1
         const base = BUILDINGS[kind as BuildingKind]?.salary ?? 10;
-        const pay = Math.max(base * 0.3, Math.min(base * 5, base * (city.wages[kind] ?? 1) + step));
+        const pay = Math.max(1, base * (city.wages[kind] ?? 1) + step);
         const w = Math.round((pay / base) * 1000) / 1000;
         if (Math.abs(w - 1) < 0.005) delete city.wages[kind]; else city.wages[kind] = w;
       }
+      this.life.updateWageIndex(city);
       this.stats?.render();
     });
     this.goalsPanel = new GoalsPanel(this.hud.root, this.goals, () => this.goalContext());
@@ -501,6 +505,13 @@ export class Game implements ToolHost {
     this.eventLog = new EventLog(this.hud.root, (d) => dateLabel(d),
       () => [...this.eco.cities.values()].filter((c) => c.ai).flatMap((c) => (this.autoCity.log.get(c.id) ?? []).map((e) => ({ ...e, town: c.name, tint: c.tint ?? '#aab4be' }))));
     this.eventLog.load(keep);
+    // every building of the town in one list: a tap flies the camera there and opens it
+    this.buildingList = new BuildingList(this.hud.root, () => this.buildingListItems(), (id) => {
+      const b = this.buildings.get(id);
+      if (!b) return;
+      this.cam.flyTo(b.mesh.position.x, b.mesh.position.z, 6);
+      this.select({ type: 'building', id: b.id });
+    });
     this.guide = new Guide(this.hud.root);
     this.hud.countOf = (tool) => this.buildings.list.filter((b) => b.kind === tool && b.city === this.eco.city.id && !b.removed).length;
     this.tradePanel = new TradePanel(this.hud.root, this.trade, {
@@ -2957,6 +2968,7 @@ export class Game implements ToolHost {
       cityList: [...this.eco.cities.values()].map((c) => ({ name: c.name, pop: pops.get(c.id) ?? 0, money: c.money, happiness: c.happiness, net: c.balance.net, active: c.id === city.id })),
       services: svc.map(([label, kinds]) => [label, own.filter((b) => kinds.includes(b.kind)).length] as [string, number]),
       businesses: { total: own.filter((b) => BUSINESS_KINDS.includes(b.kind)).length, owned: own.filter((b) => b.owner >= 0).length },
+      priceLevel: this.life.priceLevel(city.id),
       labour: [...new Set(own.filter((b) => BUILDINGS[b.kind].jobs && b.built >= 1).map((b) => b.kind))].map((k) => {
         const list = own.filter((b) => b.kind === k && b.built >= 1);
         return {
@@ -3174,7 +3186,7 @@ export class Game implements ToolHost {
           key, icon: 'food', title: t('Food'), value: n(city.food), sub: t('Yesterday: made {a}, eaten {b}', { a: fy.made, b: fy.eaten }),
           sections: [
             ...this.ledgerSections(city, 'food'),
-            { title: t('Prices'), rows: [[t('Food price'), `×${city.priceFactor.toFixed(2)}`, city.priceFactor > 1.1 ? 'bad' : city.priceFactor < 0.95 ? 'good' : undefined]], note: t('Food is dearer when the stores run low and cheaper when they are full.') },
+            { title: t('Prices'), rows: [[t('Food price'), `×${city.priceFactor.toFixed(2)}`, city.priceFactor > 1.1 ? 'bad' : city.priceFactor < 0.95 ? 'good' : undefined], [t('Price level (from the average wage)'), `×${this.life.priceLevel(city.id).toFixed(2)}`]], note: t('Food is dearer when the stores run low and cheaper when they are full. Where the pay is higher, everything costs more.') },
             { title: t('Dairy chain'), rows: [[t('Milk in stock'), n(city.milk)], [t('Dairy'), own.some((b) => b.kind === 'dairy' && b.workers > 0) ? t('Working') : t('None — milk is drunk fresh'), own.some((b) => b.kind === 'dairy' && b.workers > 0) ? 'good' : 'bad']] },
             { title: t('Bread chain'), rows: [[t('Grain in stock'), n(city.grain)], [t('Flour in stock'), n(city.flour)],
               [t('Flour Mill'), own.some((b) => b.kind === 'mill' && b.workers > 0) ? t('Working') : t('None — grain is only cooked (70%)'), own.some((b) => b.kind === 'mill' && b.workers > 0) ? 'good' : 'bad'],
@@ -3892,9 +3904,33 @@ export class Game implements ToolHost {
   }
 
   /** The going price of a good in a town: scarce is dear (up to ×1.7), plenty is cheap (down to ×0.55). */
+  /** The buildings of the active town for the building list, grouped like the build menu, newest first within a group. */
+  private buildingListItems() {
+    const city = this.eco.city;
+    const groupOf = (b: Building) => BUILDINGS[b.kind].units ? 'Homes' : ({ buildings: 'Town', services: 'Services', business: 'Business', production: 'Industry', decor: 'Decor' } as Record<string, string>)[ITEMS.find((i) => i.tool === b.kind)?.cat ?? ''] ?? 'Town';
+    const order = ['Town', 'Services', 'Business', 'Industry', 'Homes', 'Decor'];
+    const fams = new Map<number, string>();
+    for (const f of this.pop.families.values()) fams.set(f.home, f.surname);
+    return this.buildings.list
+      .filter((b) => b.city === city.id && !b.removed && b.parent === undefined)
+      .map((b) => {
+        const d = BUILDINGS[b.kind];
+        const [badge, tint] = KIND_BADGE[b.kind] ?? ['🏠', '#8d8a83'];
+        let info = '', bad = false;
+        if (b.built < 1) { info = `${t('Under construction')} ${Math.round(b.built * 100)}%`; }
+        else if (b.fire > 0) { info = t('On fire!'); bad = true; }
+        else if (d.units) { const s = fams.get(b.id); info = s ? t('{name} family', { name: s }) : t('Empty'); bad = !s; }
+        else if (d.jobs) { info = `${b.workers}/${d.jobs}`; bad = b.workers === 0; }
+        if (b.built >= 1 && d.energy && !b.powered) { info = info ? `${info} · ${t('No power')}` : t('No power'); bad = true; }
+        return { id: b.id, name: `${t(d.name)}${b.owner >= 0 && this.pop.families.get(b.owner) ? ` · ${this.pop.families.get(b.owner)!.surname}` : ''}`, badge, tint, group: groupOf(b), info, bad };
+      })
+      .sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group) || a.name.localeCompare(b.name) || b.id - a.id);
+  }
+
   private midPrice(c: City, g: Good, people: number) {
     const ratio = c[g] / this.stockTarget(g, people);
-    return TRADE_PRICE[g] * Math.max(0.55, Math.min(1.7, 1.7 - 0.7 * ratio));
+    // scarce is dear, plenty is cheap — and everything is dearer where the pay is higher
+    return TRADE_PRICE[g] * Math.max(0.55, Math.min(1.7, 1.7 - 0.7 * ratio)) * this.life.priceLevel(c.id);
   }
 
   /** Every town on the map for the World window: what it is like, how it is doing and its news. */

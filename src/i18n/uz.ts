@@ -2662,4 +2662,12 @@ export const UZ: Record<string, string> = {
   "Takings since opening ({n} days)": "Ochilgandan beri tushum ({n} kun)",
   "Sold or made since opening": "Ochilgandan beri sotildi / ishlab chiqarildi",
   "So far today": "Bugun hozircha",
+  "All buildings": "Barcha binolar",
+  "All": "Hammasi",
+  "No buildings found": "Bino topilmadi",
+  "Empty": "Bo'sh",
+  "Price level (from the average wage)": "Narx darajasi (o'rtacha maoshdan)",
+  "Food is dearer when the stores run low and cheaper when they are full. Where the pay is higher, everything costs more.": "Ombor bo'shasa oziq-ovqat qimmatlashadi, to'lsa arzonlashadi. Maosh qayerda yuqori bo'lsa, u yerda hamma narsa qimmatroq.",
+  "Prices in town (they follow the average wage)": "Shahardagi narxlar (o'rtacha maoshga qarab)",
+  "Type the pay per day and press Enter": "Kunlik maoshni yozing va Enter bosing",
 };
