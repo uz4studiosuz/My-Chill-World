@@ -88,7 +88,7 @@ async function boot() {
     gallery.hide();
     if (galleryFrom === 'pause') menu.showPause();
     else menu.showMain();
-  });
+  }, (ids) => renderThumbnails(renderer, ids, 80));
 
   const menu = new Menu(ui, {
     newWorld: (name, seed, calm) => start({ create: { name, seed, calm } }),

@@ -15,7 +15,8 @@ export interface StatSection {
 export interface StatsSnapshot {
   /** Extra pages and blocks (production, energy, finance…). */
   pages: Partial<Record<Tab, StatSection[]>>;
-  labour: { kind: string; name: string; workers: number; jobs: number; prio: 'high' | 'normal' | 'low' }[];
+  labour: { kind: string; name: string; workers: number; jobs: number; prio: 'high' | 'normal' | 'low'; wage: number; factor: number; publicJob: boolean }[];
+  wageAuto: boolean;
   unemployed: number;
   cityName: string;
   cities: number;
@@ -79,7 +80,7 @@ export class StatsPanel {
   visible = false;
   private title!: HTMLElement;
 
-  constructor(parent: HTMLElement, private get: () => StatsSnapshot, private setPriority: (kind: string, prio: 'high' | 'normal' | 'low') => void = () => {}) {
+  constructor(parent: HTMLElement, private get: () => StatsSnapshot, private setPriority: (kind: string, prio: 'high' | 'normal' | 'low') => void = () => {}, private setWage: (kind: string, step: number) => void = () => {}) {
     this.root = el('div', 'stats');
     const head = el('div', 'stats-head');
     const title = el('b', '');
@@ -212,6 +213,39 @@ export class StatsPanel {
           [t('Unemployed'), num(s.unemployed), s.unemployed ? t('build workplaces') : t('everyone works'), s.unemployed === 0],
           [t('Workers'), num(p.workers), t('of {a} able · {b} jobs', { a: p.workforce, b: s.labour.reduce((a, j) => a + j.jobs, 0) })],
         ]);
+        // wages: automatic (the town hall raises pay where workers are missing) or set by hand
+        const wbox = el('div', 'srows');
+        const wt = el('div', 'srows-title');
+        wt.textContent = t('Wages');
+        const mode = el('div', 'wage-mode');
+        const ml = el('span', '');
+        ml.textContent = s.wageAuto ? t('The town hall sets wages automatically: more pay where workers are missing') : t('You set the wages by hand');
+        const mb = el('button', `segbtn${s.wageAuto ? ' active' : ''}`);
+        mb.textContent = s.wageAuto ? t('Automatic') : t('Manual');
+        mb.addEventListener('click', () => this.setWage('*', 0));
+        mode.append(ml, mb);
+        wbox.append(wt, mode);
+        const avg = s.labour.length ? s.labour.reduce((a, j) => a + j.wage * j.workers, 0) / Math.max(1, s.labour.reduce((a, j) => a + j.workers, 0)) : 0;
+        const avgRow = el('div', 'info-row');
+        avgRow.innerHTML = `<span>${t('Average wage')}</span><span>$${avg.toFixed(1)}/${t('day')}</span>`;
+        wbox.appendChild(avgRow);
+        for (const j of [...s.labour].sort((a, b) => b.wage - a.wage)) {
+          const row = el('div', 'job-row');
+          const name = el('span', 'job-name');
+          name.textContent = j.name;
+          const pay = el('span', `job-fill ${j.factor > 1.01 ? 'pos' : j.factor < 0.99 ? 'neg' : ''}`);
+          pay.textContent = `$${j.wage}${j.factor !== 1 ? ` (${j.factor > 1 ? '+' : ''}${Math.round((j.factor - 1) * 100)}%)` : ''}`;
+          pay.title = j.publicJob ? t('Paid by the town hall') : t('Paid by the business');
+          const seg = el('div', 'seg');
+          for (const [step, label] of [[-1, '−10%'], [1, '+10%']] as const) {
+            const b = el('button', 'segbtn');
+            b.textContent = label;
+            b.addEventListener('click', () => this.setWage(j.kind, step));
+            seg.appendChild(b);
+          }
+          row.append(name, pay, seg);
+          wbox.appendChild(row);
+        }
         const box = el('div', 'srows');
         const tt = el('div', 'srows-title');
         tt.textContent = t('Who gets workers first');
@@ -232,7 +266,7 @@ export class StatsPanel {
           row.append(name, fill, seg);
           box.appendChild(row);
         }
-        this.body.appendChild(box);
+        this.body.append(box, wbox);
         break;
       }
       case 'cities': {

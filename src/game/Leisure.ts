@@ -622,7 +622,8 @@ export class Leisure {
     this.beauty.set(city.id, homes.length ? sum / homes.length : 0);
     for (const [m, v] of [[this.trust, 0.85], [this.sport, 0.7]] as const) m.set(city.id, (m.get(city.id) ?? 0) * v);
     this.checkPetitions(city, own, say);
-    if (!this.host.calm || Math.random() < 0.5) this.newPetition(city, own, say);
+    // letters come only from the player's own towns
+    if (!city.ai && (!this.host.calm || Math.random() < 0.5)) this.newPetition(city, own, say);
   }
 
   /** Extra happiness target for a city. */

@@ -7,6 +7,21 @@ export class WorldMap {
   readonly water = new Uint8Array(N * N);
   /** 0 = green meadow, ~0.55 = dry steppe, ~0.65+ = sandy desert (from the seed). */
   readonly arid = new Float32Array(N * N);
+  /** 0 = mild, 1 = cold north (long winters, snow stays longer, short growing season). */
+  readonly cold = new Float32Array(N * N);
+
+  /** Climate of a tile as a word key: 'Cold north', 'Desert', 'Steppe' or 'Mild'. */
+  climate(k: number) {
+    if (this.cold[k] > 0.5) return 'Cold north';
+    if (this.arid[k] > 0.6) return 'Desert';
+    if (this.arid[k] > 0.52) return 'Steppe';
+    return 'Mild';
+  }
+
+  /** How well crops grow on a tile because of its climate (1 = normal). */
+  growth(k: number) {
+    return (1 - this.cold[k] * 0.45) * (this.arid[k] > 0.6 ? 0.6 : this.arid[k] > 0.52 ? 0.85 : 1);
+  }
 
   constructor(readonly seed: number) {}
 

@@ -22,6 +22,7 @@ const BARE = new THREE.Color('#7d6b55');
 const BLOSSOM = new THREE.Color('#f4a9c8');
 const FRESH = new THREE.Color('#9be070');
 const SNOWY = new THREE.Color('#eef3f6');
+const TUNDRA = new THREE.Color('#8fa792');
 const TUFT_GRASS = ['#7da84a', '#6c9a40', '#93b858', '#86ad4e'];
 const TUFT_FLOWER = ['#f2efe2', '#f0d54a', '#b9a3e0', '#e8738f', '#f29b4b'];
 const TUFT_DRY = ['#c2b46a', '#b3a35a', '#d0c27c', '#a89a58'];
@@ -66,6 +67,8 @@ export class Terrain {
   private waterMesh?: THREE.Mesh;
   private baseColors = new Float32Array(0);
   private topMask = new Float32Array(0);
+  /** Cold of the tile under each ground vertex: the north keeps its snow longer. */
+  private coldMask = new Float32Array(0);
   private pineMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private waterMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.82 });
   private canopy?: THREE.InstancedMesh;
@@ -197,6 +200,9 @@ export class Terrain {
           const st = smoothstep(0.52, 0.58, ar), de = smoothstep(0.6, 0.66, ar);
           if (st > 0) c.lerp(this.tmpCol.copy(C.steppeA).lerp(C.steppeB, n), st);
           if (de > 0) c.lerp(this.tmpCol.copy(C.desertA).lerp(C.desertB, n), de);
+          // cold north: grey-green tundra grass
+          const cd = smoothstep(0.3, 0.7, map.cold[k]);
+          if (cd > 0) c.lerp(TUNDRA, cd * 0.7);
         }
         if ((x + z) & 1) c.multiplyScalar(0.985);
 
@@ -235,7 +241,12 @@ export class Terrain {
     const nor = geo.attributes.normal.array as Float32Array;
     this.baseColors = (geo.attributes.color.array as Float32Array).slice();
     this.topMask = new Float32Array(pos.length / 3);
-    for (let i = 0; i < this.topMask.length; i++) this.topMask[i] = nor[i * 3 + 1] > 0.9 && pos[i * 3 + 1] > -0.05 ? 1 : 0;
+    this.coldMask = new Float32Array(pos.length / 3);
+    for (let i = 0; i < this.topMask.length; i++) {
+      this.topMask[i] = nor[i * 3 + 1] > 0.9 && pos[i * 3 + 1] > -0.05 ? 1 : 0;
+      const tx = Math.min(N - 1, Math.max(0, Math.floor(pos[i * 3] + N / 2 - 0.001))), tz = Math.min(N - 1, Math.max(0, Math.floor(pos[i * 3 + 2] + N / 2 - 0.001)));
+      this.coldMask[i] = this.map.cold[idx(tx, tz)];
+    }
     this.lastSeason = '';
   }
 
@@ -286,7 +297,8 @@ export class Terrain {
       let r = base[i * 3], g = base[i * 3 + 1], bl = base[i * 3 + 2];
       const m = mask[i];
       if (m) {
-        const a = b.autumn * 0.35, sp = b.spring * 0.18, sn = b.snow * 0.88;
+        const cold = this.coldMask[i];
+        const a = b.autumn * 0.35 * (1 - cold * 0.5), sp = b.spring * 0.18 * (1 - cold), sn = Math.min(0.92, b.snow * 0.88 + cold * (b.bare * 0.75 + b.autumn * 0.35 + b.spring * 0.25));
         r += (tint.r - r) * a; g += (tint.g - g) * a; bl += (tint.b - bl) * a;
         r += (spring.r - r) * sp; g += (spring.g - g) * sp; bl += (spring.b - bl) * sp;
         r += (0.93 - r) * sn; g += (0.95 - g) * sn; bl += (0.97 - bl) * sn;
@@ -373,6 +385,7 @@ export class Terrain {
         const ar = map.arid[k];
         const steppe = smoothstep(0.52, 0.58, ar), desert = smoothstep(0.6, 0.66, ar);
         const treeChance = (forest > 0.6 ? 0.75 : forest > 0.52 ? 0.18 : 0.02) * centre * (1 - steppe * 0.85) * (1 - desert);
+        const north = map.cold[k];
         if (desert > 0.5) {
           if (rnd() < 0.035 * centre) cacti.push({ m: mat(jx(), 0, jz(), 0.8 + rnd() * 0.6), tile: k });
           else if (rnd() < 0.04) rocks.push({ m: mat(jx(), 0, jz(), 0.5 + rnd() * 0.7), tile: k, color: new THREE.Color(0.75 + rnd() * 0.1, 0.66 + rnd() * 0.08, 0.5) });
@@ -384,7 +397,8 @@ export class Terrain {
         }
 
         if (rnd() < treeChance) {
-          if (rnd() < (forest > 0.6 ? 0.55 : 0.35)) {
+          // the cold north grows mostly pines
+          if (rnd() < (forest > 0.6 ? 0.55 : 0.35) + north * 0.55) {
             pines.push({ m: mat(jx(), 0, jz(), 0.8 + rnd() * 0.5), tile: k });
           } else {
             const green = pick(LEAF_GREEN);

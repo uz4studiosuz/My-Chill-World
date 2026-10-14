@@ -595,13 +595,32 @@ export class Editor {
 
   /** TypeScript in the style of src/models/buildings.ts. */
   private code() {
-    const fn = this.name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    // a valid identifier whatever the model is called: "My big house-2" → myBigHouse2
+    const words = this.name.normalize('NFKD').replace(/[^A-Za-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+    let fn = words.map((w, i) => (i ? w[0].toUpperCase() + w.slice(1) : w[0].toLowerCase() + w.slice(1))).join('') || 'custom';
+    if (/^[0-9]/.test(fn)) fn = `model${fn}`;
+    const num = (v: number) => { const r = round(v); return Object.is(r, -0) ? '0' : `${r}`; };
+    const usesShape = this.parts.some((p) => p.shape && p.shape !== 'box');
     const lines = this.parts.map((p) => {
-      const call = !p.shape || p.shape === 'box' ? `box(${p.w}, ${p.h}, ${p.d}, ${p.x}, ${p.y}, ${p.z}, '${p.color}')`
-        : `shape('${p.shape}', ${p.w}, ${p.h}, ${p.d}, ${p.x}, ${p.y}, ${p.z}, '${p.color}'${p.axis && p.axis !== 'y' ? `, '${p.axis}'` : ''})`;
-      return `    ${call},${p.name ? ` // ${p.name}` : ''}`;
+      const color = /^#[0-9a-fA-F]{6}$/.test(p.color) ? p.color.toLowerCase() : '#ffffff';
+      const dims = `${num(p.w)}, ${num(p.h)}, ${num(p.d)}, ${num(p.x)}, ${num(p.y)}, ${num(p.z)}, '${color}'`;
+      const call = !p.shape || p.shape === 'box' ? `box(${dims})` : `shape('${p.shape}', ${dims}${p.axis && p.axis !== 'y' ? `, '${p.axis}'` : ''})`;
+      const note = p.name ? ` // ${p.name.replace(/[\r\n]+/g, ' ').replace(/\*\//g, '')}` : '';
+      return `    ${call},${note}`;
     });
-    return `/** ${this.name} — ${this.size}×${this.size} tiles, made in the model editor. */\nexport function ${fn}Geometry(): THREE.BufferGeometry {\n  return merge([\n${lines.join('\n')}\n  ]);\n}\n`;
+    // a whole file: save it as src/models/custom/${fn}.ts — it compiles as it is (one element per file, like every model)
+    return [
+      `import * as THREE from 'three';`,
+      `import { ${usesShape ? 'box, merge, shape' : 'box, merge'} } from '../../utils/voxel';`,
+      ``,
+      `/** ${this.name.replace(/\*\//g, '')} — ${this.size}×${this.size} tiles (${this.parts.length} parts), made in the model editor. Faces +z (the road). */`,
+      `export function ${fn}Geometry(): THREE.BufferGeometry {`,
+      `  return merge([`,
+      ...(lines.length ? lines : [`    box(0.5, 0.5, 0.5, 0, 0.25, 0, '#cccccc'),`]),
+      `  ]);`,
+      `}`,
+      ``,
+    ].join('\n');
   }
 
   private async copyCode() {

@@ -8,7 +8,7 @@ import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
 import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG } from '../buildings/BuildingTypes';
-import type { BuildingKind } from '../buildings/BuildingTypes';
+import type { BuildingKind, CropKind } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
 import { Citizen, DayReport, Family, Population } from '../people/Population';
@@ -558,7 +558,7 @@ export class Life {
     const homeCity = (f: Family) => buildings.get(f.home)?.city;
 
     cities.forEach((city, i) => {
-      const say = (msg: string) => this.events.push(cities.length > 1 ? `${city.name}: ${msg}` : msg);
+      const say = (msg: string) => { if (!city.ai || Math.random() < 0.15) this.events.push(cities.length > 1 ? `${city.name}: ${msg}` : msg); };
       // the first city also adopts families whose house is gone
       const belongs = (f: Family) => {
         const c = homeCity(f);
@@ -673,6 +673,8 @@ export class Life {
         }
       }
       this.banking(city, say);
+      this.adjustWages(city);
+      this.chooseCrops(city.id);
       this.entrepreneurs(city.id, say);
       this.airQuality(city, say);
       this.tourism(city, own, say);
@@ -879,6 +881,66 @@ export class Life {
     return true;
   }
 
+  /**
+   * Farmers pick the crop the town needs most (unless the player chose one): vegetables when there is no mill,
+   * corn when the cattle have no feed, cotton for the clothing stores, melons in summer, wheat otherwise.
+   * A field only switches while it is still young.
+   */
+  chooseCrops(cityId?: number) {
+    const { buildings, eco } = this.c;
+    const month = monthOf(eco.day);
+    for (const city of eco.cities.values()) {
+      if (cityId !== undefined && city.id !== cityId) continue;
+      const own = buildings.list.filter((b) => b.city === city.id && b.built >= 1);
+      const farms = own.filter((b) => b.kind === 'farm' && !b.cropManual);
+      if (!farms.length) continue;
+      const has = (k: string) => own.some((b) => b.kind === k && b.workers > 0);
+      const count = new Map<string, number>();
+      for (const f of own) if (f.kind === 'farm') count.set(f.cropKind ?? 'wheat', (count.get(f.cropKind ?? 'wheat') ?? 0) + 1);
+      for (const f of farms) {
+        const cur = f.cropKind ?? 'wheat';
+        count.set(cur, (count.get(cur) ?? 1) - 1);
+        let want: CropKind = has('mill') ? 'wheat' : 'vegetables';
+        if (has('ranch') && city.feed < 20 && !(count.get('corn') ?? 0)) want = 'corn';
+        else if (has('clothes') && city.cotton < 15 && !(count.get('cotton') ?? 0) && farms.length >= 2) want = 'cotton';
+        else if (month >= 4 && month <= 7 && !(count.get('melons') ?? 0) && farms.length >= 3) want = 'melons';
+        count.set(want, (count.get(want) ?? 0) + 1);
+        if (want !== cur && f.cropT < 0.35) {
+          f.cropKind = want;
+          this.c.buildings.updateCrop(f);
+        } else if (want !== cur) { count.set(want, (count.get(want) ?? 1) - 1); count.set(cur, (count.get(cur) ?? 0) + 1); }
+      }
+    }
+  }
+
+  /**
+   * Automatic wages: where workers are missing the town hall pays a little more (up to +60%), where everyone is
+   * employed and people are looking for work it pays a little less (down to −20%).
+   */
+  private adjustWages(city: City) {
+    if (!city.wageAuto) return;
+    const { buildings, pop } = this.c;
+    const byKind = new Map<string, { jobs: number; workers: number }>();
+    for (const b of buildings.list) {
+      if (b.city !== city.id || b.built < 1 || !BUILDINGS[b.kind].jobs) continue;
+      const e = byKind.get(b.kind) ?? { jobs: 0, workers: 0 };
+      e.jobs += BUILDINGS[b.kind].jobs;
+      e.workers += b.workers;
+      byKind.set(b.kind, e);
+    }
+    const unemployed = [...pop.citizens.values()].some((c) => c.job < 0 && pop.canWork(c) && buildings.get(pop.families.get(c.family)?.home ?? -1)?.city === city.id);
+    for (const [kind, e] of byKind) {
+      const w = city.wages[kind] ?? 1;
+      let next = w;
+      if (e.workers < e.jobs) next = Math.min(1.6, w + 0.05);
+      else if (unemployed) next = Math.max(0.8, w - 0.03);
+      else next = w + (1 - w) * 0.1;
+      next = Math.round(next * 100) / 100;
+      if (Math.abs(next - 1) < 0.01) delete city.wages[kind];
+      else city.wages[kind] = next;
+    }
+  }
+
   /** Money a family can spend on building: savings plus what the bank would lend. */
   private purse(f: Family, cityId: number) {
     const bank = !f.loan && this.c.buildings.list.some((b) => b.kind === 'bank' && b.city === cityId && b.built >= 1 && b.workers > 0);
@@ -986,7 +1048,8 @@ export class Life {
         if (vacancies >= 6 && unemployed === 0 && Math.random() < 0.08) this.events.push(t('Not enough workers: {n} jobs are empty. {why}', { n: vacancies, why: t(reasons[0]) }));
         continue;
       }
-      const arrivals = vacancies >= 12 && homes.length >= 2 ? 2 : 1;
+      const pay = Object.values(city.wages).reduce((a, v) => a + v, 0) / Math.max(1, Object.keys(city.wages).length);
+      const arrivals = Math.min(homes.length, 4, 1 + Math.floor(vacancies / 8) + (pay > 1.1 ? 1 : 0));
       for (let i = 0; i < arrivals; i++) {
         const free = this.freeHomes(city.id);
         if (!free.length) break;
@@ -1082,6 +1145,7 @@ export class Life {
       if (!d.food || !d.jobs) continue;
       let f = d.food * Math.min(1, b.workers / d.jobs);
       if (b.kind === 'farm') f *= (growingSeason(month) ? (b.irrigated ? 1 : 0.15) : 0) * (this.c.weather.drought > 0 ? 0.4 : 1);
+      if (b.kind === 'farm' || b.kind === 'orchard' || b.kind === 'ranch') f *= this.c.map.growth(b.z * N + b.x);
       if (b.kind === 'fishery') f *= seasonOf(month) === 'winter' ? 0.3 : 1;
       if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : month === 3 || month === 4 || month === 10 ? 0.4 : 0;
       if (b.kind === 'ranch') f *= (seasonOf(month) === 'winter' ? 0.7 : 1) * ((b.cattleCount ?? 4) / 4) * (b.cornFed ? 1.3 : 1);
@@ -1484,7 +1548,8 @@ export class Life {
       if (moved >= 3 || c.job < 0 || c.skill < 1 || Math.random() > 0.15) continue;
       const cur = buildings.get(c.job);
       if (!cur || cur.city !== city.id) continue;
-      const best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && BUILDINGS[b.kind].salary >= BUILDINGS[cur.kind].salary * 1.25 && b.id !== cur.id);
+      const pay = (b: Building) => BUILDINGS[b.kind].salary * this.c.pop.wageFactor(b);
+      const best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && pay(b) >= pay(cur) * 1.25 && b.id !== cur.id);
       // nobody leaves an essential job (water, food, power, builders…) for a less essential one
       if (!best || this.c.pop.priority(best) > this.c.pop.priority(cur) || (this.c.pop.priority(cur) <= 2 && cur.workers <= 1)) continue;
       cur.workers--;

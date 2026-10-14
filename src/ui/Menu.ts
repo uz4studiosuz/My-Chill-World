@@ -83,20 +83,20 @@ export class Menu {
     const worlds = SaveStore.list();
     const w = worlds[0];
     this.renderHome([
-      w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${t('Day {n}', { n: w.day })} · ${t('{n} people', { n: w.population })}`) : null,
-      homeItem('New World', () => this.showNew()),
-      worlds.length ? homeItem('Load World', () => this.showLoad()) : null,
-      worlds.length ? homeItem('Records', () => this.showRecords()) : null,
-      homeItem('Gallery', () => this.h.openGallery('main')),
-      homeItem('Model editor', () => { location.href = 'editor.html'; }),
-      homeItem('Settings', () => this.showSettings()),
-      homeItem('Credits', () => this.showCredits()),
+      w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${t('Day {n}', { n: w.day })} · ${t('{n} people', { n: w.population })}`, true, 'play') : null,
+      homeItem('New World', () => this.showNew(), t('A fresh valley, a small village'), !w, 'plus'),
+      worlds.length ? homeItem('Load World', () => this.showLoad(), t('{n} saved worlds', { n: worlds.length }), false, 'folder') : null,
+      worlds.length ? homeItem('Records', () => this.showRecords(), undefined, false, 'trophy') : null,
+      homeItem('Gallery', () => this.h.openGallery('main'), t('Every model in 3D'), false, 'gallery'),
+      homeItem('Model editor', () => { location.href = 'editor.html'; }, undefined, false, 'office'),
+      homeItem('Settings', () => this.showSettings(), undefined, false, 'dots'),
+      homeItem('Credits', () => this.showCredits(), undefined, false, 'heart'),
     ]);
   }
 
   /** Language, sound and newspaper options. */
   showSettings() {
-    this.renderHome([this.languagePicker(() => this.showSettings()), this.audioRow(), homeItem('Back', () => this.showMain())], 'Settings');
+    this.renderHome([this.languagePicker(() => this.showSettings()), this.audioRow(), homeItem('Back', () => this.showMain(), undefined, false, 'undo')], 'Settings');
   }
 
   showCredits() {
@@ -119,11 +119,13 @@ export class Menu {
     this.root.classList.remove('show');
     this.side.replaceChildren();
     const brand = el('div', 'home-brand');
+    const logo = el('div', 'home-logo');
+    logo.innerHTML = icon('house');
     const h = el('h1', '');
-    h.textContent = 'MY CHILL WORLD';
+    h.textContent = 'My Chill World';
     const studio = el('div', 'home-studio');
-    studio.textContent = 'UZ4 STUDIOS';
-    brand.append(h, studio);
+    studio.textContent = 'UZ4 Studios';
+    brand.append(logo, h, studio);
     const list = el('nav', 'home-menu');
     if (page) {
       const ph = el('div', 'home-page');
@@ -308,16 +310,20 @@ function button(label: string, onClick: (b: HTMLButtonElement) => void, cls = ''
 }
 
 /** A text entry of the home menu, with an optional line below it (e.g. the world to continue). */
-function homeItem(label: string, onClick: () => void, sub?: string, primary = false) {
+function homeItem(label: string, onClick: () => void, sub?: string, primary = false, ic: IconName = label === 'Back' ? 'undo' : label === 'Create' ? 'check' : 'play') {
   const b = el('button', `home-item${primary ? ' primary' : ''}`);
-  const main = el('span', '');
+  const badge = el('span', 'home-ic');
+  badge.innerHTML = icon(ic);
+  const txt = el('span', 'home-txt');
+  const main = el('b', '');
   main.textContent = t(label);
-  b.appendChild(main);
+  txt.appendChild(main);
   if (sub) {
     const s = el('small', '');
     s.textContent = sub;
-    b.appendChild(s);
+    txt.appendChild(s);
   }
+  b.append(badge, txt);
   b.addEventListener('click', onClick);
   return b;
 }

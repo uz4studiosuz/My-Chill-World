@@ -3,8 +3,11 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CATALOG, CatalogEntry, CatalogGroup, centerObject, disposeObject, fitCamera } from '../models/catalog';
 import { el, icon } from '../ui/dom';
 import { t } from '../i18n/i18n';
+import { ITEMS, CATS } from '../ui/Hud';
 
 const GROUPS: CatalogGroup[] = ['Buildings', 'Roads', 'People', 'Vehicles', 'Animals', 'Nature'];
+/** Buildings are split like the build menu: town, services, business, production, decorations. */
+const BUILD_SECTIONS = ['buildings', 'services', 'business', 'production', 'decor'] as const;
 
 /** 3D viewer for every model in the game: orbit, zoom, auto-rotate, wireframe. */
 export class Gallery {
@@ -28,7 +31,9 @@ export class Gallery {
   private resetBtn!: HTMLButtonElement;
   private head!: HTMLElement;
 
-  constructor(private canvas: HTMLCanvasElement, parent: HTMLElement, private onClose: () => void) {
+  private thumbs: Map<string, string> | null = null;
+
+  constructor(private canvas: HTMLCanvasElement, parent: HTMLElement, private onClose: () => void, private makeThumbs: (ids: string[]) => Map<string, string> = () => new Map()) {
     this.scene.background = new THREE.Color('#a9c9d6');
     this.scene.add(new THREE.HemisphereLight('#e4f1ff', '#6f7f4c', 1.6));
     const sun = new THREE.DirectionalLight('#fff3df', 2.4);
@@ -87,18 +92,32 @@ export class Gallery {
   private buildList() {
     this.list.replaceChildren();
     this.buttons.clear();
-    for (const g of GROUPS) {
+    const byName = (a: CatalogEntry, b: CatalogEntry) => t(a.name).localeCompare(t(b.name));
+    const section = (title: string, entries: CatalogEntry[]) => {
+      if (!entries.length) return;
       const label = el('div', 'gallery-group');
-      label.textContent = t(g);
-      this.list.appendChild(label);
-      for (const e of CATALOG.filter((c) => c.group === g)) {
+      label.textContent = `${title} · ${entries.length}`;
+      const grid = el('div', 'gallery-grid');
+      for (const e of [...entries].sort(byName)) {
         const b = el('button', 'gallery-item');
-        b.textContent = t(e.name);
+        const img = el('span', 'gallery-thumb');
+        const url = this.thumbs?.get(e.id);
+        if (url) img.style.backgroundImage = `url(${url})`;
+        const name = el('span', 'gallery-name');
+        name.textContent = t(e.name);
+        b.append(img, name);
+        b.title = t(e.desc);
         b.addEventListener('click', () => this.select(e));
         this.buttons.set(e.id, b);
-        this.list.appendChild(b);
+        grid.appendChild(b);
       }
-    }
+      this.list.append(label, grid);
+    };
+    const cat = (id: string) => ITEMS.find((i) => i.tool === id)?.cat;
+    const buildings = CATALOG.filter((c) => c.group === 'Buildings');
+    for (const s of BUILD_SECTIONS) section(t(CATS.find((c) => c.id === s)!.label), buildings.filter((e) => cat(e.id) === s));
+    section(t('Other buildings'), buildings.filter((e) => !BUILD_SECTIONS.includes(cat(e.id) as typeof BUILD_SECTIONS[number])));
+    for (const g of GROUPS) if (g !== 'Buildings') section(t(g), CATALOG.filter((c) => c.group === g));
   }
 
   /** Language changed: re-translate labels. */
@@ -112,6 +131,11 @@ export class Gallery {
   }
 
   show() {
+    // previews are drawn once, the first time the gallery opens
+    if (!this.thumbs) {
+      try { this.thumbs = this.makeThumbs(CATALOG.map((c) => c.id)); } catch { this.thumbs = new Map(); }
+      this.buildList();
+    }
     this.visible = true;
     this.root.classList.add('show');
     this.controls = new OrbitControls(this.camera, this.canvas);

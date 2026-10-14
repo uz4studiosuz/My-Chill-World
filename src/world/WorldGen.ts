@@ -30,8 +30,14 @@ export function generateWorld(seed: number): WorldMap {
       const k = idx(x, z);
       let a = fbm(x * 0.014 + 300, z * 0.014 + 700, seed + 61, 3) + 0.03;
       const town = Math.max(0, 1 - (distC(x, z) - CENTER_CLEAR) / 14);
+      // the climate changes across the map: the south is hotter and drier, the north is cold
+      const south = z / N;
+      a += (south - 0.62) * 0.45;
       a -= town * 0.25 + (waterDist[k] < 3 ? (3 - waterDist[k]) * 0.05 : 0);
       map.arid[k] = Math.max(0, Math.min(1, a));
+      const cold = (0.36 - south) * 3.2 + (fbm(x * 0.02 + 40, z * 0.02 + 90, seed + 71, 2) - 0.5) * 0.6 - town * 0.8;
+      map.cold[k] = Math.max(0, Math.min(1, cold));
+      if (map.cold[k] > 0.3) map.arid[k] = Math.min(map.arid[k], 0.4);
     }
   }
   const ma = rnd() * Math.PI * 2, md = 24 + rnd() * 6;

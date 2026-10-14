@@ -159,6 +159,8 @@ export class Population {
   private nextCitizen = 1;
   /** Job priority of a workplace: lower is filled first (the game can override it per city). */
   priority: (b: Building) => number = (b) => JOB_PRIORITY[b.kind] ?? 5;
+  /** Wage factor the town hall pays for a kind of job (set by the game). */
+  wageFactor: (b: Building) => number = () => 1;
   private nextFamily = 1;
 
   get size() { return this.citizens.size; }
@@ -279,7 +281,9 @@ export class Population {
         const b = buildings.get(id)!;
         if (kind && b.kind !== kind) continue;
         if (from && b.city !== from.city) continue;
-        const d = (from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0) + (kind ? 0 : this.priority(b) * 200);
+        // jobs: the most needed first; among equal ones the emptier workplace wins, so newcomers spread out evenly
+        const fill = kind ? 0 : (1 - n / Math.max(1, BUILDINGS[b.kind].jobs)) * 30;
+        const d = (from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0) + (kind ? 0 : this.priority(b) * 200 + fill);
         if (d < bd) { bd = d; best = id; }
       }
       return best;
@@ -378,7 +382,7 @@ export class Population {
     const d = BUILDINGS[b.kind];
     const power = d.energy > 0 && !b.powered ? 0.5 : 1;
     const skill = c.skill === 2 ? 0.4 : c.skill === 1 ? 0.15 : 0;
-    return d.salary * (1 + 0.5 * c.edu + skill) * power * (c.night ? NIGHT_BONUS : 1);
+    return d.salary * this.wageFactor(b) * (1 + 0.5 * c.edu + skill) * power * (c.night ? NIGHT_BONUS : 1);
   }
 
   /** Hunger drops through the day; it's restored at the evening meal. */

@@ -312,7 +312,21 @@ export class Hud {
     }
     const ver = el('div', 'ver');
     ver.textContent = `v${VERSION}`;
-    corner.append(speeds, rot, ver);
+    // phones: one pause button and one button that steps through the speeds, plus undo
+    const mob = el('div', 'mobile-speed');
+    this.playBtn = el('button', 'sbtn');
+    this.playBtn.addEventListener('click', () => h.setSpeed(this.speed === 0 ? (this.lastSpeed || 1) : 0));
+    this.stepBtn = el('button', 'sbtn step');
+    this.stepBtn.addEventListener('click', () => {
+      const run = SPEEDS.filter((s) => s > 0);
+      h.setSpeed(run[(run.indexOf(this.speed) + 1) % run.length] ?? 1);
+    });
+    const mUndo = el('button', 'sbtn');
+    mUndo.innerHTML = icon('undo');
+    mUndo.setAttribute('aria-label', t('Undo'));
+    mUndo.addEventListener('click', h.undo);
+    mob.append(this.playBtn, this.stepBtn, mUndo);
+    corner.append(speeds, mob, rot, ver);
 
     this.drawer = el('div', 'drawer');
 
@@ -331,6 +345,7 @@ export class Hud {
     this.removeBtn = this.toolButton('bulldoze', t('Remove'));
     this.removeBtn.addEventListener('click', () => { this.closeDrawer(); h.setTool('bulldoze'); });
     this.undoBtn = this.toolButton('undo', t('Undo'));
+    this.undoBtn.classList.add('undo');
     this.undoBtn.addEventListener('click', h.undo);
     bar.append(this.removeBtn, this.undoBtn);
 
@@ -515,8 +530,20 @@ export class Hud {
     this.setHint(null);
   }
 
+  private speed = 1;
+  private lastSpeed = 1;
+  private playBtn!: HTMLButtonElement;
+  private stepBtn!: HTMLButtonElement;
+
   setSpeed(s: number) {
     this.speedBtns.forEach((btn, i) => btn.classList.toggle('active', SPEEDS[i] === s));
+    this.speed = s;
+    if (s > 0) this.lastSpeed = s;
+    this.playBtn.innerHTML = icon(s === 0 ? 'play' : 'pause');
+    this.playBtn.classList.toggle('active', s === 0);
+    this.playBtn.setAttribute('aria-label', s === 0 ? t('Play') : t('Pause'));
+    this.stepBtn.textContent = `${s === 0 ? this.lastSpeed : s}×`;
+    this.stepBtn.setAttribute('aria-label', t('Speed {n}', { n: s }));
   }
 
   /** Show the confirm / cancel bar for a build that is waiting. */
@@ -566,6 +593,77 @@ export class Hud {
     this.lastWood = s.wood;
     this.lastIron = s.iron;
     if (this.drawerCat) this.refreshCards();
+  }
+
+  /** A card with everything about a building: what it does, what it costs and needs, its numbers. */
+  info(title: string, subtitle: string, text: string, sections: { title: string; rows: [string, string][] }[]) {
+    this.root.querySelector('.confirm-back')?.remove();
+    const back = el('div', 'confirm-back');
+    const box = el('div', 'confirm info-card');
+    const head = el('div', 'info-head');
+    const h = el('b', '');
+    h.textContent = title;
+    const sub = el('small', '');
+    sub.textContent = subtitle;
+    const x = el('button', 'info-x');
+    x.innerHTML = icon('close');
+    x.setAttribute('aria-label', t('Close'));
+    const titles = el('div', '');
+    titles.append(h, sub);
+    head.append(titles, x);
+    const p = el('p', '');
+    p.textContent = text;
+    const body = el('div', 'info-body');
+    body.appendChild(p);
+    for (const sec of sections) {
+      if (!sec.rows.length) continue;
+      const st = el('div', 'rp-sec');
+      st.textContent = sec.title;
+      const grid = el('div', 'rp-grid');
+      for (const [k, v] of sec.rows) {
+        const a = el('span', 'k');
+        a.textContent = k;
+        const b = el('span', 'v');
+        b.textContent = v;
+        grid.append(a, b);
+      }
+      body.append(st, grid);
+    }
+    const close = () => { back.remove(); window.removeEventListener('keydown', key, true); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    x.addEventListener('click', close);
+    back.addEventListener('pointerdown', (e) => { if (e.target === back) close(); });
+    window.addEventListener('keydown', key, true);
+    box.append(head, body);
+    back.appendChild(box);
+    this.root.appendChild(back);
+  }
+
+  /** Ask before doing something that cannot be undone (demolishing). */
+  confirm(title: string, text: string, yesLabel: string, onYes: () => void) {
+    this.root.querySelector('.confirm-back')?.remove();
+    const back = el('div', 'confirm-back');
+    const box = el('div', 'confirm');
+    const h = el('b', '');
+    h.textContent = title;
+    const p = el('p', '');
+    p.textContent = text;
+    const row = el('div', 'confirm-btns');
+    const no = el('button', 'btn-mini ghost');
+    no.textContent = t('Cancel');
+    const yes = el('button', 'btn-mini danger');
+    yes.textContent = yesLabel;
+    const close = () => { back.remove(); window.removeEventListener('keydown', key, true); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } if (e.key === 'Enter') { e.stopPropagation(); close(); onYes(); } };
+    no.addEventListener('click', close);
+    yes.addEventListener('click', () => { close(); onYes(); });
+    back.addEventListener('pointerdown', (e) => { if (e.target === back) close(); });
+    window.addEventListener('keydown', key, true);
+    row.append(no, yes);
+    box.append(h, p, row);
+    back.appendChild(box);
+    this.root.appendChild(back);
+    yes.focus();
   }
 
   toast(msg: string) {

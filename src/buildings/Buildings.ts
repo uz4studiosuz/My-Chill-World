@@ -15,6 +15,7 @@ import {
   lamppostGeometry, playgroundGeometry, saplingGeometry, signGeometry, stadiumGeometry, statueGeometry,
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
+import { siteTapeGeometry } from '../models/sitetape';
 import { barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
 import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
 import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
@@ -94,6 +95,8 @@ export interface Building {
   output?: number;
   /** Farms: what the field grows. */
   cropKind?: CropKind;
+  /** The player chose the crop (otherwise the farmers pick what the town needs). */
+  cropManual?: boolean;
   /** Ranch: the cattle ate corn today (they give more). */
   cornFed?: boolean;
   cattleHunger?: number;
@@ -215,6 +218,22 @@ export class Buildings {
   /** Windows glow warm at night; unpowered or unfinished buildings use the dark copy. */
   private mat = windowMaterial();
   private darkMat = windowMaterial(false);
+  /** Tint of a city's buildings (autonomous towns look different); set by the game. */
+  tintOf: (city: number) => string | undefined = () => undefined;
+  private tinted = new Map<string, { lit: THREE.Material; dark: THREE.Material }>();
+  private matsFor(city: number) {
+    const tint = this.tintOf(city);
+    if (!tint) return { lit: this.mat as THREE.Material, dark: this.darkMat as THREE.Material };
+    let m = this.tinted.get(tint);
+    if (!m) {
+      const lit = windowMaterial(), dark = windowMaterial(false);
+      lit.color.set(tint);
+      dark.color.set(tint);
+      m = { lit, dark };
+      this.tinted.set(tint, m);
+    }
+    return m;
+  }
   private jetGeo = fountainJetGeometry();
   private jetMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.85 });
   private lampHeadGeo = lampHeadGeometry();
@@ -231,6 +250,8 @@ export class Buildings {
   private headstoneGeo = headstoneGeometry();
   private rotorGeo = rotorGeometry();
   private sailsGeo = millSailsGeometry();
+  private tapeGeos = new Map<number, THREE.BufferGeometry>();
+  private tapeGeo(s: number) { let g = this.tapeGeos.get(s); if (!g) { g = siteTapeGeometry(s); this.tapeGeos.set(s, g); } return g; }
   private wheelGeo = ferrisWheelGeometry();
   private carouselGeo = carouselGeometry();
   private cowGeo = cowGeometry();
@@ -280,7 +301,7 @@ export class Buildings {
     const rot = resolved.rot;
     const s = BUILDINGS[kind].size;
     const mesh = new THREE.Group();
-    const body = new THREE.Mesh(this.geometry(kind, x, z), this.mat);
+    const body = new THREE.Mesh(this.geometry(kind, x, z), this.matsFor(opts.city ?? 0).lit);
     body.castShadow = true;
     body.receiveShadow = true;
     mesh.add(body);
@@ -301,6 +322,10 @@ export class Buildings {
         new THREE.LineBasicMaterial({ color: '#f2b33d' }),
       );
       frame.position.y = h / 2;
+      // yellow-and-black hazard tape around the site
+      const tape = new THREE.Mesh(this.tapeGeo(s), this.mat);
+      tape.name = 'tape';
+      mesh.add(tape);
       mesh.add(frame);
       b.scaffold = frame;
     }
@@ -493,7 +518,8 @@ export class Buildings {
       if (relabel) this.updateLabel(b);
       const body = b.mesh.children[0] as THREE.Mesh | undefined;
       if (body) {
-        const want = b.built >= 1 && b.powered && b.fire <= 0 ? this.mat : this.darkMat;
+        const mats = this.matsFor(b.city);
+        const want = b.built >= 1 && b.powered && b.fire <= 0 ? mats.lit : mats.dark;
         if (body.material !== want) body.material = want;
       }
       if (b.kind === 'fountain') {
@@ -519,6 +545,9 @@ export class Buildings {
         if (b.scaffold) {
           b.scaffold.visible = building;
           b.scaffold.scale.set(1 / xz, 1 / sy, 1 / xz);
+          // the tape stays on the ground at its real size while the building grows
+          const tape = b.mesh.getObjectByName('tape');
+          if (tape) { tape.visible = building; tape.scale.set(1 / xz, 1 / sy, 1 / xz); }
         }
       }
       if ((b.kind === 'windturbine' || ((b.kind === 'mill' || b.kind === 'themepark') && b.workers > 0)) && b.built >= 1) { const r = b.mesh.getObjectByName('rotor'); if (r) r.rotation.z += dt * (simDt > 0 ? (b.kind === 'mill' ? 1.2 : b.kind === 'themepark' ? 0.35 : 3) : 0.5); }

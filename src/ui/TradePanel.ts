@@ -9,7 +9,13 @@ export interface TradeHost {
   linked(): boolean;
   sell(g: Good, n: number): void;
   buy(g: Good, n: number): void;
+  /** Towns that run themselves: what they lack and what they have too much of. */
+  neighbours(): Neighbour[];
+  deal(id: number, g: Good, n: number, selling: boolean): void;
+  gift(id: number): void;
 }
+
+export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[] }
 
 /** Trade window: today's prices for every good, with buttons to sell and buy, and the partners. */
 export class TradePanel {
@@ -87,6 +93,44 @@ export class TradePanel {
     }
     body.appendChild(table);
 
+    // neighbour towns: real towns on the map, trading with their own treasury
+    const towns = this.host.neighbours();
+    if (towns.length) {
+      sec(t('Neighbour towns'));
+      for (const n of towns) {
+        const card = el('div', 'nb-card');
+        const head = el('div', 'nb-head');
+        head.innerHTML = `<i class="nb-dot"></i><b></b><small></small>`;
+        (head.querySelector('.nb-dot') as HTMLElement).style.background = n.tint;
+        (head.querySelector('b') as HTMLElement).textContent = n.name;
+        (head.querySelector('small') as HTMLElement).textContent = `${t('{n} people', { n: n.people })} · $${Math.round(n.money).toLocaleString('en-US')} · ${t('Relations')} ${Math.round(n.relation)}/100`;
+        const gift = el('button', 'btn-mini ghost');
+        gift.textContent = t('Gift: 50 food');
+        gift.disabled = city.food < 50;
+        gift.addEventListener('click', () => { this.host.gift(n.id); this.render(); });
+        head.appendChild(gift);
+        card.appendChild(head);
+        const line = (label: string, items: { g: Good; price: number; have?: number }[], selling: boolean) => {
+          const row = el('div', 'nb-row');
+          const l = el('small', '');
+          l.textContent = label;
+          row.appendChild(l);
+          if (!items.length) { const s = el('span', 'nb-none'); s.textContent = '—'; row.appendChild(s); }
+          for (const it of items) {
+            const lot = it.g === 'food' ? 50 : 10;
+            const b = el('button', `btn-mini ${selling ? 'sell' : 'buy'}`);
+            b.textContent = `${t(GOOD_NAME[it.g])} ${selling ? '−' : '+'}${lot} · $${Math.round(it.price * lot)}`;
+            b.disabled = selling ? city[it.g] < lot || n.money < it.price * lot : city.money < it.price * lot || (it.have ?? 0) < lot;
+            b.addEventListener('click', () => { this.host.deal(n.id, it.g, lot, selling); this.render(); });
+            row.appendChild(b);
+          }
+          card.appendChild(row);
+        };
+        line(t('They need'), n.wants, true);
+        line(t('They sell'), n.offers, false);
+        body.appendChild(card);
+      }
+    }
     sec(t('Partners'));
     for (const p of this.trade.partners) {
       const row = el('div', 'rp-bar');

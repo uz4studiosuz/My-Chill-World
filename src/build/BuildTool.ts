@@ -1,3 +1,4 @@
+import { IS_TOUCH } from '../config';
 import * as THREE from 'three';
 import { Tile, clampTile, diagPath, inBounds, lPath } from '../world/grid';
 
@@ -56,6 +57,21 @@ export class BuildTool {
   constructor(private host: ToolHost, private preview: Preview) {}
 
   get active() { return this.tool !== 'pan'; }
+  /** A building (not a road or the bulldozer) is being placed. */
+  get placing() { return isPlace(this.tool); }
+
+  /** Is this tile under the building that waits for confirmation (so a drag there moves the building)? */
+  onGhost(t: Tile) {
+    const w = this.waiting;
+    if (!w || !isPlace(w.tool)) return false;
+    return this.host.footprint(w.tool, w.cur).some((f) => f.x === t.x && f.z === t.z);
+  }
+
+  /** Tap: put the building (waiting for confirmation) on this tile. */
+  placeAt(t: Tile) {
+    this.begin(t);
+    this.commit();
+  }
   get hasPending() { return this.waiting !== null; }
 
   setTool(t: ToolId) {
@@ -162,7 +178,7 @@ export class BuildTool {
       } else {
         this.preview.hideGhost();
       }
-      const rotHint = ` · [R] ${tr('Rotate')}`;
+      const rotHint = IS_TOUCH ? ` · ${tr('Drag the building to move it, drag elsewhere to move the map')}` : ` · [R] ${tr('Rotate')}`;
       this.host.showHint(r.ok ? `${cost(r)}${rotHint}` : r.reason ?? null);
       return;
     }

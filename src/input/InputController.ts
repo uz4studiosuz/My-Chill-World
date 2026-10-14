@@ -3,7 +3,7 @@ import { CameraRig } from '../camera/CameraRig';
 import { BuildTool, ToolId } from '../build/BuildTool';
 import { Tile, worldToTile } from '../world/grid';
 
-type Mode = 'none' | 'tool' | 'pan' | 'rotate' | 'gesture';
+type Mode = 'none' | 'tool' | 'pan' | 'rotate' | 'gesture' | 'placepan';
 
 export interface InputActions {
   setTool: (t: ToolId) => void;
@@ -86,6 +86,11 @@ export class InputController {
     if (e.pointerType === 'mouse' && e.button === 2) { this.mode = 'pan'; return; }
 
     const t = this.tool.active ? this.tileAt(e.clientX, e.clientY) : null;
+    // placing a building: drag the building itself to move it, drag anywhere else to move the map, tap to put it there
+    if (t && this.tool.placing && (e.pointerType !== 'mouse' || this.tool.hasPending) && !this.tool.onGhost(t)) {
+      this.mode = 'placepan';
+      return;
+    }
     if (t) {
       this.mode = 'tool';
       this.tool.begin(t);
@@ -108,7 +113,7 @@ export class InputController {
     if (this.actions.look?.(p.x - px, p.y - py)) return;
 
     switch (this.mode) {
-      case 'pan': this.cam.pan(px, py, p.x, p.y); break;
+      case 'pan': case 'placepan': this.cam.pan(px, py, p.x, p.y); break;
       case 'rotate': this.cam.rotate((p.x - px) * 0.008, false); break;
       case 'tool': {
         const t = this.tileAt(p.x, p.y);
@@ -130,6 +135,8 @@ export class InputController {
       // after a pinch, the remaining finger only pans (prevents accidental building)
       else if (this.pointers.size === 1) this.mode = 'pan';
       this.down.moved = true;
+    } else if (this.mode === 'placepan') {
+      if (!this.down.moved && e.type === 'pointerup') { const t = this.tileAt(e.clientX, e.clientY); if (t) this.tool.placeAt(t); }
     } else if (this.mode === 'pan' && !this.down.moved && e.type === 'pointerup' && (e.pointerType !== 'mouse' || e.button === 0)) {
       const tile = this.tileAt(e.clientX, e.clientY);
       this.actions.tap(tile, tile ? { x: this.tmp.x, z: this.tmp.z } : undefined);
