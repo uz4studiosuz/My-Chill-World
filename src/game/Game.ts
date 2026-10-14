@@ -172,6 +172,8 @@ export class Game implements ToolHost {
   private cityReport?: CityReport;
   /** Each town day by day (people, treasury, happiness) for the World window and the city report. */
   private worldHistory = new Map<number, { day: number; pop: number; money: number; happy: number }[]>();
+  /** Price of every good in every town, one value per day (the last 30 days). */
+  private priceHistory = new Map<number, Record<string, number[]>>();
   /** What happened between each neighbour town and the player: deals, gifts, letters (newest first). */
   private dealings = new Map<number, { day: number; text: string; money: number }[]>();
   private tradePanel?: TradePanel;
@@ -489,6 +491,12 @@ export class Game implements ToolHost {
         }
         sound.play('coin');
         this.refreshHud();
+      },
+      towns: () => [...this.eco.cities.values()].filter((c) => c.ai || c.id === this.eco.city.id).map((c) => ({ id: c.id, name: c.name, tint: c.tint ?? '#f2b33d', mine: !c.ai })),
+      history: (id, g) => {
+        const c = this.eco.cities.get(id);
+        const now = c ? Math.round(this.midPrice(c, g, this.life.populationByCity().get(id) ?? 0) * 10) / 10 : 0;
+        return [...(this.priceHistory.get(id)?.[g] ?? []), now];
       },
       carsTo: (id) => {
         const me = this.eco.city, town = this.eco.cities.get(id);
@@ -3141,7 +3149,23 @@ export class Game implements ToolHost {
       h.push({ day: this.eco.day, pop: pops.get(c.id) ?? 0, money: Math.round(c.money), happy: Math.round(c.happiness), work: this.buildings.list.reduce((a, b) => a + (b.city === c.id ? b.workers : 0), 0) } as { day: number; pop: number; money: number; happy: number });
       if (h.length > 90) h.shift();
       this.worldHistory.set(c.id, h);
+      // today's price of every good in this town
+      const ph = this.priceHistory.get(c.id) ?? {};
+      for (const g of GOODS) { const a = ph[g] ?? []; a.push(Math.round(this.midPrice(c, g, pops.get(c.id) ?? 0) * 10) / 10); if (a.length > 30) a.shift(); ph[g] = a; }
+      this.priceHistory.set(c.id, ph);
     }
+  }
+
+  /** How much of a good a town wants to keep (for its prices: below it the good is dear, above it cheap). */
+  private stockTarget(g: Good, people: number) {
+    const t: Record<Good, number> = { food: people * 4 + 40, wood: 80, stone: 80, iron: 30, coal: 30, planks: 20, bricks: 20, steel: 15, grain: 40, flour: 30, milk: 30, cotton: 30, garments: 20, furniture: 15 };
+    return t[g];
+  }
+
+  /** The going price of a good in a town: scarce is dear (up to ×1.7), plenty is cheap (down to ×0.55). */
+  private midPrice(c: City, g: Good, people: number) {
+    const ratio = c[g] / this.stockTarget(g, people);
+    return TRADE_PRICE[g] * Math.max(0.55, Math.min(1.7, 1.7 - 0.7 * ratio));
   }
 
   /** Every town on the map for the World window: what it is like, how it is doing and its news. */
@@ -3184,16 +3208,16 @@ export class Game implements ToolHost {
       const people = pops.get(c.id) ?? 0;
       const rel = c.relation ?? 40;
       // every good has its own price in every town: scarce is dear, plenty is cheap (friends get a better deal)
-      const target: Record<Good, number> = { food: people * 4 + 40, wood: 80, stone: 80, iron: 30, coal: 30, planks: 20, bricks: 20, steel: 15, grain: 40, flour: 30, milk: 30, cotton: 30, garments: 20, furniture: 15 };
+      const target = (g: Good) => this.stockTarget(g, people);
       const buys: { g: Good; price: number; room: number; ratio: number }[] = [];
       const sells: { g: Good; price: number; have: number }[] = [];
       for (const g of GOODS) {
-        const ratio = c[g] / target[g];
-        const factor = Math.max(0.55, Math.min(1.7, 1.7 - 0.7 * ratio));
+        const ratio = c[g] / target(g);
+        const mid = this.midPrice(c, g, people);
         const room = Math.floor(this.eco.capacity(c, g) - c[g]);
-        if (ratio < 2 && room >= 10) buys.push({ g, price: TRADE_PRICE[g] * factor * (1 + rel / 400), room, ratio });
-        const have = Math.floor(c[g] - target[g] * 1.2);
-        if (have >= 10) sells.push({ g, price: TRADE_PRICE[g] * factor * 1.1 * (1 - rel / 500), have });
+        if (ratio < 2 && room >= 10) buys.push({ g, price: mid * (1 + rel / 400), room, ratio });
+        const have = Math.floor(c[g] - target(g) * 1.2);
+        if (have >= 10) sells.push({ g, price: mid * 1.1 * (1 - rel / 500), have });
       }
       const wants = buys.filter((w) => w.ratio < 1).sort((a, b) => a.ratio - b.ratio).slice(0, 3);
       const offers = sells.slice().sort((a, b) => b.have - a.have).slice(0, 3);
@@ -3778,6 +3802,7 @@ export class Game implements ToolHost {
     this.trade.load(s.trade);
     for (const [id, h] of s.worldHistory ?? []) this.worldHistory.set(id, h);
     for (const [id, d] of s.dealings ?? []) this.dealings.set(id, d);
+    for (const [id, h] of s.priceHistory ?? []) this.priceHistory.set(id, h);
     this.pipes.rebuild();
     this.terrain.clearTiles(s.cleared);
     this.terrain.loadStumps(s.stumps);
@@ -3827,6 +3852,7 @@ export class Game implements ToolHost {
       trade: this.trade.save(),
       worldHistory: [...this.worldHistory.entries()],
       dealings: [...this.dealings.entries()],
+      priceHistory: [...this.priceHistory.entries()],
       terrain: { height: Array.from(this.map.height), water: Array.from(this.map.water) },
       cleared: this.terrain.clearedList(),
       stumps: this.terrain.stumpList(),

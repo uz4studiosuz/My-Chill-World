@@ -2,6 +2,7 @@ import { el, icon } from './dom';
 import { t } from '../i18n/i18n';
 import { GOODS, GOOD_NAME, Good, Trade } from '../game/Trade';
 import type { City } from '../sim/Economy';
+import { drawChart } from './Chart';
 
 export interface TradeHost {
   city(): City;
@@ -18,6 +19,10 @@ export interface TradeHost {
   carsTo(id: number): void;
   deal(id: number, g: Good, n: number, selling: boolean): void;
   gift(id: number): void;
+  /** Your town and the neighbour towns (for choosing whom to trade with). */
+  towns(): { id: number; name: string; tint: string; mine: boolean }[];
+  /** Daily price of a good in a town (oldest first, today last). */
+  history(id: number, g: Good): number[];
 }
 
 export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[];
@@ -28,6 +33,10 @@ export interface Neighbour { id: number; name: string; tint: string; people: num
 export class TradePanel {
   private root: HTMLDivElement;
   visible = false;
+  /** Whom you trade with: 'best' = everyone (best price for each good), or one town. */
+  private town: number | 'best' = 'best';
+  /** The good whose price chart is shown. */
+  private good: Good = 'food';
 
   constructor(parent: HTMLElement, private trade: Trade, private host: TradeHost) {
     this.root = el('div', 'respanel trade-panel');
@@ -68,9 +77,46 @@ export class TradePanel {
 
     const body = el('div', 'rp-body');
     const sec = (text: string) => { const s = el('div', 'rp-sec'); s.textContent = text; body.appendChild(s); };
+    const towns = this.host.neighbours();
+    const all = this.host.towns();
+    if (this.town !== 'best' && !towns.some((n) => n.id === this.town)) this.town = 'best';
+    // whom to trade with: everyone (best price) or one town
+    const pick = el('div', 'trade-towns');
+    const chip = (id: number | 'best', label: string, tint?: string) => {
+      const b = el('button', `trade-town${this.town === id ? ' active' : ''}`);
+      b.innerHTML = tint ? `<i style="background:${tint}"></i><span></span>` : `<span></span>`;
+      (b.querySelector('span') as HTMLElement).textContent = label;
+      b.addEventListener('click', () => { this.town = id; this.render(); });
+      pick.appendChild(b);
+    };
+    chip('best', t('Best price'));
+    for (const n of towns) chip(n.id, n.name, n.tint);
+    body.appendChild(pick);
+    // price chart of the chosen good: your town and the others, day by day
+    const sel = this.town === 'best' ? undefined : towns.find((n) => n.id === this.town);
+    const lines = all.filter((c) => c.mine || this.town === 'best' || c.id === this.town);
+    const chartBox = el('div', 'trade-chart');
+    const ch = el('div', 'trade-chart-head');
+    ch.innerHTML = `<b></b><span></span>`;
+    (ch.querySelector('b') as HTMLElement).textContent = t('Price of {good}', { good: t(GOOD_NAME[this.good]) });
+    const legend = ch.querySelector('span') as HTMLElement;
+    for (const c of lines) {
+      const v = this.host.history(c.id, this.good);
+      const now = v[v.length - 1] ?? 0;
+      const l = el('small', '');
+      l.innerHTML = `<i style="background:${c.mine ? '#f2b33d' : c.tint}"></i>`;
+      l.append(`${c.mine ? t('Your town') : c.name} $${now.toFixed(1)} ${this.trend(v)}`);
+      legend.appendChild(l);
+    }
+    const canvas = el('canvas', 'trade-canvas') as HTMLCanvasElement;
+    chartBox.append(ch, canvas);
+    body.appendChild(chartBox);
+    const hint = el('div', 'rp-note');
+    hint.textContent = t('Tap a good to see its price. A town pays more for what it has little of and sells cheap what it has a lot of.');
+    body.appendChild(hint);
+    if (sel) { this.townTable(body, sec, city, sel); this.finish(head, body, scroll, lines); return; }
     sec(t('Goods'));
     const table = el('div', 'trade-table');
-    const towns = this.host.neighbours();
     for (const g of GOODS) {
       const have = Math.floor(city[g]);
       const lot = g === 'food' ? 50 : 10;
@@ -91,6 +137,9 @@ export class TradePanel {
       name.innerHTML = `<b></b><small></small>`;
       (name.querySelector('b') as HTMLElement).textContent = t(GOOD_NAME[g]);
       (name.querySelector('small') as HTMLElement).textContent = t('{n} in stock', { n: have });
+      name.classList.add('pickable');
+      if (g === this.good) row.classList.add('picked');
+      name.addEventListener('click', () => { this.good = g; this.render(); });
       const offer = el('div', 'trade-offer');
       offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
       (offer.querySelector('.pos') as HTMLElement).textContent = `${t('Sell')} $${best.price.toFixed(1)}`;
@@ -185,8 +234,71 @@ export class TradePanel {
     const note = el('div', 'rp-note');
     note.textContent = t('You trade with the real neighbour towns on the map: they pay more for what they lack and sell what they have too much of. When no town needs a good, travelling merchants buy it at plain prices.') + ' ' + t('Today: sold ${a}, bought ${b}', { a: Math.round(this.trade.today.sold), b: Math.round(this.trade.today.bought) });
     body.appendChild(note);
+    this.finish(head, body, scroll, lines);
+  }
+
+  /** Price change over the last week, as a coloured arrow and percent. */
+  private trend(v: number[]) {
+    if (v.length < 2) return '';
+    const old = v[Math.max(0, v.length - 8)], now = v[v.length - 1];
+    if (!old) return '';
+    const p = Math.round(((now - old) / old) * 100);
+    return p > 0 ? `▲${p}%` : p < 0 ? `▼${-p}%` : '•';
+  }
+
+  /** Trading with one chosen town: its price for every good, the trend and buttons to sell to it or buy from it. */
+  private townTable(body: HTMLElement, sec: (s: string) => void, city: City, n: Neighbour) {
+    sec(t('Trade with {city}', { city: n.name }));
+    const info = el('div', 'nb-head');
+    info.innerHTML = `<i class="nb-dot"></i><b></b><small></small>`;
+    (info.querySelector('.nb-dot') as HTMLElement).style.background = n.tint;
+    (info.querySelector('b') as HTMLElement).textContent = n.name;
+    (info.querySelector('small') as HTMLElement).textContent = `${t('{n} people', { n: n.people })} · $${Math.round(n.money).toLocaleString('en-US')} · ${t('Relations')} ${Math.round(n.relation)}/100`;
+    const gift = el('button', 'btn-mini ghost');
+    gift.textContent = t('Gift: 50 food');
+    gift.disabled = city.food < 50;
+    gift.addEventListener('click', () => { this.host.gift(n.id); this.render(); });
+    info.appendChild(gift);
+    body.appendChild(info);
+    const table = el('div', 'trade-table');
+    for (const g of GOODS) {
+      const lot = g === 'food' ? 50 : 10;
+      const have = Math.floor(city[g]);
+      const buy = n.buys.find((x) => x.g === g);
+      const sell = n.sells.find((x) => x.g === g);
+      const v = this.host.history(n.id, g);
+      const row = el('div', `trade-row${g === this.good ? ' picked' : ''}`);
+      const name = el('div', 'trade-name pickable');
+      name.innerHTML = `<b></b><small></small>`;
+      (name.querySelector('b') as HTMLElement).textContent = t(GOOD_NAME[g]);
+      (name.querySelector('small') as HTMLElement).textContent = `${t('You: {n}', { n: have })} · ${this.trend(v) || '•'}`;
+      name.addEventListener('click', () => { this.good = g; this.render(); });
+      const offer = el('div', 'trade-offer');
+      offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
+      (offer.querySelector('.pos') as HTMLElement).textContent = buy ? `${t('They pay')} $${buy.price.toFixed(1)}` : t('They do not need it');
+      (offer.querySelector('small') as HTMLElement).textContent = sell ? t('They have {n} to sell', { n: sell.have }) : '';
+      (offer.querySelector('.neg') as HTMLElement).textContent = sell ? `${t('They ask')} $${sell.price.toFixed(1)}` : t('Nothing to sell');
+      const btns = el('div', 'trade-btns');
+      const mk = (label: string, cls: string, on: boolean, fn: () => void) => { const b = el('button', `btn-mini ${cls}`); b.textContent = label; b.disabled = !on; b.addEventListener('click', () => { fn(); this.render(); }); return b; };
+      btns.append(
+        mk(`−${lot}`, 'sell', !!buy && have >= lot && buy.room >= lot && n.money >= buy.price * lot, () => this.host.deal(n.id, g, lot, true)),
+        mk(`−${lot * 5}`, 'sell', !!buy && have >= lot * 5 && buy.room >= lot * 5 && n.money >= buy.price * lot * 5, () => this.host.deal(n.id, g, lot * 5, true)),
+        mk(`+${lot}`, 'buy', !!sell && sell.have >= lot && city.money >= sell.price * lot, () => this.host.deal(n.id, g, lot, false)),
+      );
+      row.append(name, offer, btns);
+      table.appendChild(row);
+    }
+    body.appendChild(table);
+    const note = el('div', 'rp-note');
+    note.textContent = t('Goods and money move between the treasuries at once; every deal makes you a little friendlier. Friends pay more and ask less.');
+    body.appendChild(note);
+  }
+
+  private finish(head: HTMLElement, body: HTMLElement, scroll: number, lines: { id: number; name: string; tint: string; mine: boolean }[]) {
     this.root.append(head, body);
     this.root.classList.add('show');
     body.scrollTop = scroll;
+    const canvas = body.querySelector('.trade-canvas') as HTMLCanvasElement | null;
+    if (canvas) drawChart(canvas, lines.map((c) => ({ label: c.mine ? t('Your town') : c.name, color: c.mine ? '#f2b33d' : c.tint, values: ((h) => (h.length === 1 ? [h[0], h[0]] : h))(this.host.history(c.id, this.good)) })), (v) => `$${v.toFixed(1)}`);
   }
 }

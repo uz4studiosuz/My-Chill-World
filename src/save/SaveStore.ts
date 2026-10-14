@@ -52,6 +52,8 @@ export interface WorldSave {
   trade?: { relation: number[] };
   worldHistory?: [number, { day: number; pop: number; money: number; happy: number }[]][];
   dealings?: [number, { day: number; text: string; money: number }[]][];
+  /** Price of every good in every town, one value per day. */
+  priceHistory?: [number, Record<string, number[]>][];
 }
 
 /** Multiple worlds: a small index + one key per world. */
