@@ -2710,4 +2710,5 @@ export const UZ: Record<string, string> = {
   "Family income": "Oila daromadi",
   "Bicycle": "Velosiped",
   "On foot": "Piyoda",
+  "Street lamps were put up along {n} road tiles": "{n} ta yo'l bo'lagiga ko'cha chiroqlari o'rnatildi",
 };

@@ -17,7 +17,7 @@ import { box, merge, shape } from '../utils/voxel';
 import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
-import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel } from '../sim/Calendar';
+import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel, calendarYear } from '../sim/Calendar';
 import { Population, Citizen, Family } from '../people/Population';
 import { clanName, firstName, townName } from '../people/names';
 import { sound } from '../audio/Sound';
@@ -376,6 +376,27 @@ export class Game implements ToolHost {
       say: () => { /* big neighbour news stay in the neighbours' chronicle */ },
       happiness: (id) => this.eco.cities.get(id)?.happiness ?? 50,
       linkRoad: (c) => this.linkTown(c),
+      lightRoads: (c, n) => {
+        // the town's unlit streets nearest its hall get lamps first
+        const hall = this.buildings.townHall(c.id);
+        if (!hall) return 0;
+        const tiles: { k: number; d: number }[] = [];
+        for (let z = hall.z - 30; z <= hall.z + 30; z++) for (let x = hall.x - 30; x <= hall.x + 30; x++) {
+          if (!inBounds(x, z)) continue;
+          const k = idx(x, z);
+          if (!this.net.type[k] || this.lights.lit[k]) continue;
+          if (this.buildings.halls().reduce((best, h) => (Math.abs(h.x - x) + Math.abs(h.z - z) < Math.abs(best.x - x) + Math.abs(best.z - z) ? h : best), hall).city !== c.id) continue;
+          tiles.push({ k, d: Math.abs(x - hall.x) + Math.abs(z - hall.z) });
+        }
+        tiles.sort((a, b) => a.d - b.d);
+        const pick = tiles.slice(0, n).map((x) => x.k);
+        const cost = pick.length * 15;
+        if (!pick.length || c.money < cost + 2000) return 0;
+        this.eco.add(c, 'money', -cost, 'Street lamps');
+        this.lights.setLit(pick, true);
+        this.networkChanged();
+        return pick.length;
+      },
       buyGoods: (c, g, n) => this.buyFromTowns(c, g, n).n,
       sellGoods: (c, g, n) => this.sellToTowns(c, g, n),
       richest: (id) => [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === id)
@@ -594,7 +615,7 @@ export class Game implements ToolHost {
     this.cityReport.onClose = () => { const s = this.selection; if (s?.type === 'building' && this.buildings.get(s.id)?.kind === 'townhall') this.select(null); };
     this.resPanel = new ResourcePanel(this.hud.root, (key) => this.resourceView(key));
     this.decision = new DecisionPanel(this.hud.root);
-    this.lifeBook = new LifeBook(this.hud.root, (d) => `${t(MONTHS[monthOf(d)])}, ${t('Year {n}', { n: yearOf(d) })}`);
+    this.lifeBook = new LifeBook(this.hud.root, (d) => dateLabel(d));
     this.petitions = new PetitionsPanel(this.hud.root, () => ({
       petitions: this.life.leisure.petitions, city: this.eco.active, day: this.eco.day,
       cityName: (id) => this.eco.cities.get(id)?.name ?? '',
@@ -2511,27 +2532,28 @@ export class Game implements ToolHost {
     const town = home ? this.cityOf(home) : this.eco.city;
     const hash = (n: number) => { let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) >>> 0; };
     // game year 1 is 2026; a person is born on a day of the month that stays the same
-    const dmy = (day: number, salt: number) => {
-      const m = (((day - 1 + 2) % 12) + 12) % 12, y = 2025 + Math.floor((day - 1 + 2) / 12) + 1;
-      return `${String(1 + (hash(c.id * 7 + salt) % 28)).padStart(2, '0')}.${String(m + 1).padStart(2, '0')}.${y}`;
-    };
-    const born = Math.round(this.eco.day - c.age * 12);
-    const issuedDay = c.age >= 16 ? born + 16 * 12 + Math.floor(Math.max(0, c.age - 16) / 10) * 120 : born + 12;
-    const expiresDay = issuedDay + (c.age >= 16 ? 120 : 60);
+    const dmy = (day: number, salt: number) =>
+      `${String(1 + (hash(c.id * 7 + salt) % 28)).padStart(2, '0')}.${String(monthOf(day) + 1).padStart(2, '0')}.${calendarYear(day)}`;
+    // the age is counted in months (one game day each): the birthday is that many months ago
+    const born = Math.floor(this.eco.day - c.age * 12);
+    const term = c.age >= 16 ? 120 : 60;
+    const firstDoc = c.age >= 16 ? born + 16 * 12 : born + 1;
+    const issuedDay = Math.min(this.eco.day, firstDoc + Math.floor(Math.max(0, this.eco.day - firstDoc) / term) * term);
+    const expiresDay = issuedDay + term;
     const firstPlace = c.story?.find((s) => s.p && typeof s.p.city === 'string')?.p?.city as string | undefined;
     const letters = (town.name.replace(/[^A-Za-z]/g, '').toUpperCase() + 'XX').slice(0, 2);
     const number = `${letters}${String(hash(c.id) % 10000000).padStart(7, '0')}`;
     const latin = (s: string) => s.normalize('NFD').replace(/[^A-Za-z]/g, '').toUpperCase();
     const mrz1 = `P<${latin(town.name).slice(0, 3).padEnd(3, '<')}${latin(f?.surname ?? '')}<<${latin(c.name)}`.padEnd(44, '<').slice(0, 44);
     const bd = dmy(born, 1).split('.');
-    const mrz2 = `${number}<${latin(town.name).slice(0, 3).padEnd(3, '<')}${bd[2].slice(2)}${bd[1]}${bd[0]}${c.sex === 'm' ? 'M' : 'F'}${dmy(expiresDay, 3).split('.').reverse().join('').slice(2)}`.padEnd(44, '<').slice(0, 44);
+    const mrz2 = `${number}<${latin(town.name).slice(0, 3).padEnd(3, '<')}${bd[2].slice(2)}${bd[1]}${bd[0]}${c.sex === 'm' ? 'M' : 'F'}${dmy(expiresDay, 2).split('.').reverse().join('').slice(2)}`.padEnd(44, '<').slice(0, 44);
     const female = c.sex !== 'm';
     const passport = {
       town: town.name, tint: town.tint ?? '#2f6b4f',
       photo: { skin: female ? SKIN[(c.variant - 3) % 4] ?? SKIN[0] : SKIN[c.variant % 4], cloth: female ? DRESSES[c.variant - 4] ?? DRESSES[0] : SHIRTS[c.variant] ?? SHIRTS[0], hair: female ? '#4a2c1a' : '#3a2a20', female },
       surname: f?.surname ?? '—', name: c.name, sex: c.sex === 'm' ? t('Male') : t('Female'),
       birth: dmy(born, 1), birthplace: firstPlace ?? town.name, number,
-      issued: dmy(issuedDay, 2), expires: dmy(expiresDay, 3), mrz: [mrz1, mrz2] as [string, string],
+      issued: dmy(issuedDay, 2), expires: dmy(expiresDay, 2), mrz: [mrz1, mrz2] as [string, string],
     };
     // ---- personal details ----
     const members = f ? this.pop.members(f) : [];
@@ -2945,7 +2967,7 @@ export class Game implements ToolHost {
 
   private dateText() {
     const m = monthOf(this.eco.day);
-    return `${t(MONTHS[m]).slice(0, 3)} · ${t('Year {n}', { n: yearOf(this.eco.day) })}`;
+    return `${t(MONTHS[m]).slice(0, 3)} ${calendarYear(this.eco.day)}`;
   }
 
   private refreshHud() {

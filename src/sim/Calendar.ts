@@ -3,9 +3,16 @@ import { t } from '../i18n/i18n';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** A game day as people read it: the month and the year ("March, Year 2"); one game day is one month. */
+/** The first year of every world is this calendar year (people's birthdays and documents count from it). */
+export const FIRST_YEAR = 2026;
+/** The calendar year of a game day (day 1 is March of FIRST_YEAR; days before it are the past). */
+export function calendarYear(day: number) {
+  return FIRST_YEAR - 1 + yearOf(day);
+}
+
+/** A game day as people read it: the month and the year ("March 2027"); one game day is one month. */
 export function dateLabel(day: number) {
-  return `${t(MONTH_NAMES[monthOf(day)])}, ${t('Year {n}', { n: yearOf(day) })}`;
+  return `${t(MONTH_NAMES[monthOf(day)])} ${calendarYear(day)}`;
 }
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
@@ -14,7 +21,7 @@ export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 const START_MONTH = 2;
 
 export function monthOf(day: number) {
-  return (day - 1 + START_MONTH) % DAYS_PER_YEAR;
+  return (((day - 1 + START_MONTH) % DAYS_PER_YEAR) + DAYS_PER_YEAR) % DAYS_PER_YEAR;
 }
 
 export function yearOf(day: number) {

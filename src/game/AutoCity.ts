@@ -35,6 +35,8 @@ export interface AutoHost {
   buyGoods(city: City, g: 'food' | 'wood' | 'stone' | 'iron', n: number): number;
   /** Sell a good to the other towns that lack it (returns how much went). */
   sellGoods(city: City, g: 'food' | 'wood' | 'stone' | 'iron', n: number): number;
+  /** Put street lamps on up to `n` unlit streets of the town (returns how many tiles got lamps). */
+  lightRoads(city: City, n: number): number;
 }
 
 /** The character of a town's mayor: what the town likes to build and how it spends its money. */
@@ -53,6 +55,23 @@ const STYLE_WISH: Record<TownStyle, BuildingKind[]> = {
   green: ['park', 'bigpark', 'fountain', 'windturbine', 'solarfarm', 'playground', 'recycling', 'bikefactory'],
   thrifty: ['bank', 'orchard', 'fishery', 'grocery'],
 };
+
+/**
+ * Everything a growing town builds in time, whatever its mayor: [kind, people needed, one more per this many people
+ * (0 = only one)]. The town picks what it lacks most and can place and afford.
+ */
+const LADDER: [BuildingKind, number, number][] = [
+  ['playground', 40, 120], ['bench', 40, 80], ['flowerbed', 45, 90], ['planter', 50, 100], ['fishery', 55, 0], ['kiosk', 60, 150],
+  ['ranch', 60, 200], ['flagpole', 60, 0], ['fountain', 65, 200], ['mill', 70, 0], ['sawmill', 70, 0], ['barber', 70, 200],
+  ['bakery', 80, 250], ['gazebo', 80, 250], ['landfill', 80, 0], ['bank', 90, 0], ['gasstation', 90, 250], ['brickworks', 100, 0],
+  ['dairy', 100, 0], ['ironmine', 100, 0], ['pond', 100, 300], ['carmarket', 110, 0], ['trainstation', 120, 0], ['hotel', 120, 300],
+  ['cinema', 120, 0], ['office', 120, 120], ['factory', 120, 250], ['coalmine', 120, 0], ['parking', 120, 150], ['statue', 120, 300],
+  ['bikefactory', 140, 0], ['solarfarm', 140, 250], ['clocktower', 150, 0], ['bigpark', 150, 400], ['hydro', 150, 0], ['school', 150, 150],
+  ['recycling', 160, 0], ['steelmill', 160, 0], ['supermarket', 160, 300], ['university', 160, 0], ['airport', 180, 0],
+  ['concerthall', 180, 0], ['coalplant', 180, 0], ['battery', 180, 0], ['military', 200, 0], ['stadium', 200, 0], ['casino', 200, 0],
+  ['carfactory', 200, 0], ['archway', 200, 0], ['police', 200, 200], ['academy', 220, 0], ['themepark', 260, 0], ['hospital', 300, 300],
+  ['firestation', 300, 300], ['market', 300, 300], ['warehouse', 300, 300],
+];
 
 /** What is happening in a town, for the World window. */
 export interface TownNews { day: number; text: string }
@@ -78,6 +97,8 @@ export class AutoCity {
   readonly popHistory = new Map<number, number[]>();
   readonly mood = new Map<number, TownMood>();
   private lastDay = -1;
+  /** Kinds a town could not place lately (no room, no mountain, no river…): city:kind → day it may try again. */
+  private noRoom = new Map<string, number>();
 
   /** Write into a town's chronicle (and, for big news, into the player's chronicle too). */
   note(city: City, text: string, loud = false) {
@@ -116,6 +137,11 @@ export class AutoCity {
     const style = this.styleOf(city);
     const people = this.h.people(city.id);
     const happy = this.h.happiness(city.id);
+    // tidy, lit streets once the town can afford them
+    if (people >= 40 && city.money > 3000 && Math.random() < 0.4) {
+      const n = this.h.lightRoads(city, 24);
+      if (n >= 6) this.note(city, t('Street lamps were put up along {n} road tiles', { n }));
+    }
     // a road to the neighbours: people can then work, shop and trade there
     if (people >= 25 && city.money > 2500 && Math.random() < 0.35) {
       const to = this.h.linkRoad(city);
@@ -220,15 +246,23 @@ export class AutoCity {
     const own = buildings.list.filter((b) => b.city === city.id && !b.removed);
     // one building site at a time (two when the town is rich): builders are few
     const sites = own.filter((b) => b.built < 1).length;
-    if (sites >= (city.money > 8000 ? 2 : 1)) return;
-    const want = this.need(city, own);
+    if (sites >= (city.money > 20000 ? 3 : city.money > 8000 ? 2 : 1)) return;
+    let want = this.need(city, own);
+    if (want && want !== 'roads' && this.blocked(city, want)) want = null;
+    // the basics are done: the next thing of everything a town has in time
+    if (!want) want = this.ladder(city, own);
     // nothing to build: a rich town lays new streets for the future
     if (!want) { if (city.money > 2500 && Math.random() < 0.3) this.growStreets(city, hall, own); return; }
     if (this.mood.get(city.id) === 'crisis' && want !== 'roads' && !ESSENTIAL.has(want)) return;
     if (want === 'roads') { this.growStreets(city, hall, own); return; }
     if (!this.afford(city, want, ESSENTIAL.has(want) ? 300 : 1500)) return;
     const spot = this.findSpot(want, hall, own);
-    if (!spot) { this.growStreets(city, hall, own); return; }
+    if (!spot) {
+      // no place for it now: try other things for a while, and make room with new streets
+      this.noRoom.set(`${city.id}:${want}`, this.h.eco.day + 4);
+      this.growStreets(city, hall, own);
+      return;
+    }
     if (!this.pay(city, want)) return;
     const b = buildings.place(want, spot.x, spot.z, { city: city.id });
     if (want === 'farm') this.h.digCanal(b);
@@ -299,6 +333,40 @@ export class AutoCity {
     if (jobs - staff < 4 && people >= 40) return people > 100 ? (style === 'industrial' ? 'factory' : 'office') : 'kiosk';
     if (free < 4 && city.money > 3000) return 'house';
     return null;
+  }
+
+  private blocked(city: City, kind: BuildingKind) { return (this.noRoom.get(`${city.id}:${kind}`) ?? -1) > this.h.eco.day; }
+
+  /**
+   * The next thing from everything a town builds in time: the cheapest of the few it lacks most (a bigger town has
+   * more of each), skipping what it could not place lately. A town with little money waits for the small things.
+   */
+  private ladder(city: City, own: Building[]): BuildingKind | null {
+    const people = this.h.people(city.id);
+    const count = (k: BuildingKind) => own.filter((b) => b.kind === k).length;
+    const has = (k: BuildingKind) => own.some((b) => b.kind === k && b.built >= 1);
+    const lacking: { k: BuildingKind; gap: number }[] = [];
+    for (const [k, min, per] of LADDER) {
+      // a rich town does not wait for the people: it builds ahead
+      const reach = people * (city.money > 20000 ? 1.8 : city.money > 9000 ? 1.35 : 1);
+      if (reach < min || this.blocked(city, k)) continue;
+      // chains first need what feeds them
+      if ((k === 'mill' || k === 'bakery') && !has('farm')) continue;
+      if (k === 'dairy' && !has('ranch')) continue;
+      if ((k === 'steelmill' || k === 'carfactory' || k === 'bikefactory') && !has('ironmine') && city.iron < 40) continue;
+      if (k === 'coalplant' && !has('coalmine')) continue;
+      if (k === 'brickworks' && !has('quarry')) continue;
+      if (k === 'sawmill' && !has('woodcutter')) continue;
+      const target = per ? 1 + Math.floor(Math.max(0, reach - min) / per) : 1;
+      const gap = target - count(k);
+      if (gap > 0) lacking.push({ k, gap });
+    }
+    if (!lacking.length) return null;
+    // a few of the most lacking, then the one the town can best afford
+    lacking.sort((a, b) => b.gap - a.gap || BUILDINGS[a.k].money - BUILDINGS[b.k].money);
+    const few = lacking.slice(0, 4);
+    const ok = few.filter((x) => this.afford(city, x.k, 1500));
+    return (ok.length ? ok[Math.floor(Math.random() * ok.length)] : few[0]).k;
   }
 
   /** Has the town the money and materials (it buys missing stone, wood and iron from traders)? */
