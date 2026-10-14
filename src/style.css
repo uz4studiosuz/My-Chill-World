@@ -1563,3 +1563,8 @@ button.chip:hover { background: var(--raised); }
 .pp-sign i { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Brush Script MT', 'Segoe Script', cursive; font-size: 17px; color: #22406e; }
 .pp-mrz { white-space: pre; font-family: 'OCR B', 'Consolas', 'Courier New', monospace; font-size: 10.5px; letter-spacing: .06em; line-height: 1.35;
   padding: 6px 12px 8px; background: rgba(255,255,255,.55); border-top: 1px dashed rgba(0,0,0,.15); overflow: hidden; color: #2a333c; position: relative; }
+
+/* newspaper: what the town needs */
+.news-needs { margin: 10px 0 4px; padding: 10px 12px; border-radius: 12px; background: rgba(242, 179, 61, .1); border: 1px solid rgba(242, 179, 61, .35); }
+.news-needs b { display: block; font-family: var(--font-display); font-size: 13px; color: #f2b33d; margin-bottom: 6px; }
+.news-needs ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12.5px; line-height: 1.35; }

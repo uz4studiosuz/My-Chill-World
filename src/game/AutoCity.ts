@@ -1,4 +1,4 @@
-import { BUILDINGS, BuildingKind, TRADE_PRICE } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, TRADE_PRICE, MAX_GRAVES_PER_CEMETERY } from '../buildings/BuildingTypes';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { City, Economy } from '../sim/Economy';
 import { ROAD_COST, ROAD_TWO_LANE, RoadNetwork } from '../roads/RoadNetwork';
@@ -35,6 +35,10 @@ export interface AutoHost {
   buyGoods(city: City, g: 'food' | 'wood' | 'stone' | 'iron', n: number): number;
   /** Sell a good to the other towns that lack it (returns how much went). */
   sellGoods(city: City, g: 'food' | 'wood' | 'stone' | 'iron', n: number): number;
+  /** Share of the waste water that is treated (1 = all). */
+  sanitation(cityId: number): number;
+  /** Add a plot to a cemetery (false: no room or no money). */
+  expandCemetery(b: Building): boolean;
   /** Put street lamps on up to `n` unlit streets of the town (returns how many tiles got lamps). */
   lightRoads(city: City, n: number): number;
 }
@@ -137,6 +141,14 @@ export class AutoCity {
     const style = this.styleOf(city);
     const people = this.h.people(city.id);
     const happy = this.h.happiness(city.id);
+    // when hands are short, the essentials get them first: food shops, power, water, fields and the hospital
+    for (const k of ['grocery', 'market', 'supermarket', 'powerplant', 'coalplant', 'hydro', 'watertower', 'farm', 'orchard', 'fishery', 'hospital', 'sewage', 'construction'])
+      city.jobPriority[k] = 'high';
+    // a cemetery filling up gets a new plot
+    for (const b of buildings.list) {
+      if (b.city !== city.id || b.kind !== 'cemetery' || b.built < 1 || b.removed) continue;
+      if ((b.graves?.length ?? 0) >= MAX_GRAVES_PER_CEMETERY * b.level * 0.8 && city.money > 2000 && this.h.expandCemetery(b)) this.note(city, t('The cemetery was extended'));
+    }
     // tidy, lit streets once the town can afford them
     if (people >= 40 && city.money > 3000 && Math.random() < 0.4) {
       const n = this.h.lightRoads(city, 24);
@@ -288,7 +300,28 @@ export class AutoCity {
     const demand = own.reduce((a, b) => a + BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1), 0);
     if (!count('construction')) return 'construction';
     if (towers * BUILDINGS.watertower.water < people + 20) return 'watertower';
-    if (plants < demand * 1.15 + 6) return city.iron >= 20 && city.money > 1500 ? 'windturbine' : 'powerplant';
+    const building = own.filter((b) => b.built < 1 && BUILDINGS[b.kind].power).reduce((a, b) => a + BUILDINGS[b.kind].power, 0);
+    if (plants < demand * 1.15 + 6 || (city.energyCapacity + building * 0.7 < city.energyDemand * 1.15 + 4)) {
+      const shortHands = jobs - staff > 6;
+      if (!shortHands && count('coalmine') && city.coal > 20 && !this.blocked(city, 'coalplant') && city.money > 3000) return 'coalplant';
+      if (city.money > 1500 || city.iron >= 20 || shortHands) {
+        // sun by day, wind and batteries for the night
+        if (count('solarfarm') >= 2 && count('battery') < Math.ceil(count('solarfarm') / 2)) return 'battery';
+        return count('solarfarm') < count('windturbine') && !this.blocked(city, 'solarfarm') ? 'solarfarm' : 'windturbine';
+      }
+      return 'powerplant';
+    }
+    if (count('solarfarm') >= 2 && count('battery') < Math.ceil(count('solarfarm') / 2) && city.money > 2500) return 'battery';
+    // waste water: one treatment plant for every 300 people over the first 60
+    if (people > 60 && count('sewage') < Math.ceil((people - 60) / 300) && this.h.sanitation(city.id) < 0.98) return 'sewage';
+    // fuel and materials for what the town already runs
+    if (count('powerplant') && city.wood < 30 && count('woodcutter') < 3) return 'woodcutter';
+    if (count('coalplant') && city.coal < 20 && !count('coalmine') && !this.blocked(city, 'coalmine')) return 'coalmine';
+    if ((count('steelmill') || count('carfactory') || count('bikefactory')) && city.iron < 20 && !count('ironmine') && !this.blocked(city, 'ironmine')) return 'ironmine';
+    // garbage and graves
+    if (people >= 60 && count('landfill') + count('recycling') < 1 + Math.floor(people / 350)) return people >= 220 && !count('recycling') ? 'recycling' : 'landfill';
+    const graves = own.filter((b) => b.kind === 'cemetery' && b.built >= 1);
+    if (graves.length && graves.every((b) => (b.graves?.length ?? 0) >= MAX_GRAVES_PER_CEMETERY * b.level * 0.95) && own.every((b) => b.kind !== 'cemetery' || b.built >= 1)) return 'cemetery';
     // food: enough fields for what the people eat (winter stores come from the harvest)
     const fy = city.foodYesterday;
     const short = fy.eaten > fy.made * 1.1 || city.food < people * 4;
@@ -346,7 +379,12 @@ export class AutoCity {
     const count = (k: BuildingKind) => own.filter((b) => b.kind === k).length;
     const has = (k: BuildingKind) => own.some((b) => b.kind === k && b.built >= 1);
     const lacking: { k: BuildingKind; gap: number }[] = [];
+    // too few hands already: no new workplaces until more families have come
+    let jobs = 0, staff = 0;
+    for (const b of own) { jobs += BUILDINGS[b.kind].jobs; staff += b.workers; }
+    const shortHands = jobs - staff > 8;
     for (const [k, min, per] of LADDER) {
+      if (shortHands && BUILDINGS[k].jobs > 0) continue;
       // a rich town does not wait for the people: it builds ahead
       const reach = people * (city.money > 20000 ? 1.8 : city.money > 9000 ? 1.35 : 1);
       if (reach < min || this.blocked(city, k)) continue;

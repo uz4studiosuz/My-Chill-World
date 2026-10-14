@@ -15,6 +15,8 @@ export interface NewsIssue {
   popChange: number;
   money: number;
   moneyChange: number;
+  /** What the town needs next (advice for the mayor). */
+  needs?: string[];
 }
 
 /**
@@ -111,7 +113,21 @@ export class Newspaper {
     next.disabled = this.index === 0;
     next.addEventListener('click', () => { this.index--; this.render(); });
     nav.append(prev, count, next);
-    this.root.append(head, h, list, facts, nav);
+    this.root.append(head, h, list, facts);
+    if (n.needs?.length) {
+      const box = el('div', 'news-needs');
+      const tt = el('b', '');
+      tt.textContent = t('What the town needs');
+      const ul = el('ul', '');
+      for (const s of n.needs.slice(0, 6)) {
+        const li = el('li', '');
+        li.textContent = s;
+        ul.appendChild(li);
+      }
+      box.append(tt, ul);
+      this.root.appendChild(box);
+    }
+    this.root.appendChild(nav);
     this.root.classList.add('show');
   }
 

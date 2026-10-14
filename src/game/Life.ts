@@ -105,6 +105,9 @@ export const PROMISE_TEXT: Record<PromiseKind, string> = {
  * Everyday life: schedules, commuting by car or on foot (sidewalks, zebra crossings), work behaviour,
  * production, the power grid, water, needs, fires and the end-of-day settlement.
  */
+/** People one sewage treatment plant serves. */
+export const SEWAGE_PER_PLANT = 300;
+
 export class Life {
   readonly graph: PedGraph;
   private spots = new Map<string, number>();
@@ -125,6 +128,8 @@ export class Life {
   homeWater = new Map<number, number>();
   /** Share of people whose sewage is treated, per city. */
   sanitation = new Map<number, number>();
+  /** People a town's waste water system can take, and how many it has. */
+  sewageCap = new Map<number, { people: number; treated: number }>();
   /** Today's special weather. */
   weatherMood: WeatherMood = 'clear';
   /** Extra happiness from the town hall's decisions (value, until day), per city. */
@@ -521,7 +526,8 @@ export class Life {
         if (d.power && (b.access >= 0 || !d.needsRoad)) {
           if (CLEAN_POWER[b.kind]) {
             const sun = b.kind === 'hydro' ? 1 : b.kind === 'solarfarm' ? (eco.timeOfDay > 0.25 && eco.timeOfDay < 0.78 ? 1 : 0.1) : 0.7 + 0.3 * Math.sin(eco.day * 1.7 + eco.timeOfDay * 9);
-            const p = d.power * Math.max(0.6, Math.min(1, b.workers / d.jobs)) * sun;
+            // wind and sun need nobody; a dam runs better with its staff
+            const p = d.power * (d.jobs ? Math.max(0.6, Math.min(1, b.workers / d.jobs)) : 1) * sun;
             b.output = p;
             capacity += p;
             clean += p;
@@ -1856,12 +1862,16 @@ export class Life {
     if (total) eco.add(city, 'money', -total, 'Pensions');
   }
 
-  /** Bigger towns need a sewage plant; without one the water gets dirty and people fall ill. */
+  /**
+   * Waste water: cesspits are enough for the first 60 people; above that every staffed (and powered) treatment plant
+   * cleans the water of SEWAGE_PER_PLANT more. What is left untreated makes people ill and unhappy.
+   */
   private sewage(city: City, own: Building[], belongs: (f: Family) => boolean) {
     const { pop } = this.c;
     const n = [...pop.families.values()].filter(belongs).reduce((a, f) => a + f.members.length, 0);
-    const plants = own.filter((b) => b.kind === 'sewage' && b.workers > 0).length;
-    const san = n <= 60 ? 1 : Math.min(1, (plants * 600) / n + Math.max(0, 1 - (n - 60) / 200));
+    const plants = own.filter((b) => b.kind === 'sewage' && b.built >= 1 && b.workers > 0).reduce((a, b) => a + Math.min(1, b.workers / BUILDINGS.sewage.jobs) * (b.powered ? 1 : 0.5), 0);
+    const san = n <= 60 ? 1 : Math.min(1, (60 + plants * SEWAGE_PER_PLANT) / n);
+    this.sewageCap.set(city.id, { people: n, treated: Math.round(60 + plants * SEWAGE_PER_PLANT) });
     this.sanitation.set(city.id, san);
     if (san >= 0.99) return;
     for (const f of pop.families.values()) {

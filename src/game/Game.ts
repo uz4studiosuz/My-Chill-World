@@ -376,6 +376,8 @@ export class Game implements ToolHost {
       say: () => { /* big neighbour news stay in the neighbours' chronicle */ },
       happiness: (id) => this.eco.cities.get(id)?.happiness ?? 50,
       linkRoad: (c) => this.linkTown(c),
+      sanitation: (id) => this.life.sanitation.get(id) ?? 1,
+      expandCemetery: (b) => !!this.upgradeCemetery(b),
       lightRoads: (c, n) => {
         // the town's unlit streets nearest its hall get lamps first
         const hall = this.buildings.townHall(c.id);
@@ -2482,10 +2484,10 @@ export class Game implements ToolHost {
     this.hud?.toast(t('Choose a new place for the {name}', { name: t(BUILDINGS[b.kind].name) }));
   }
 
-  private upgradeCemetery(b: Building) {
+  private upgradeCemetery(b: Building): boolean | void {
     const city = this.cityOf(b);
     const u = CEMETERY_UPGRADE;
-    if (b.level >= u.maxLevel || b.built < 1) return;
+    if (b.level >= u.maxLevel || b.built < 1) return false;
     const m = u.money * b.level, s = u.stone * b.level, w = u.wood * b.level;
     if (city.money < m || city.stone < s || city.wood < w) return this.hud?.toast(t('Needs {cost}', { cost: costText(m, s, w) }));
     this.eco.add(city, 'money', -m, 'Cemetery expansion'); this.eco.add(city, 'stone', -s, 'Cemetery expansion'); this.eco.add(city, 'wood', -w, 'Cemetery expansion');
@@ -2504,8 +2506,9 @@ export class Game implements ToolHost {
     this.buildings.setLevel(b, b.level + 1);
     this.networkChanged();
     this.effects.puff(b.mesh.position.x, b.mesh.position.z, 1, 16, ['#bdb7aa', '#8c8a87', '#4f8a3a']);
-    this.hud?.toast(t('Cemetery upgraded — it now holds {n} graves', { n: GRAVES_PER_PLOT * b.level }));
+    if (!city.ai) this.hud?.toast(t('Cemetery upgraded — it now holds {n} graves', { n: GRAVES_PER_PLOT * b.level }));
     this.refreshInspector();
+    return true;
   }
 
   /** The game day a person was born (their age is counted in months, one game day each). */
@@ -4248,14 +4251,73 @@ export class Game implements ToolHost {
     if (city.happiness < 45) problems.push(t('people are leaving'));
     if (city.pollution > 1.5) problems.push(t('Smog'));
     if (!snap.freeHomes) problems.push(t('No free homes'));
+    const needs = this.townNeeds(city);
     const headline = stories.find((s) => /murder|o'ldir|fire|olov|mayor|mer|Navruz|Year|yil|train|poyezd/i.test(s)) ?? stories[0] ?? t('A quiet day in {city}', { city: city.name });
     this.news?.show({
       date: this.dateText(), city: city.name, headline, stories: stories.filter((s) => s !== headline),
       richest: richest ? `${t('{name} family', { name: richest.surname })} · $${Math.round(richest.money).toLocaleString('en-US')}` : '—',
-      problem: problems[0] ?? t('None — the city is doing well'),
+      problem: problems[0] ?? needs[0] ?? t('None — the city is doing well'),
+      needs,
       population: pop, popChange: pop - (this.yesterday.pop || pop), money: city.money, moneyChange: city.money - (this.yesterday.money || city.money),
     });
     this.yesterday = { pop, money: city.money };
+  }
+
+  /**
+   * What a town needs next, most urgent first: power, water, food, waste water, homes or workers, and the missing
+   * links of its production chains ("the bakery needs flour: build a flour mill").
+   */
+  townNeeds(city: City): string[] {
+    const own = this.buildings.list.filter((b) => b.city === city.id && !b.removed);
+    const built = own.filter((b) => b.built >= 1);
+    const has = (k: BuildingKind) => built.some((b) => b.kind === k);
+    const count = (k: BuildingKind) => own.filter((b) => b.kind === k).length;
+    const pop = this.life.populationByCity().get(city.id) ?? 0;
+    const out: string[] = [];
+    const say = (s: string, p: Record<string, string | number> = {}) => out.push(t(s, p));
+    // power
+    if (city.energyDemand > city.energyCapacity + 0.5) say('Power is short by {n}: build a power plant, wind turbines or a solar farm', { n: kw(city.energyDemand - city.energyCapacity) });
+    else if (city.energyDemand > city.energyCapacity * 0.85 && pop > 20) say('Power is nearly used up ({a} of {b}): build more before the town grows', { a: kw(city.energyDemand), b: kw(city.energyCapacity) });
+    if (count('solarfarm') >= 2 && !count('battery')) say('Solar farms are dark at night: a battery storage keeps the lights on');
+    if (has('coalplant') && city.coal < 10 && !has('coalmine')) say('The coal power plant has no coal: build a coal mine');
+    if (has('powerplant') && city.wood < 10) say('The wood power plant is out of wood: build a woodcutter');
+    // water and waste water
+    if (city.water < 0.99) say('Not enough water: build a water tower');
+    const sew = this.life.sewageCap.get(city.id);
+    if (sew && sew.people > sew.treated) say('Waste water of {n} people is not treated: build a sewage treatment plant', { n: sew.people - sew.treated });
+    // food
+    if (pop && city.food < pop * 3) say('Food is running low: build farms, an orchard or a fishery');
+    if (pop >= 25 && !has('grocery') && !has('market') && !has('supermarket')) say('People cannot buy food: build a grocery store');
+    // homes and workers
+    const free = this.life.freeHomes(city.id).length;
+    const jobs = built.reduce((a, b) => a + BUILDINGS[b.kind].jobs, 0), staff = built.reduce((a, b) => a + b.workers, 0);
+    const jobless = [...this.pop.citizens.values()].filter((c) => this.buildings.get(this.pop.families.get(c.family)?.home ?? -1)?.city === city.id && this.pop.canWork(c) && c.job < 0).length;
+    if (jobs - staff >= 4) say('{n} jobs are empty: more people are needed — build homes so families move in', { n: jobs - staff });
+    if (!free) say('No free homes: build houses or apartment blocks');
+    if (jobless >= 3) say('{n} people are looking for work: build workplaces', { n: jobless });
+    // production chains: what each one is missing
+    if (has('bakery') && !has('mill')) say('The bakery needs flour: build a flour mill');
+    if (has('mill') && !own.some((b) => b.kind === 'farm' && (b.cropKind ?? 'wheat') === 'wheat')) say('The flour mill needs grain: sow wheat on a field');
+    if (has('mill') && !has('bakery')) say('There is flour: build a bakery for fresh bread');
+    if (has('dairy') && !has('ranch')) say('The dairy needs milk: build a ranch');
+    if (has('ranch') && !own.some((b) => b.kind === 'farm' && b.cropKind === 'corn')) say('Cattle give more milk with feed: sow corn on a field');
+    if (has('clothes') && city.cotton < 5 && !has('factory')) say('The clothing store sells more with cotton: sow cotton and build a factory');
+    if (has('sawmill') && !has('woodcutter')) say('The sawmill needs logs: build a woodcutter');
+    if (has('brickworks') && !has('quarry')) say('The brickworks needs stone: build a stone quarry');
+    if ((has('steelmill') || has('carfactory') || has('bikefactory')) && city.iron < 10 && !has('ironmine')) say('The factories need iron: build an iron mine');
+    if (city.wood < 30 && !has('woodcutter')) say('Wood is running out: build a woodcutter');
+    if (city.stone < 30 && !has('quarry')) say('Stone is running out: build a stone quarry');
+    // services
+    if (pop >= 60 && !count('landfill') && !count('recycling')) say('Garbage piles up: build a landfill');
+    const full = built.filter((b) => b.kind === 'cemetery').every((b) => (b.graves?.length ?? 0) >= MAX_GRAVES_PER_CEMETERY * b.level * 0.85);
+    if (has('cemetery') && full) say('The cemetery is almost full: expand it or build a new one');
+    if (pop >= 60 && !has('cemetery')) say('There is no cemetery: build one');
+    if (pop >= 35 && !has('school')) say('Children need a school');
+    if (pop >= 90 && !has('hospital')) say('The sick have nowhere to go: build a hospital');
+    if (pop >= 70 && !has('police')) say('Build a police station to keep the town safe');
+    if (pop >= 100 && !has('firestation')) say('Build a fire station before a fire spreads');
+    if (city.happiness < 50) say('People are unhappy: parks, decorations and shops make them happier');
+    return out;
   }
 
   /** Score for the records table. */
