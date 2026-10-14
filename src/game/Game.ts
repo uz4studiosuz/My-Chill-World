@@ -2513,12 +2513,13 @@ export class Game implements ToolHost {
     if (e.city.ai) { const mine = [...e.cities.values()].find((c) => !c.ai); if (mine) e.active = mine.id; }
     // never rebuild a panel while the player is pressing one of its buttons
     const busy = uiBusy();
+    this.petitionTick++;
     this.hud?.setBadge('mail', this.life.leisure.petitions.filter((p) => p.state === 'open' && p.city === this.eco.active).length);
-    if (this.petitions?.visible && ++this.petitionTick % 12 === 0 && !busy) this.petitions.render();
-    if (this.resPanel?.visible && this.petitionTick++ % 4 === 0 && !busy) this.resPanel.render();
-    if (this.tradePanel?.visible && this.petitionTick % 8 === 0 && !busy) this.tradePanel.render();
+    if (this.petitions?.visible && this.petitionTick % 12 === 0 && !busy) this.petitions.render();
+    if (this.resPanel?.visible && this.petitionTick % 4 === 0 && !busy) this.resPanel.render();
+    if (this.tradePanel?.visible && this.petitionTick % 4 === 0 && !busy) this.tradePanel.render();
     if (this.worldPanel?.visible && this.petitionTick % 12 === 0 && !busy) this.worldPanel.render();
-    if (this.cityReport?.visible && this.petitionTick % 12 === 0 && !busy) this.cityReport.render();
+    if (this.cityReport?.visible && this.petitionTick % 4 === 0 && !busy) this.cityReport.render();
     const mine = (c: Citizen) => this.cityOfCitizen(c) === e.active;
     const counts = this.pop.counts(mine);
     this.hud!.setStats({
@@ -2981,6 +2982,7 @@ export class Game implements ToolHost {
     const tabs: CityReportView['tabs'] = [];
     const overview: ReportSection[] = [
       { title: t('Key figures'), kpis: [
+        [t('Mayor'), this.pop.citizens.get(city.mayor) ? `${this.pop.citizens.get(city.mayor)!.name} ${this.pop.families.get(this.pop.citizens.get(city.mayor)!.family)?.surname ?? ''}` : '—', ''],
         [t('People'), n(pop), t('{n} families', { n: fams.length })],
         [t('Households'), `${fams.length}/${units}`, t('{n} free homes', { n: Math.max(0, units - fams.length) }), units > fams.length],
         [t('Homes'), n(homes.length), t('{a} houses · {b} apartment blocks', { a: homes.filter((b) => b.kind === 'house').length, b: homes.filter((b) => BUILDINGS[b.kind].units > 1).length })],
@@ -2996,6 +2998,17 @@ export class Game implements ToolHost {
       { title: t('Treasury'), chart: { series: [series(t('Treasury'), '#f2b33d', hist.map((h) => h.money))], format: 'money' } },
       { title: t('Happiness'), chart: { series: [series(t('Happiness'), '#f28cb8', hist.map((h) => h.happy))], format: 'pct' } },
       { title: t('Why people feel this way'), bars: city.mood.filter(([k]) => k !== 'Base mood').map(([k, v]) => [t(k), v, v >= 0 ? '#7be08f' : '#ff7a6e', `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`] as [string, number, string, string]) },
+      { title: t('City status'), rows: ([
+        ...(city.money < 0 ? [[t('The treasury is in debt — 8 months of debt means bankruptcy!'), '—', 'bad' as const]] : []),
+        ...(city.powered < 0.8 ? [[t('Power shortage — power plants need workers, wood and a road link'), '—', 'bad' as const]] : []),
+        ...(city.wood < 15 ? [[t('Wood is running out — build woodcutters near forests'), '—', 'bad' as const]] : []),
+        ...(city.food < pop * 2 ? [[t('Food is low — people will starve. Build and irrigate farms'), '—', 'bad' as const]] : []),
+        ...(city.water < 0.99 ? [[t('Not enough drinking water — build a water tower'), '—', 'bad' as const]] : []),
+        ...(units <= fams.length ? [[t('No free homes — build houses so families can grow'), '—', 'bad' as const]] : []),
+        ...(!built.some((b) => b.kind === 'weddinghall') ? [[t('No Wedding Hall — young people cannot marry'), '—', 'bad' as const]] : []),
+        ...(counts.boys + counts.girls > 0 && !built.some((b) => b.kind === 'school') ? [[t('Children have no school'), '—', 'bad' as const]] : []),
+        ...((city.money >= 0 && city.powered >= 0.8 && city.wood >= 15 && city.food >= pop * 2 && city.water >= 0.99 && units > fams.length) ? [[t('Everything runs smoothly — new families keep arriving'), '✓', 'good' as const]] : []),
+      ] as [string, string, ('good' | 'bad')?][]) },
     ];
     tabs.push({ id: 'overview', label: t('Overview'), sections: overview });
     tabs.push({ id: 'utilities', label: t('Electricity, water, food'), sections: [
@@ -3150,6 +3163,46 @@ export class Game implements ToolHost {
       return { title: t(label), rows: [...(sec[0].rows ?? []), ...top.map(([k, v]) => [`· ${t(k)}`, `${v >= 0 ? '+' : '−'}${n(Math.abs(v))}`, v >= 0 ? 'good' : 'bad'] as [string, string, ('good' | 'bad')?])] } as ReportSection;
     }) });
     if (!city.ai) {
+      const sp = this.statPages(city, own);
+      if (sp.production?.length) {
+        tabs.push({ id: 'production', label: t('Production'), sections: sp.production as ReportSection[] });
+      }
+      const rc = this.net.counts(this.map.water);
+      tabs.push({ id: 'traffic', label: t('Traffic'), sections: [
+        { title: t('Traffic'), kpis: [
+          [t('Cars driving'), n(this.traffic.count('car')), t('{n} parked', { n: this.life.parkedCars().length })],
+          [t('Pedestrians'), n(this.walkers.list.length), t('walking now')],
+          [t('Trucks'), n(this.traffic.count('truck')), ''],
+          [t('Traffic lights'), n(this.traffic.signalCount), t('junctions')],
+        ] },
+        { title: t('Network'), rows: [
+          [t('Road tiles'), n(rc.total)],
+          [t('Bridges'), n(rc.bridges)],
+          [t('Roundabouts'), n(this.net.roundabouts.length)],
+          [t('Footpaths'), n(this.footpaths.count())],
+          [t('Canals'), n(this.canals.count())],
+        ] },
+      ] });
+      const cows = this.animals.list.filter((a) => a.kind === 0).length;
+      const sheep = this.animals.list.filter((a) => a.kind === 1).length;
+      const herds = new Set(this.animals.list.map((a) => `${a.kind}:${Math.round(a.herdX)}:${Math.round(a.herdZ)}`)).size;
+      tabs.push({ id: 'nature', label: t('Nature'), sections: [
+        { title: t('Nature'), kpis: [
+          [t('Cows'), n(cows), t('{n} herds', { n: herds })],
+          [t('Sheep'), n(sheep), ''],
+          [t('Trees'), n(this.terrain.trees.size), t('felled trees regrow')],
+          [t('Ranches'), n(own.filter((b) => b.kind === 'ranch').length), t('cattle for food')],
+        ] },
+        { title: t('Wild animals'), bars: [[t('Cows'), cows, '#f2b33d', `${cows}`], [t('Sheep'), sheep, '#e8e4da', `${sheep}`]] },
+      ] });
+      if (this.eco.cities.size > 1) {
+        const pops = this.life.populationByCity();
+        tabs.push({ id: 'cities', label: t('Cities'), sections: [
+          { title: t('All cities'), rows: [...this.eco.cities.values()].map((c) => [
+            c.name, `${pops.get(c.id) ?? 0} ${t('people')} · $${n(Math.round(c.money))} · ${Math.round(c.happiness)}%`, c.id === id ? 'good' : undefined
+          ] as [string, string, ('good' | 'bad')?]) },
+        ] });
+      }
       tabs.push({ id: 'statistics', label: t('Statistics'), embed: 'stats' }, { id: 'market', label: t('Trade window'), embed: 'trade' });
     }
     return { title: `${city.name}${city.ai ? ` · ${t('Neighbour town')}` : ''}`, subtitle: `${t('Day {n}', { n: this.eco.day })} · ${t('{n} people', { n: pop })} · ${t('{n} families', { n: fams.length })}`, tabs };

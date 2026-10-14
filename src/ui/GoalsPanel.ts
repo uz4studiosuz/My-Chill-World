@@ -40,6 +40,7 @@ export class GoalsPanel {
   }
 
   render() {
+    const scroll = this.body.scrollTop;
     const c = this.ctx();
     this.body.replaceChildren();
     const done = GOALS.filter((g) => this.goals.done.has(g.id)).length;
@@ -64,5 +65,7 @@ export class GoalsPanel {
       row.append(top, track);
       this.body.appendChild(row);
     }
+    this.body.scrollTop = scroll;
+    requestAnimationFrame(() => { if (this.visible && scroll > 0) this.body.scrollTop = scroll; });
   }
 }

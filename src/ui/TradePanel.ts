@@ -37,6 +37,7 @@ export class TradePanel {
   private town: number | 'best' = 'best';
   /** The good whose price chart is shown. */
   private good: Good = 'food';
+  private savedScroll = 0;
 
   constructor(parent: HTMLElement, private trade: Trade, private host: TradeHost) {
     this.root = el('div', 'respanel trade-panel');
@@ -57,7 +58,9 @@ export class TradePanel {
     if (!this.visible) return;
     const city = this.host.city();
     const linked = this.host.linked();
-    const scroll = this.root.querySelector('.rp-body')?.scrollTop ?? 0;
+    const oldBody = this.root.querySelector('.rp-body') as HTMLElement | null;
+    if (oldBody && oldBody.scrollTop > 0) this.savedScroll = oldBody.scrollTop;
+    const scroll = this.savedScroll;
     this.root.replaceChildren();
     const head = el('div', 'rp-head');
     head.innerHTML = `<span class="rp-ic">${icon('globe')}</span>`;
@@ -76,6 +79,7 @@ export class TradePanel {
     head.append(titles, x);
 
     const body = el('div', 'rp-body');
+    body.addEventListener('scroll', () => { if (body.scrollTop > 0) this.savedScroll = body.scrollTop; }, { passive: true });
     const sec = (text: string) => { const s = el('div', 'rp-sec'); s.textContent = text; body.appendChild(s); };
     const towns = this.host.neighbours();
     const all = this.host.towns();
@@ -139,7 +143,12 @@ export class TradePanel {
       (name.querySelector('small') as HTMLElement).textContent = t('{n} in stock', { n: have });
       name.classList.add('pickable');
       if (g === this.good) row.classList.add('picked');
-      name.addEventListener('click', () => { this.good = g; this.render(); });
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('.btn-mini')) return;
+        this.good = g;
+        this.render();
+      });
       const offer = el('div', 'trade-offer');
       offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
       (offer.querySelector('.pos') as HTMLElement).textContent = `${t('Sell')} $${best.price.toFixed(1)}`;
@@ -268,11 +277,16 @@ export class TradePanel {
       const sell = n.sells.find((x) => x.g === g);
       const v = this.host.history(n.id, g);
       const row = el('div', `trade-row${g === this.good ? ' picked' : ''}`);
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('.btn-mini')) return;
+        this.good = g;
+        this.render();
+      });
       const name = el('div', 'trade-name pickable');
       name.innerHTML = `<b></b><small></small>`;
       (name.querySelector('b') as HTMLElement).textContent = t(GOOD_NAME[g]);
       (name.querySelector('small') as HTMLElement).textContent = `${t('You: {n}', { n: have })} · ${this.trend(v) || '•'}`;
-      name.addEventListener('click', () => { this.good = g; this.render(); });
       const offer = el('div', 'trade-offer');
       offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
       (offer.querySelector('.pos') as HTMLElement).textContent = buy ? `${t('They pay')} $${buy.price.toFixed(1)}` : t('They do not need it');
@@ -298,6 +312,7 @@ export class TradePanel {
     this.root.append(head, body);
     this.root.classList.add('show');
     body.scrollTop = scroll;
+    requestAnimationFrame(() => { if (this.visible && scroll > 0) body.scrollTop = scroll; });
     const canvas = body.querySelector('.trade-canvas') as HTMLCanvasElement | null;
     if (canvas) drawChart(canvas, lines.map((c) => ({ label: c.mine ? t('Your town') : c.name, color: c.mine ? '#f2b33d' : c.tint, values: ((h) => (h.length === 1 ? [h[0], h[0]] : h))(this.host.history(c.id, this.good)) })), (v) => `$${v.toFixed(1)}`);
   }

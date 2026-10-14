@@ -1435,12 +1435,15 @@ button.chip:hover { background: var(--raised); }
 .trade-town { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font-size: 12px; font-weight: 700; cursor: pointer; }
 .trade-town i { width: 9px; height: 9px; border-radius: 50%; }
 .trade-town.active { background: var(--accent); color: #1d1a14; border-color: var(--accent); }
-.trade-chart { background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-.trade-chart-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 12px; }
-.trade-chart-head span { display: flex; flex-wrap: wrap; gap: 4px 10px; }
-.trade-chart-head small { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-weight: 700; }
+.trade-chart { background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin: 0 auto 10px; width: 100%; box-sizing: border-box; }
+.trade-chart-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; font-size: 13px; margin-bottom: 6px; }
+.trade-chart-head b { font-size: 14px; color: var(--accent); }
+.trade-chart-head span { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.trade-chart-head small { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-weight: 600; font-size: 12px; background: rgba(255,255,255,0.04); padding: 2px 8px; border-radius: 6px; }
 .trade-chart-head small i { width: 8px; height: 8px; border-radius: 50%; }
-.trade-canvas { width: 100%; height: 120px; display: block; margin-top: 6px; }
+.trade-canvas { width: 100%; height: 160px; display: block; margin-top: 6px; }
+.trade-row { transition: background 0.15s, border-color 0.15s; }
+.trade-row:hover { background: var(--raised-hi, rgba(255,255,255,0.06)); }
 .trade-name.pickable { cursor: pointer; }
 .trade-row.picked { border-color: var(--accent); }
 

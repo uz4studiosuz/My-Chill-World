@@ -274,7 +274,10 @@ export class Population {
     const student = (c: Citizen) => c.age >= ADULT_AGE && c.age < UNI_END && c.edu >= 0.9 && c.skill < 2;
     for (const c of this.citizens.values()) {
       const hb = homeOf(c);
-      if (c.job >= 0 && hb && buildings.get(c.job)?.city !== hb.city && !this.commute(hb.city, buildings.get(c.job)!.city)) c.job = -1;
+      // a job in another town is kept while the way there is open (and the workplace still stands)
+      const jb = c.job >= 0 ? buildings.get(c.job) : undefined;
+      if (c.job >= 0 && !jb) c.job = -1;
+      else if (jb && hb && jb.city !== hb.city && !this.commute(hb.city, jb.city)) c.job = -1;
       if (c.school >= 0 && hb && buildings.get(c.school)?.city !== hb.city) c.school = -1;
       if (c.school >= 0) {
         const kind = buildings.get(c.school)?.kind;

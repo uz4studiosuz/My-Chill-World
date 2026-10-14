@@ -78,6 +78,7 @@ export class StatsPanel {
   private tabBtns = new Map<Tab, HTMLButtonElement>();
   private tab: Tab = 'overview';
   private last = '';
+  private tabScroll = new Map<Tab, number>();
   visible = false;
   private title!: HTMLElement;
 
@@ -133,7 +134,9 @@ export class StatsPanel {
     if (key === this.last) return;
     this.last = key;
     this.title.textContent = `${t('Statistics')} · ${s.cityName}`;
-    const scroll = this.body.scrollTop;
+    const currentScroll = this.body.scrollTop;
+    if (currentScroll > 0) this.tabScroll.set(this.tab, currentScroll);
+    const scroll = this.tabScroll.get(this.tab) ?? 0;
     this.body.replaceChildren();
     const charts: [HTMLCanvasElement, Series[], (n: number) => string][] = [];
     const chart = (title: string, series: Series[], format: (n: number) => string = num) => {
@@ -336,6 +339,7 @@ export class StatsPanel {
       if (sec.note) { const n = el('div', 'snote'); n.textContent = sec.note; this.body.appendChild(n); }
     }
     this.body.scrollTop = scroll;
+    requestAnimationFrame(() => { if (this.visible && scroll > 0) this.body.scrollTop = scroll; });
     charts.forEach(([c, ser, f]) => drawChart(c, ser, f));
   }
 

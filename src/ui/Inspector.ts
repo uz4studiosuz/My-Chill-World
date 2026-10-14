@@ -29,10 +29,13 @@ export class Inspector {
 
   constructor(parent: HTMLElement, private onClose: () => void, private onPerson: (id: number) => void) {
     this.root = el('div', 'inspector');
+    this.root.addEventListener('scroll', () => { if (this.root.scrollTop > 0) this.savedPanelScroll = this.root.scrollTop; }, { passive: true });
     parent.appendChild(this.root);
   }
 
   private sig = '';
+  private savedPanelScroll = 0;
+  private savedListScroll = 0;
 
   show(v: InspectorView) {
     // nothing changed: keep the DOM (and the buttons under the cursor) as they are
@@ -41,9 +44,8 @@ export class Inspector {
     this.sig = sig;
     const list = this.root.querySelector('.ins-list') as HTMLDivElement | null;
     const same = v.key === this.key;
-    const scroll = same && list ? list.scrollTop : 0;
-    // the panel itself scrolls too: keep its position while the same thing refreshes
-    const panelScroll = same ? this.root.scrollTop : 0;
+    const scroll = same && list ? (list.scrollTop || this.savedListScroll) : 0;
+    const panelScroll = same ? (this.root.scrollTop || this.savedPanelScroll) : 0;
     this.key = v.key;
     this.root.replaceChildren();
 
@@ -133,7 +135,9 @@ export class Inspector {
         l.appendChild(row);
       }
       this.root.appendChild(l);
+      l.addEventListener('scroll', () => { if (l.scrollTop > 0) this.savedListScroll = l.scrollTop; }, { passive: true });
       l.scrollTop = scroll;
+      requestAnimationFrame(() => { if (scroll > 0) l.scrollTop = scroll; });
     }
 
     if (v.actions?.length) {
@@ -148,6 +152,7 @@ export class Inspector {
     }
     this.root.classList.add('show');
     this.root.scrollTop = panelScroll;
+    requestAnimationFrame(() => { if (panelScroll > 0) this.root.scrollTop = panelScroll; });
   }
 
   hide() {

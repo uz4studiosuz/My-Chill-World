@@ -25,7 +25,8 @@ export function drawChart(canvas: HTMLCanvasElement, series: Series[], format: (
   if (min > 0 && min < max * 0.5) min = 0;
   if (max === min) { max += 1; min = Math.max(0, min - 1); }
   const span = max - min;
-  min -= span * 0.05;
+  const isAllNonNegative = all.every((v) => v >= 0);
+  min = isAllNonNegative ? Math.max(0, min - span * 0.05) : (min - span * 0.05);
   max += span * 0.08;
 
   // grid + labels

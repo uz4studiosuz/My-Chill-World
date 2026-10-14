@@ -72,6 +72,7 @@ export class EventLog {
   }
 
   private render() {
+    const scroll = this.body.scrollTop;
     this.body.replaceChildren();
     if (this.tab === 'neighbours') {
       const all = this.foreign().filter((e) => !this.filter || e.text.toLowerCase().includes(this.filter) || e.town.toLowerCase().includes(this.filter)).sort((a, b) => b.day - a.day);
@@ -107,5 +108,7 @@ export class EventLog {
       row.textContent = e.text;
       this.body.appendChild(row);
     }
+    this.body.scrollTop = scroll;
+    requestAnimationFrame(() => { if (this.visible && scroll > 0) this.body.scrollTop = scroll; });
   }
 }

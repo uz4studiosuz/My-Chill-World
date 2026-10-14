@@ -43,6 +43,7 @@ export class PetitionsPanel {
 
   render() {
     if (!this.visible) return;
+    const scroll = this.body.scrollTop;
     const { petitions, day, cityName } = this.list();
     this.body.replaceChildren();
     const sum = el('div', 'goals-sum');
@@ -78,5 +79,7 @@ export class PetitionsPanel {
       card.append(top, text, foot);
       this.body.appendChild(card);
     }
+    this.body.scrollTop = scroll;
+    requestAnimationFrame(() => { if (this.visible && scroll > 0) this.body.scrollTop = scroll; });
   }
 }

@@ -25,6 +25,7 @@ export interface ResourceView {
 export class ResourcePanel {
   private root: HTMLDivElement;
   key: string | null = null;
+  private savedScroll = 0;
 
   constructor(parent: HTMLElement, private build: (key: string) => ResourceView | null) {
     this.root = el('div', 'respanel');
@@ -52,7 +53,9 @@ export class ResourcePanel {
     if (!this.key) return;
     const v = this.build(this.key);
     if (!v) return this.hide();
-    const scroll = this.root.querySelector('.rp-body')?.scrollTop ?? 0;
+    const oldBody = this.root.querySelector('.rp-body') as HTMLElement | null;
+    if (oldBody && oldBody.scrollTop > 0) this.savedScroll = oldBody.scrollTop;
+    const scroll = this.savedScroll;
     this.root.replaceChildren();
     const head = el('div', 'rp-head');
     head.innerHTML = `<span class="rp-ic">${icon(v.icon)}</span>`;
@@ -69,6 +72,7 @@ export class ResourcePanel {
     x.addEventListener('click', () => this.hide());
     head.append(titles, x);
     const body = el('div', 'rp-body');
+    body.addEventListener('scroll', () => { if (body.scrollTop > 0) this.savedScroll = body.scrollTop; }, { passive: true });
     for (const sec of v.sections) {
       const st = el('div', 'rp-sec');
       st.textContent = sec.title;
@@ -116,5 +120,6 @@ export class ResourcePanel {
     this.root.append(head, body);
     this.root.classList.add('show');
     body.scrollTop = scroll;
+    requestAnimationFrame(() => { if (this.visible && scroll > 0) body.scrollTop = scroll; });
   }
 }

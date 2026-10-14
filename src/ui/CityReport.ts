@@ -20,10 +20,10 @@ export interface ReportSection {
   note?: string;
 }
 
-/** A tab: report sections, the town hall itself (figures and buttons), or another window shown inside (statistics, trade). */
+/** A tab: report sections, the town hall itself (figures and buttons), or another window shown inside (trade). */
 export interface ReportTab { id: string; label: string; sections?: ReportSection[]; hall?: InspectorView; embed?: string }
 export interface CityReportView { title: string; subtitle: string; tabs: ReportTab[] }
-/** A window that can live inside the town hall window (statistics, trade). */
+/** A window that can live inside the town hall window (trade). */
 export interface Embed { el: () => HTMLElement; open: () => void; close: () => void }
 
 const fmtOf = (f?: string) => (n: number) => f === 'money' ? `$${Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : Math.round(n)}` : f === 'pct' ? `${Math.round(n)}%` : f === 'kw' ? `${Math.round(n)} kW` : Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`;
@@ -56,6 +56,13 @@ function drawDonut(c: HTMLCanvasElement, parts: [string, number, string][]) {
 /** A big window with everything about one town: tabs of key figures, bars, ring diagrams and charts. */
 export class CityReport {
   private root: HTMLDivElement;
+  private head: HTMLDivElement;
+  private titles: HTMLDivElement;
+  private headTitle: HTMLElement;
+  private headSubtitle: HTMLElement;
+  private tabsEl: HTMLDivElement;
+  private body: HTMLDivElement;
+  private tabScroll = new Map<string, number>();
   visible = false;
   private tab = '';
   id = -1;
@@ -68,6 +75,27 @@ export class CityReport {
 
   constructor(parent: HTMLElement, private get: (cityId: number) => CityReportView | null, private embeds: Record<string, Embed> = {}) {
     this.root = el('div', 'stats city-report');
+    this.head = el('div', 'stats-head');
+    this.titles = el('div', 'cr-titles');
+    this.headTitle = el('b', '');
+    this.headSubtitle = el('small', '');
+    this.titles.append(this.headTitle, this.headSubtitle);
+    const x = el('button', 'info-x');
+    x.innerHTML = icon('close');
+    x.setAttribute('aria-label', t('Close'));
+    x.addEventListener('click', () => { this.hide(); this.onClose?.(); });
+    this.head.append(this.titles, x);
+
+    this.tabsEl = el('div', 'stats-tabs');
+    this.body = el('div', 'stats-body');
+
+    this.body.addEventListener('scroll', () => {
+      if (this.visible && this.body.scrollTop >= 0) {
+        this.tabScroll.set(this.tab, this.body.scrollTop);
+      }
+    }, { passive: true });
+
+    this.root.append(this.head, this.tabsEl, this.body);
     parent.appendChild(this.root);
   }
 
@@ -92,31 +120,34 @@ export class CityReport {
     if (key === this.last) return;
     this.last = key;
     if (!v.tabs.some((x) => x.id === this.tab)) this.tab = v.tabs[0]?.id ?? '';
-    const scroll = this.root.querySelector('.stats-body')?.scrollTop ?? 0;
-    this.root.replaceChildren();
-    const head = el('div', 'stats-head');
-    const titles = el('div', 'cr-titles');
-    const h = el('b', '');
-    h.textContent = v.title;
-    const s = el('small', '');
-    s.textContent = v.subtitle;
-    titles.append(h, s);
-    const x = el('button', 'info-x');
-    x.innerHTML = icon('close');
-    x.setAttribute('aria-label', t('Close'));
-    x.addEventListener('click', () => { this.hide(); this.onClose?.(); });
-    head.append(titles, x);
-    const tabs = el('div', 'stats-tabs');
+
+    if (this.body.scrollTop > 0) {
+      this.tabScroll.set(this.tab, this.body.scrollTop);
+    }
+    const targetScroll = this.tabScroll.get(this.tab) ?? 0;
+
+    this.headTitle.textContent = v.title;
+    this.headSubtitle.textContent = v.subtitle;
+
+    this.tabsEl.replaceChildren();
     for (const tb of v.tabs) {
       const b = el('button', `stab${tb.id === this.tab ? ' active' : ''}`);
       b.textContent = tb.label;
-      b.addEventListener('click', () => { this.tab = tb.id; this.render(); });
-      tabs.appendChild(b);
+      b.addEventListener('click', () => {
+        if (this.tab !== tb.id) {
+          if (this.body.scrollTop > 0) this.tabScroll.set(this.tab, this.body.scrollTop);
+          this.tab = tb.id;
+          this.last = '';
+          this.render();
+        }
+      });
+      this.tabsEl.appendChild(b);
     }
-    const body = el('div', 'stats-body');
+
     const later: (() => void)[] = [];
     const cur = v.tabs.find((x2) => x2.id === this.tab);
-    // another window shown inside (statistics, trade)
+
+    // embedded window (trade)
     if (cur?.embed && this.embeds[cur.embed]) {
       const em = this.embeds[cur.embed];
       if (this.embedded?.key !== cur.embed) {
@@ -126,80 +157,92 @@ export class CityReport {
         em.open();
         node.classList.add('embedded');
       }
-      body.classList.add('cr-embed');
-      body.appendChild(this.embedded!.el);
-    } else this.release();
-    if (cur?.hall) this.renderHall(body, cur.hall);
-    for (const sec of cur?.sections ?? []) {
-      const box = el('div', 'srows cr-sec');
-      if (sec.wide || sec.kpis) box.style.gridColumn = '1 / -1';
-      const tt = el('div', 'srows-title');
-      tt.textContent = sec.title;
-      box.appendChild(tt);
-      if (sec.kpis) {
-        const grid = el('div', 'kpis');
-        for (const [label, value, sub, good] of sec.kpis) {
-          const k = el('div', 'kpi');
-          k.innerHTML = `<small></small><b></b>${sub ? '<span></span>' : ''}`;
-          (k.querySelector('small') as HTMLElement).textContent = label;
-          (k.querySelector('b') as HTMLElement).textContent = value;
-          if (sub) { const sp = k.querySelector('span') as HTMLElement; sp.textContent = sub; if (good !== undefined) sp.className = good ? 'pos' : 'neg'; }
-          grid.appendChild(k);
+      this.body.className = 'stats-body cr-embed';
+      if (!this.body.contains(this.embedded!.el)) {
+        this.body.replaceChildren(this.embedded!.el);
+      }
+    } else {
+      this.release();
+      this.body.className = 'stats-body';
+      this.body.replaceChildren();
+
+      if (cur?.hall) this.renderHall(this.body, cur.hall);
+      for (const sec of cur?.sections ?? []) {
+        const box = el('div', 'srows cr-sec');
+        if (sec.wide || sec.kpis) box.style.gridColumn = '1 / -1';
+        const tt = el('div', 'srows-title');
+        tt.textContent = sec.title;
+        box.appendChild(tt);
+        if (sec.kpis) {
+          const grid = el('div', 'kpis');
+          for (const [label, value, sub, good] of sec.kpis) {
+            const k = el('div', 'kpi');
+            k.innerHTML = `<small></small><b></b>${sub ? '<span></span>' : ''}`;
+            (k.querySelector('small') as HTMLElement).textContent = label;
+            (k.querySelector('b') as HTMLElement).textContent = value;
+            if (sub) { const sp = k.querySelector('span') as HTMLElement; sp.textContent = sub; if (good !== undefined) sp.className = good ? 'pos' : 'neg'; }
+            grid.appendChild(k);
+          }
+          box.appendChild(grid);
         }
-        box.appendChild(grid);
-      }
-      if (sec.donut) {
-        const wrap = el('div', 'cr-donut');
-        const c = el('canvas', '') as HTMLCanvasElement;
-        const legend = el('div', 'cr-legend');
-        const total = sec.donut.reduce((a, [, val]) => a + Math.max(0, val), 0) || 1;
-        for (const [label, val, col] of sec.donut) {
-          const row = el('div', '');
-          row.innerHTML = `<i></i><span></span><b></b>`;
-          (row.querySelector('i') as HTMLElement).style.background = col;
-          (row.querySelector('span') as HTMLElement).textContent = label;
-          (row.querySelector('b') as HTMLElement).textContent = `${Math.round((Math.max(0, val) / total) * 100)}%`;
-          legend.appendChild(row);
+        if (sec.donut) {
+          const wrap = el('div', 'cr-donut');
+          const c = el('canvas', '') as HTMLCanvasElement;
+          const legend = el('div', 'cr-legend');
+          const total = sec.donut.reduce((a, [, val]) => a + Math.max(0, val), 0) || 1;
+          for (const [label, val, col] of sec.donut) {
+            const row = el('div', '');
+            row.innerHTML = `<i></i><span></span><b></b>`;
+            (row.querySelector('i') as HTMLElement).style.background = col;
+            (row.querySelector('span') as HTMLElement).textContent = label;
+            (row.querySelector('b') as HTMLElement).textContent = `${Math.round((Math.max(0, val) / total) * 100)}%`;
+            legend.appendChild(row);
+          }
+          wrap.append(c, legend);
+          box.appendChild(wrap);
+          later.push(() => drawDonut(c, sec.donut!));
         }
-        wrap.append(c, legend);
-        box.appendChild(wrap);
-        later.push(() => drawDonut(c, sec.donut!));
-      }
-      if (sec.bars) {
-        const max = Math.max(1e-9, ...sec.bars.map(([, val]) => Math.abs(val)));
-        for (const [label, val, col, text] of sec.bars) {
-          const row = el('div', 'wt-bar');
-          row.innerHTML = `<span></span><div><i></i></div><b></b>`;
-          (row.querySelector('span') as HTMLElement).textContent = label;
-          const bar = row.querySelector('i') as HTMLElement;
-          bar.style.width = `${Math.max(1, (Math.abs(val) / max) * 100)}%`;
-          bar.style.background = col;
-          (row.querySelector('b') as HTMLElement).textContent = text;
-          box.appendChild(row);
+        if (sec.bars) {
+          const max = Math.max(1e-9, ...sec.bars.map(([, val]) => Math.abs(val)));
+          for (const [label, val, col, text] of sec.bars) {
+            const row = el('div', 'wt-bar');
+            row.innerHTML = `<span></span><div><i></i></div><b></b>`;
+            (row.querySelector('span') as HTMLElement).textContent = label;
+            const bar = row.querySelector('i') as HTMLElement;
+            bar.style.width = `${Math.max(1, (Math.abs(val) / max) * 100)}%`;
+            bar.style.background = col;
+            (row.querySelector('b') as HTMLElement).textContent = text;
+            box.appendChild(row);
+          }
         }
+        if (sec.chart) {
+          const legend = el('div', 'chart-head');
+          legend.innerHTML = `<span class="legend">${sec.chart.series.map((se) => `<i style="background:${se.color}"></i>${se.label}`).join(' ')}</span>`;
+          const c = el('canvas', 'cr-chart') as HTMLCanvasElement;
+          box.append(legend, c);
+          const ch = sec.chart;
+          later.push(() => drawChart(c, ch.series, fmtOf(ch.format)));
+        }
+        for (const [k, val, tone] of sec.rows ?? []) {
+          const r = el('div', 'info-row');
+          r.innerHTML = '<span></span><span></span>';
+          (r.children[0] as HTMLElement).textContent = k;
+          (r.children[1] as HTMLElement).textContent = val;
+          if (tone) (r.children[1] as HTMLElement).className = tone === 'good' ? 'pos' : 'neg';
+          box.appendChild(r);
+        }
+        if (sec.note) { const n = el('div', 'rp-note'); n.textContent = sec.note; box.appendChild(n); }
+        this.body.appendChild(box);
       }
-      if (sec.chart) {
-        const legend = el('div', 'chart-head');
-        legend.innerHTML = `<span class="legend">${sec.chart.series.map((se) => `<i style="background:${se.color}"></i>${se.label}`).join(' ')}</span>`;
-        const c = el('canvas', 'cr-chart') as HTMLCanvasElement;
-        box.append(legend, c);
-        const ch = sec.chart;
-        later.push(() => drawChart(c, ch.series, fmtOf(ch.format)));
-      }
-      for (const [k, val, tone] of sec.rows ?? []) {
-        const r = el('div', 'info-row');
-        r.innerHTML = '<span></span><span></span>';
-        (r.children[0] as HTMLElement).textContent = k;
-        (r.children[1] as HTMLElement).textContent = val;
-        if (tone) (r.children[1] as HTMLElement).className = tone === 'good' ? 'pos' : 'neg';
-        box.appendChild(r);
-      }
-      if (sec.note) { const n = el('div', 'rp-note'); n.textContent = sec.note; box.appendChild(n); }
-      body.appendChild(box);
     }
-    this.root.append(head, tabs, body);
-    body.scrollTop = scroll;
+
+    this.body.scrollTop = targetScroll;
     later.forEach((f) => f());
+    requestAnimationFrame(() => {
+      if (this.visible && targetScroll > 0) {
+        this.body.scrollTop = targetScroll;
+      }
+    });
   }
 
   /** The town hall's own panel, wide: figures as bars, rows in blocks, and its buttons. */

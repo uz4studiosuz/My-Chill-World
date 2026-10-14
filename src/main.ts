@@ -70,7 +70,16 @@ async function boot() {
     menu.showLoading(t('Generating world…'));
     // let the loading text paint before the (synchronous) world generation
     setTimeout(() => {
-      const g = new Game(canvas, { ...opts, thumbs }, pause);
+      let g: Game;
+      try {
+        g = new Game(canvas, { ...opts, thumbs }, pause);
+      } catch (e) {
+        // a world that cannot be opened must not leave the loading screen hanging
+        console.error('[load]', e);
+        openMainMenu();
+        alert(`${t('This world could not be opened')}: ${(e as Error)?.message ?? e}`);
+        return;
+      }
       setGame(g);
       if (opts.create) g.save();
       menu.hide();
