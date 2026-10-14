@@ -104,9 +104,6 @@ export const PROMISE_TEXT: Record<PromiseKind, string> = {
  * Everyday life: schedules, commuting by car or on foot (sidewalks, zebra crossings), work behaviour,
  * production, the power grid, water, needs, fires and the end-of-day settlement.
  */
-/** Blows of the miners' picks that break one level of rock away. */
-const MINE_BLOWS = 45;
-
 export class Life {
   readonly graph: PedGraph;
   private spots = new Map<string, number>();
@@ -1335,8 +1332,6 @@ export class Life {
   /** Digging eats slowly into the nearest mountain: one level of rock goes per DIG_PER_LEVEL of stone, coal or iron. */
   private dig(b: Building, amount: number) {
     if (amount <= 0) return;
-    // while the workers hack at a face outside, their blows take the rock away (see mineLoop)
-    if (this.mineFaces.get(b.id)?.crew.length) return;
     b.dug = (b.dug ?? 0) + amount;
     const per = DIG_PER_LEVEL[b.kind] ?? 150;
     if (b.dug < per) return;
@@ -1356,6 +1351,7 @@ export class Life {
     if (best < 0) return;
     map.height[best] -= 1;
     this.c.terrain.queueReshape(best);
+    this.c.effects.puff(tileToWorld(best % N), tileToWorld((best / N) | 0), 0.35, 12, ['#bdb7aa', '#d8d2c4', '#8d8a83']);
     if (map.mountainsNear(b.x, b.z, 3) === 0) this.cityEvent(b.city, t('The {name} has dug away all the rock around it', { name: t(BUILDINGS[b.kind].name) }));
   }
 
@@ -3287,7 +3283,7 @@ export class Life {
    * mountain tile, hack at it (dust and chips fly — grey stone, black coal, rusty iron), and move on now and then.
    */
   /** The rock face each quarry or mine works on: one rock tile, worked from one side until it is gone. */
-  private mineFaces = new Map<number, { rock: number; stand: { x: number; z: number }; tile: number; dx: number; dz: number; crew: number[]; blows?: number }>();
+  private mineFaces = new Map<number, { rock: number; stand: { x: number; z: number }; tile: number; dx: number; dz: number; crew: number[] }>();
   private mineFace(site: Building) {
     const { map, buildings } = this.c;
     const open = (k: number) => map.height[k] <= 0 && !map.water[k] && buildings.occ[k] === -1;
@@ -3314,7 +3310,7 @@ export class Life {
         .sort((p, q) => Math.hypot(p.t % N + 0.5 - cx, ((p.t / N) | 0) + 0.5 - cz) - Math.hypot(q.t % N + 0.5 - cx, ((q.t / N) | 0) + 0.5 - cz));
       for (const o of sides) {
         if (!pedPath(this.graph, this.graph.node(from), this.graph.node(o.t), 4000)) continue;
-        const face = { rock: k, tile: o.t, dx: o.dx, dz: o.dz, crew: [] as number[], blows: 0, stand: { x: tileToWorld(x + o.dx) - o.dx * 0.18, z: tileToWorld(z + o.dz) - o.dz * 0.18 } };
+        const face = { rock: k, tile: o.t, dx: o.dx, dz: o.dz, crew: [] as number[], stand: { x: tileToWorld(x + o.dx) - o.dx * 0.18, z: tileToWorld(z + o.dz) - o.dz * 0.18 } };
         this.mineFaces.set(site.id, face);
         return face;
       }
@@ -3347,15 +3343,8 @@ export class Life {
         if (!w || !atWork()) return;
         c.activity = site.kind === 'quarry' ? 'Breaking stone' : site.kind === 'coalmine' ? 'Digging coal' : 'Digging iron ore';
         if (Math.random() < 0.6) effects.puff(stand.x + (rockAt.x - stand.x) * 0.5, stand.z + (rockAt.z - stand.z) * 0.5, 0.18, 4, dust);
-        // every blow chips the rock: after enough of them a level of it breaks away and the mountain gets lower
-        f.blows = (f.blows ?? 0) + 1;
-        if (f.blows >= MINE_BLOWS && this.c.map.height[f.rock] > 0) {
-          f.blows = 0;
-          this.c.map.height[f.rock] -= 1;
-          this.c.terrain.queueReshape(f.rock);
-          effects.puff(rockAt.x, rockAt.z, 0.35, 12, dust);
-          if (this.c.map.height[f.rock] <= 0) { this.mineLoop(c, site); return; }
-        }
+        // the rock face is gone (dug away by the day's output): on to the next one
+        if (this.c.map.height[f.rock] <= 0) { this.mineLoop(c, site); return; }
         if (--hits <= 0) { this.mineLoop(c, site); return; }
         walkers.holdFor(w, 1.4, 'chop', hack, { x: rockAt.x + (stand.x - f.stand.x), z: rockAt.z + (stand.z - f.stand.z) });
       };
