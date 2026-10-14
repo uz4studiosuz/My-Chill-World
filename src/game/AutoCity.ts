@@ -1,4 +1,5 @@
 import { BUILDINGS, BuildingKind, TRADE_PRICE, MAX_GRAVES_PER_CEMETERY } from '../buildings/BuildingTypes';
+import { seatsOf, waterOf } from '../buildings/Upgrades';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { City, Economy } from '../sim/Economy';
 import { ROAD_COST, ROAD_TWO_LANE, RoadNetwork } from '../roads/RoadNetwork';
@@ -37,6 +38,10 @@ export interface AutoHost {
   sellGoods(city: City, g: 'food' | 'wood' | 'stone' | 'iron', n: number): number;
   /** Share of the waste water that is treated (1 = all). */
   sanitation(cityId: number): number;
+  /** Pupils at a school (or children at a kindergarten, students at a university). */
+  pupils(id: number): number;
+  /** Raise a building one level (false: cannot or no money). */
+  upgrade(b: Building): boolean;
   /** Add a plot to a cemetery (false: no room or no money). */
   expandCemetery(b: Building): boolean;
   /** Put street lamps on up to `n` unlit streets of the town (returns how many tiles got lamps). */
@@ -144,6 +149,18 @@ export class AutoCity {
     // when hands are short, the essentials get them first: food shops, power, water, fields and the hospital
     for (const k of ['grocery', 'market', 'supermarket', 'powerplant', 'coalplant', 'hydro', 'watertower', 'farm', 'orchard', 'fishery', 'hospital', 'sewage', 'construction'])
       city.jobPriority[k] = 'high';
+    // full schools, short water and busy hospitals get a level up when there is money for it
+    if (city.money > 5000) {
+      const kids = (b: Building) => this.h.pupils(b.id);
+      for (const b of buildings.list) {
+        if (b.city !== city.id || b.built < 1 || b.removed) continue;
+        const full = BUILDINGS[b.kind].students ? kids(b) >= seatsOf(b) * 0.9
+          : b.kind === 'watertower' ? city.water < 1
+          : b.kind === 'hospital' ? this.h.people(city.id) > 150 * (b.level || 1)
+          : b.kind === 'sewage' ? this.h.sanitation(city.id) < 1 : false;
+        if (full && this.h.upgrade(b)) { this.note(city, t('The {name} was upgraded to level {n}', { name: t(BUILDINGS[b.kind].name), n: b.level })); break; }
+      }
+    }
     // a cemetery filling up gets a new plot
     for (const b of buildings.list) {
       if (b.city !== city.id || b.kind !== 'cemetery' || b.built < 1 || b.removed) continue;
@@ -295,11 +312,10 @@ export class AutoCity {
     const free = this.h.freeHomes(city.id);
     let jobs = 0, staff = 0;
     for (const b of own) { jobs += BUILDINGS[b.kind].jobs; staff += b.workers; }
-    const towers = count('watertower');
     const plants = own.filter((b) => BUILDINGS[b.kind].power).reduce((a, b) => a + BUILDINGS[b.kind].power, 0);
     const demand = own.reduce((a, b) => a + BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1), 0);
     if (!count('construction')) return 'construction';
-    if (towers * BUILDINGS.watertower.water < people + 20) return 'watertower';
+    if (own.filter((b) => b.kind === 'watertower').reduce((a, b) => a + waterOf(b), 0) < people + 20) return 'watertower';
     const building = own.filter((b) => b.built < 1 && BUILDINGS[b.kind].power).reduce((a, b) => a + BUILDINGS[b.kind].power, 0);
     if (plants < demand * 1.15 + 6 || (city.energyCapacity + building * 0.7 < city.energyDemand * 1.15 + 4)) {
       const shortHands = jobs - staff > 6;

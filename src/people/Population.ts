@@ -1,4 +1,5 @@
 import { DAYS_PER_YEAR } from '../config';
+import { seatsOf } from '../buildings/Upgrades';
 import { BUILDINGS, JOB_PRIORITY, RENT, DEGREE_JOBS, BIKE, UTILITY } from '../buildings/BuildingTypes';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { Walker } from './Walkers';
@@ -279,7 +280,7 @@ export class Population {
       if (b.built < 1) continue;
       const d = BUILDINGS[b.kind];
       if (d.jobs) free.set(b.id, d.jobs);
-      if (d.students) seats.set(b.id, d.students);
+      if (d.students) seats.set(b.id, seatsOf(b));
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
     const before = new Map<number, [number, number]>();

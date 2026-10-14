@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { UPGRADABLE } from './Upgrades';
 import { N, Tile, idx, inBounds, tileToWorld, worldToTile } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { RoadNetwork, ROAD_RING } from '../roads/RoadNetwork';
@@ -477,6 +478,21 @@ export class Buildings {
       let g = this.geoCache.get(key);
       if (!g) { g = houseGeometry(variant, level); this.geoCache.set(key, g); }
       (b.mesh.children[0] as THREE.Mesh).geometry = g;
+      return;
+    }
+    if (UPGRADABLE[b.kind] && level >= 2) {
+      const box3 = new THREE.Box3().setFromObject(b.mesh);
+      const h = box3.max.y - b.mesh.position.y;
+      const s = BUILDINGS[b.kind].size;
+      const flags = [];
+      for (let i = 0; i < level - 1; i++) {
+        const x = -s * 0.32 + i * 0.22, z = -s * 0.32;
+        flags.push(box(0.025, 0.36, 0.025, x, h + 0.16, z, '#d8d2c4'), box(0.16, 0.1, 0.012, x + 0.09, h + 0.28, z, i ? '#3a6fd1' : '#f2b33d'));
+      }
+      const deco = new THREE.Mesh(merge(flags), (b.mesh.children[0] as THREE.Mesh).material);
+      deco.name = 'levelDeco';
+      deco.castShadow = true;
+      b.mesh.add(deco);
       return;
     }
     if (b.kind !== 'cemetery' || level < 2) return;

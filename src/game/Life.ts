@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { levelMult, waterOf } from '../buildings/Upgrades';
 import { UNIFORM_OF, type Uniform } from '../models/people/uniforms';
 import { DAY_SECONDS, DAYS_PER_YEAR } from '../config';
 import { DIRS, N, tileToWorld, worldToTile, inBounds, idx } from '../world/grid';
@@ -614,7 +615,7 @@ export class Life {
       if (w.kind !== 'watertower' || w.built < 1) continue;
       const c = compOf(w);
       if (c < 0) continue;
-      cap.set(c, (cap.get(c) ?? 0) + BUILDINGS.watertower.water * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3));
+      cap.set(c, (cap.get(c) ?? 0) + waterOf(w) * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3));
     }
     const living = new Map<number, number>();
     for (const f of pop.families.values()) living.set(f.home, (living.get(f.home) ?? 0) + f.members.length);
@@ -663,7 +664,7 @@ export class Life {
       };
       const own = buildings.list.filter((b) => b.city === city.id && b.built >= 1);
       const hasHall = own.some((b) => b.kind === 'weddinghall');
-      const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0);
+      const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * levelMult(b) * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0);
       const meal = this.meals.get(city.id) ?? { eaten: 1, short: 0 };
       const fed = meal.eaten + meal.short > 0 ? meal.eaten / (meal.eaten + meal.short) : 1;
       const portions = Math.round((this.people.get(city.id) ?? 0) * fed + (fed >= 0.999 ? 1000 : 0));
@@ -1872,7 +1873,7 @@ export class Life {
   private sewage(city: City, own: Building[], belongs: (f: Family) => boolean) {
     const { pop } = this.c;
     const n = [...pop.families.values()].filter(belongs).reduce((a, f) => a + f.members.length, 0);
-    const plants = own.filter((b) => b.kind === 'sewage' && b.built >= 1 && b.workers > 0).reduce((a, b) => a + Math.min(1, b.workers / BUILDINGS.sewage.jobs) * (b.powered ? 1 : 0.5), 0);
+    const plants = own.filter((b) => b.kind === 'sewage' && b.built >= 1 && b.workers > 0).reduce((a, b) => a + Math.min(1, b.workers / BUILDINGS.sewage.jobs) * (b.powered ? 1 : 0.5) * levelMult(b), 0);
     const san = n <= 60 ? 1 : Math.min(1, (60 + plants * SEWAGE_PER_PLANT) / n);
     this.sewageCap.set(city.id, { people: n, treated: Math.round(60 + plants * SEWAGE_PER_PLANT) });
     this.sanitation.set(city.id, san);

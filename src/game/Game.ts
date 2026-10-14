@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { UPGRADABLE, canUpgrade, levelMult, seatsOf, upgradeCost, waterOf } from '../buildings/Upgrades';
 import { believer } from './Leisure';
 import { SKIN, SHIRTS, DRESSES } from '../models/people/_shared';
 import { DAY_SECONDS, DAYS_PER_YEAR, IS_TOUCH, MAP_SIZE } from '../config';
@@ -378,6 +379,8 @@ export class Game implements ToolHost {
       linkRoad: (c) => this.linkTown(c),
       sanitation: (id) => this.life.sanitation.get(id) ?? 1,
       expandCemetery: (b) => !!this.upgradeCemetery(b),
+      upgrade: (b) => this.upgradeBuilding(b, true),
+      pupils: (id) => { let n = 0; for (const c of this.pop.citizens.values()) if (c.school === id) n++; return n; },
       lightRoads: (c, n) => {
         // the town's unlit streets nearest its hall get lamps first
         const hall = this.buildings.townHall(c.id);
@@ -2486,6 +2489,28 @@ export class Game implements ToolHost {
     this.hud?.toast(t('Choose a new place for the {name}', { name: t(BUILDINGS[b.kind].name) }));
   }
 
+  /** Raise a school, hospital, water tower… one level: it serves more people (paid by the town). */
+  upgradeBuilding(b: Building, quiet = false): boolean {
+    if (!canUpgrade(b)) return false;
+    const city = this.cityOf(b);
+    const c = upgradeCost(b);
+    if (city.money < c.money || city.stone < c.stone || city.wood < c.wood || city.iron < c.iron) {
+      if (!quiet) this.hud?.toast(t('Needs {cost}', { cost: costText(c.money, c.stone, c.wood, c.iron) }));
+      return false;
+    }
+    this.eco.add(city, 'money', -c.money, 'Upgrades'); this.eco.add(city, 'stone', -c.stone, 'Upgrades');
+    this.eco.add(city, 'wood', -c.wood, 'Upgrades'); this.eco.add(city, 'iron', -c.iron, 'Upgrades');
+    this.buildings.setLevel(b, (b.level || 1) + 1);
+    this.effects.puff(b.mesh.position.x, b.mesh.position.z, 1, 18, ['#f2b33d', '#fff6d6', '#bdb7aa']);
+    this.pop.assign(this.buildings);
+    if (!quiet) {
+      sound.play('coin');
+      this.hud?.toast(t('{name} is now level {n}: {gives}', { name: t(BUILDINGS[b.kind].name), n: b.level, gives: t(UPGRADABLE[b.kind]!.gives).toLowerCase() }));
+      this.refreshInspector();
+    }
+    return true;
+  }
+
   private upgradeCemetery(b: Building): boolean | void {
     const city = this.cityOf(b);
     const u = CEMETERY_UPGRADE;
@@ -2805,6 +2830,16 @@ export class Game implements ToolHost {
     }
     actions.push({ label: t('Info'), icon: 'info', onClick: () => this.showInfo(b) });
     if (def.needsRoad && b.access < 0) tags.push({ text: t('No road access'), tone: 'bad' });
+    const up = UPGRADABLE[b.kind];
+    if (up && b.built >= 1) {
+      rows.push([t('Level'), `${b.level || 1}/${up.max} · ×${levelMult(b).toFixed(2)}`]);
+      if (def.students) rows.push([t('Places'), `${seatsOf(b)}`]);
+      if (b.kind === 'watertower') rows.push([t('Serves'), t('up to {n} people', { n: waterOf(b) })]);
+      if (canUpgrade(b)) {
+        const c = upgradeCost(b);
+        actions.push({ label: `${t('Upgrade to level {n}', { n: (b.level || 1) + 1 })} · ${costText(c.money, c.stone, c.wood, c.iron)}`, icon: 'up', onClick: () => this.upgradeBuilding(b) });
+      }
+    }
     if (def.jobs) {
       bars.push({ label: t('Workers'), value: staff.length / def.jobs, color: '#6fb6ff', text: `${staff.length}/${def.jobs}` });
       const wf = city.wages[b.kind] ?? 1;
@@ -3035,7 +3070,7 @@ export class Game implements ToolHost {
     const kinds = {} as Record<BuildingKind, number>;
     for (const k of Object.keys(BUILDINGS) as BuildingKind[]) kinds[k] = 0;
     let jobs = 0, seats = 0;
-    for (const b of own) { kinds[b.kind]++; jobs += BUILDINGS[b.kind].jobs; seats += BUILDINGS[b.kind].students; }
+    for (const b of own) { kinds[b.kind]++; jobs += BUILDINGS[b.kind].jobs; seats += seatsOf(b); }
     const population = this.life.populationByCity().get(city.id) ?? 0;
     const svc: [string, BuildingKind[]][] = [
       ['Schools', ['school']], ['Universities', ['university']], ['Hospitals', ['hospital']], ['Police', ['police']],
@@ -3145,7 +3180,7 @@ export class Game implements ToolHost {
           .sort((a, b) => b[1] - a[1]).slice(0, 30).map(([b, v]) => [`${t(BUILDINGS[b.kind].name)} #${b.id}`, `${kw(v)} · ${b.powered ? '✓' : `✗ ${t('No power')}`}`, b.powered] as [string, string, boolean]) },
         { title: t('Water'), kpis: [
           [t('Clean water'), `${Math.round(city.water * 100)}%`, t('of the people'), city.water > 0.99],
-          [t('Capacity'), n(towers.length * BUILDINGS.watertower.water), t('{n} towers · {p} people', { n: towers.length, p: people }), towers.length * BUILDINGS.watertower.water >= people],
+          [t('Capacity'), n(towers.reduce((a, w) => a + waterOf(w), 0)), t('{n} towers · {p} people', { n: towers.length, p: people }), towers.reduce((a, w) => a + waterOf(w), 0) >= people],
           [t('Connected homes'), `${Math.round(city.piped * 100)}%`, t('mains under roads and pipes'), city.piped > 0.95],
           [t('Sewage treated'), `${Math.round((this.life.sanitation.get(city.id) ?? 1) * 100)}%`, t('needed above 60 people'), (this.life.sanitation.get(city.id) ?? 1) > 0.95],
         ] },
@@ -3305,7 +3340,7 @@ export class Game implements ToolHost {
           key, icon: 'water', title: t('Water'), value: `${Math.round(city.water * 100)}%`,
           sections: [
             { title: t('Supply'), bars: [[t('People with clean water'), city.water, `${Math.round(city.water * 100)}%`], [t('Homes connected to the mains'), city.piped, `${Math.round(city.piped * 100)}%`], [t('Sewage treated'), this.life.sanitation.get(city.id) ?? 1, `${Math.round((this.life.sanitation.get(city.id) ?? 1) * 100)}%`]],
-              rows: [[t('People'), n(total)], [t('Capacity'), n(towers.length * BUILDINGS.watertower.water)]],
+              rows: [[t('People'), n(total)], [t('Capacity'), n(towers.reduce((a, w) => a + waterOf(w), 0))]],
               note: t('Water runs from the towers through mains under the roads; homes off the road need a water pipe. Towns over 60 people need a sewage plant.') },
             { title: t('Water towers'), rows: towers.length ? towers.map((b) => [t('Water Tower'), `${staffed(b)} · ${b.powered ? t('Powered') : t('No power')}`, b.workers > 0 && b.powered ? 'good' : 'bad'] as [string, string, ('good' | 'bad')?]) : [[t('None — build one'), '—', 'bad']] },
           ],
@@ -3770,14 +3805,14 @@ export class Game implements ToolHost {
       const kids = people.filter((c) => c.age >= 6 && c.age < 18), small = people.filter((c) => c.age >= 3 && c.age < 6);
       const uniAge = people.filter((c) => c.age >= 18 && c.age < 23 && c.edu >= 0.9 && c.skill < 2);
       const at = (b: Building) => people.filter((c) => c.school === b.id).length;
-      const seatsOf = (k: string) => schools.filter((b) => b.kind === k).reduce((a, b) => a + BUILDINGS[b.kind].students, 0);
+      const seatsOfKind = (k: string) => schools.filter((b) => b.kind === k).reduce((a, b) => a + seatsOf(b), 0);
       const noSchool = kids.filter((c) => c.school < 0).length, noKg = small.filter((c) => c.school < 0).length;
       tabs.push({ id: 'education', label: t('Education'), sections: [
         { title: t('Education'), kpis: [
           [t('Pupils'), `${kids.length - noSchool}/${kids.length}`, noSchool ? t('{n} without a school place', { n: noSchool }) : t('every child has a place'), !noSchool],
           [t('Kindergarten'), `${small.length - noKg}/${small.length}`, noKg ? t('{n} without a place', { n: noKg }) : t('every child has a place'), !noKg],
           [t('Students'), n(people.filter((c) => c.school >= 0 && this.buildings.get(c.school)?.kind === 'university').length), t('{n} could study', { n: uniAge.length })],
-          [t('School places'), n(seatsOf('school')), t('{n} kindergarten places', { n: seatsOf('kindergarten') })],
+          [t('School places'), n(seatsOfKind('school')), t('{n} kindergarten places', { n: seatsOfKind('kindergarten') })],
         ] },
         { title: t('Schools and their pupils'), wide: true, rows: schools.length ? schools.map((b) => {
           const s = at(b), cap = BUILDINGS[b.kind].students;
@@ -4358,7 +4393,7 @@ export class Game implements ToolHost {
     const families = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === city.id);
     const sum = (fn: (k: BuildingKind) => number) => own.reduce((a, x) => a + fn(x.kind), 0);
     const jobs = sum((k) => BUILDINGS[k].jobs);
-    const seats = sum((k) => BUILDINGS[k].students);
+    const seats = own.reduce((a, x) => a + seatsOf(x), 0);
     const houses = own.filter((x) => x.kind === 'house').length;
     const freeHomes = this.life.freeHomes(city.id).length;
     const daysFood = population ? city.food / population : 99;
