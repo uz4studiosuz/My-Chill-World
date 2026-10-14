@@ -132,7 +132,8 @@ export class Economy {
 
   day = 1;
   /** Seconds into the current day. New worlds start in the morning. */
-  dayT = DAY_SECONDS * 0.2;
+  // a new world starts on a bright morning (about 8:40)
+  dayT = DAY_SECONDS * 0.36;
 
   /** Create a city; the first one becomes active. */
   found(name: string, grant: Grant): City {

@@ -183,7 +183,7 @@ export class Guide {
     this.para('Goal', 'Grow a living town: build roads and homes, keep people fed, healthy and happy, and expand into new cities.', 'trophy');
     this.para('First steps', '1. Build roads (drag on the map). 2. Place houses next to roads. 3. Make sure there is food, water, wood, stone and power. 4. Add shops, a school and a park. 5. Watch the Town Hall panel and the goals.', 'play');
     this.para('Controls', 'Drag to move the camera, scroll or pinch to zoom, Q/E to rotate. Choose a building, tap the map, then confirm with Build. Tap a person or building to see details. Enter confirms, Esc cancels.', 'pan');
-    this.para('Speed', 'Pause, 1×, 3×, 10×, 50× and 100×. At 1× one second is one game minute; one day is one month of the calendar.', 'calendar');
+    this.para('Speed', 'Pause, 1×, 3×, 10× and 50×. At 1× one second is one game minute; one day is one month of the calendar.', 'calendar');
   }
 
   private resources() {

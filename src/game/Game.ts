@@ -1221,6 +1221,7 @@ export class Game implements ToolHost {
   }
 
   private setSpeed(s: number) {
+    s = Math.min(s, 50); // the fastest speed is 50×
     if (s > 0) this.lastSpeed = s;
     this.speed = s;
     this.hud?.setSpeed(s);

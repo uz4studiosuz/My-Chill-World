@@ -178,7 +178,7 @@ export interface HudHandlers {
   rotateBuild?: () => void;
 }
 
-export const SPEEDS = [0, 1, 3, 10, 50, 100, 500];
+export const SPEEDS = [0, 1, 3, 10, 50];
 /** Readouts hidden behind the fold on narrow screens. */
 const SECONDARY = new Set(['stone', 'wood', 'iron', 'food', 'energy', 'water', 'jobs']);
 
