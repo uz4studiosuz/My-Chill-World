@@ -11,7 +11,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building, rotToDir } from '../buildings/Buildings';
-import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE } from '../buildings/BuildingTypes';
+import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -112,7 +112,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   tower15: ['🏢', '#c4553d'], tower30: ['🏢', '#3f6fb5'], tower50: ['🏙️', '#4f7d4a'], warehouse: ['📦', '#b9845a'], bikefactory: ['🚲', '#d9443b'], migration: ['🛂', '#3f6fb5'], concerthall: ['🎻', '#8a3a4a'], casino: ['🎰', '#3b2a55'], mosque: ['🕌', '#2f7fc1'], themepark: ['🎡', '#d9443b'], bigpark: ['🌳', '#4f8a3a'], gym: ['🏋️', '#f07167'], teahouse: ['🫖', '#2f7fc1'], barber: ['💈', '#d9443b'],
   military: ['🪖', '#6b7a4a'], landfill: ['🗑️', '#7a6f5a'], recycling: ['♻️', '#4c9a52'], mill: ['🌾', '#c9b88a'], bakery: ['🍞', '#a65e43'], sawmill: ['🪚', '#8a5a35'], battery: ['🔋', '#3a6fd1'], kiosk: ['☕', '#d9443b'],
   airport: ['✈️', '#3a6fd1'], stadium: ['⚽', '#4f9a3e'], cinema: ['🎬', '#b0478f'], academy: ['🏛️', '#2d4f8a'], playground: ['🛝', '#e85a3a'], fountain: ['⛲', '#4fa3d1'],
-  flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
+  flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], gazebo: ['⛱️', '#8a5a35'], pond: ['🦆', '#4a95cf'], clocktower: ['🕰️', '#b9654a'], flagpole: ['🚩', '#4f9a3e'], planter: ['🪴', '#e85a7a'], archway: ['⛩️', '#3f86c4'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
 };
 
 const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
@@ -297,7 +297,8 @@ export class Game implements ToolHost {
     gm.opacity = 0.12;
     this.grid.position.y = 0.005;
     this.grid.visible = false;
-    this.marker = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 4).rotateX(Math.PI), new THREE.MeshBasicMaterial({ color: '#ffd166' }));
+    this.marker = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.2, 4).rotateX(Math.PI), new THREE.MeshBasicMaterial({ color: '#ffd166', depthTest: false }));
+    this.marker.renderOrder = 30;
     this.marker.visible = false;
     this.ring = new THREE.Mesh(
       new THREE.RingGeometry(0.62, 0.74, 48).rotateX(-Math.PI / 2),
@@ -750,6 +751,8 @@ export class Game implements ToolHost {
     const steps = total > 0 ? Math.min(40, Math.ceil(total / stepLen)) : 1;
     const sdt = total / steps;
     const frameStart = performance.now();
+    // mountains dug away by the mines: the ground is redrawn now and then
+    this.terrain.flushReshape(frameStart);
     // the neighbour towns' new streets and buildings: the road network is rebuilt at most a few times a second
     if (this.netPending && frameStart - this.netAt > 300) { this.netPending = false; this.netAt = frameStart; this.networkChanged(false); }
     this.traffic.setParked(this.life.parkedCars());
@@ -918,11 +921,12 @@ export class Game implements ToolHost {
       if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }) };
       return { ok: true, money };
     }
-    let money = 0, stone = 0, bridges = 0;
+    let money = 0, stone = 0, bridges = 0, tunnels = 0;
     for (let i = 0; i < path.length; i++) {
       const tl = path[i];
       const k = idx(tl.x, tl.z);
-      if (this.map.height[k] > 0) return { ok: false, reason: t('Too steep — mountains') };
+      // through a mountain the road runs in a tunnel (dearer than a road, cheaper than going round)
+      if (this.map.height[k] > 0 && !this.net.type[k]) { money += TUNNEL_COST.money; stone += TUNNEL_COST.stone; tunnels++; if (this.buildings.occ[k] !== -1) return { ok: false, reason: t('A building is in the way') }; if (kind === 'litroad' && !this.lights.lit[k]) money += LAMP.price; continue; }
       if (this.buildings.occ[k] !== -1) return { ok: false, reason: t('A building is in the way') };
       if (this.net.isIsland(k)) return { ok: false, reason: t("Can't drive through a roundabout island") };
       if (this.net.isRing(k)) {
@@ -1237,6 +1241,7 @@ export class Game implements ToolHost {
 
   private networkChanged(dirty = true) {
     this.commuteCache.clear();
+    this.rebuildTunnels();
     this.roadMesh.rebuild();
     this.lights.rebuild();
     // every lamp draws power from the city whose Town Hall is closest
@@ -1429,13 +1434,17 @@ export class Game implements ToolHost {
     else this.refreshInspector();
   }
 
+  private roofOf = new Map<number, number>();
   private personPos(c: Citizen) {
     const v = this.traffic.vehicleForDriver(c.id) ?? this.traffic.vehicleForPassenger(c.id);
     if (v && !v.leaving) return { x: v.x, z: v.z, y: 0.3 };
     if (c.walker && !c.walker.leaving) return { x: c.walker.x, z: c.walker.z, y: 0.3 * c.walker.scale };
     const b = this.buildings.get(c.at);
     if (!b) return null;
-    return { x: b.mesh.position.x, z: b.mesh.position.z, y: 0.5 + BUILDINGS[b.kind].size * 0.3 };
+    // the height of the building (measured once): the marker floats above its roof
+    let top = this.roofOf.get(b.id);
+    if (top === undefined) { top = new THREE.Box3().setFromObject(b.mesh).max.y; this.roofOf.set(b.id, top); }
+    return { x: b.mesh.position.x, z: b.mesh.position.z, y: top + 0.2 };
   }
 
   /** Problem badges over buildings, the reach of the selected service and what a selected power plant feeds. */
@@ -1613,14 +1622,14 @@ export class Game implements ToolHost {
     if (!target) return null;
     const cost = (k: number) => {
       if (this.net.type[k]) return this.net.isRing(k) || this.net.isIsland(k) ? Infinity : 0.25;
-      if (this.map.height[k] > 0 || this.buildings.occ[k] !== -1 || this.railway.tiles[k] || this.net.isIsland(k)) return Infinity;
-      return this.map.water[k] ? 8 : 1;
+      if (this.buildings.occ[k] !== -1 || this.railway.tiles[k] || this.net.isIsland(k)) return Infinity;
+      return this.map.height[k] > 0 ? 7 : this.map.water[k] ? 8 : 1;
     };
     const path = walkPath(cost, hall.access, target.h!.access, 150000);
     if (!path) return null;
     const fresh = path.filter((k) => !this.net.type[k]);
     let money = 0, stone = 0;
-    for (const k of fresh) { const r = this.map.water[k] ? BRIDGE_COST : ROAD_COST[2]; money += r.money; stone += r.stone; }
+    for (const k of fresh) { const r = this.map.height[k] > 0 ? TUNNEL_COST : this.map.water[k] ? BRIDGE_COST : ROAD_COST[2]; money += r.money; stone += r.stone; }
     // not rich enough for a road (or a thrifty mayor): first a cheap footpath, so people can come on foot and by bike
     const thrifty = c.style === 'thrifty' || c.style === 'green';
     if (c.money < money + stone * TRADE_PRICE.stone * 1.25 + 1500 || (thrifty && !this.footLinked(c.id, target.o.id) && Math.random() < 0.6)) {
@@ -1766,6 +1775,34 @@ export class Game implements ToolHost {
     this.deal(to.id, t('Gift: {n} {what}', { n: what === 'money' ? `$${n}` : n, what: what === 'money' ? '' : t(GOOD_NAME[what as Good]).toLowerCase() }), what === 'money' ? -n : 0);
     sound.play('coin');
     this.refreshHud();
+  }
+
+  /** Stone portals where a road enters a mountain (the road runs on inside, hidden in the rock). */
+  private tunnelGroup = new THREE.Group();
+  private rebuildTunnels() {
+    if (!this.tunnelGroup.parent) this.scene.add(this.tunnelGroup);
+    for (const ch of [...this.tunnelGroup.children]) { this.tunnelGroup.remove(ch); (ch as THREE.Mesh).geometry?.dispose(); }
+    const frame = new THREE.MeshLambertMaterial({ color: '#8e8a83' }), dark = new THREE.MeshBasicMaterial({ color: '#15171a' });
+    for (let k = 0; k < this.net.type.length; k++) {
+      if (!this.net.type[k] || this.map.height[k] <= 0) continue;
+      const x = k % N, z = (k / N) | 0;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, nz = z + dz;
+        if (!inBounds(nx, nz)) continue;
+        const nk = idx(nx, nz);
+        if (!this.net.type[nk] || this.map.height[nk] > 0) continue;
+        // the portal stands on the edge between the mountain tile and the open road
+        const g = new THREE.Group();
+        const top = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.12), frame); top.position.set(0, 0.5, 0);
+        const l = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), frame); l.position.set(-0.42, 0.25, 0);
+        const r = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), frame); r.position.set(0.42, 0.25, 0);
+        const hole = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.44, 0.02), dark); hole.position.set(0, 0.22, 0.05);
+        g.add(top, l, r, hole);
+        g.position.set(tileToWorld(x) + dx * 0.5, 0, tileToWorld(z) + dz * 0.5);
+        g.rotation.y = Math.atan2(dx, dz);
+        this.tunnelGroup.add(g);
+      }
+    }
   }
 
   /** Fly to a family's home and open it (from the town hall window). */
@@ -2097,7 +2134,9 @@ export class Game implements ToolHost {
     if (flats && (!aptFam || aptFam.home !== b.id)) this.aptFamily = null;
     if (b.kind === 'townhall') {
       this.inspector.hide();
-      this.cityReport?.open(b.city, 'hall');
+      // opened fresh on the town hall tab; while open it keeps the tab the player chose
+      if (!this.cityReport?.visible || this.cityReport.id !== b.city) this.cityReport?.open(b.city, 'hall');
+      else this.cityReport.render();
       return;
     }
     const view = aptFam && aptFam.home === b.id ? this.familyView(aptFam, b) : flats ? this.apartmentView(b) : b.kind === 'house' ? this.houseView(b) : this.buildingView(b);

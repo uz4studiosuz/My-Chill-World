@@ -1,4 +1,4 @@
-import { el, icon } from './dom';
+import { el, icon, hoverBusy } from './dom';
 import { t } from '../i18n/i18n';
 import { drawChart, Series } from './Chart';
 import type { InspectorView } from './Inspector';
@@ -119,6 +119,7 @@ export class CityReport {
 
   render() {
     if (!this.visible) return;
+    if (hoverBusy(this.root)) return;
     const v = this.get(this.id);
     if (!v) return this.hide();
     const key = `${this.id}|${this.tab}|${JSON.stringify(v)}`;

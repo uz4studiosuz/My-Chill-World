@@ -13,3 +13,4 @@ export * from './chains2/moreCargo';
 export * from './chains2/warehouse';
 export * from './chains2/bikeFactory';
 export * from './chains2/migrationOffice';
+export * from './chains2/decor2';

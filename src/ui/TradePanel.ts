@@ -1,4 +1,4 @@
-import { el, icon } from './dom';
+import { el, icon, hoverBusy } from './dom';
 import { t } from '../i18n/i18n';
 import { GOODS, GOOD_NAME, Good, Trade } from '../game/Trade';
 import type { City } from '../sim/Economy';
@@ -69,6 +69,7 @@ export class TradePanel {
 
   render() {
     if (!this.visible) return;
+    if (hoverBusy(this.root)) return;
     const city = this.host.city();
     const linked = this.host.linked();
     const oldBody = this.root.querySelector('.rp-body') as HTMLElement | null;

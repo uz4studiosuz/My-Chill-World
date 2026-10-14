@@ -16,7 +16,7 @@ import {
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
 import { siteTapeGeometry } from '../models/sitetape';
-import { warehouseGeometry, bikeFactoryGeometry, migrationOfficeGeometry } from '../models/chains2';
+import { warehouseGeometry, bikeFactoryGeometry, migrationOfficeGeometry, gazeboGeometry, pondGeometry, clockTowerGeometry, flagpoleGeometry, planterGeometry, archwayGeometry } from '../models/chains2';
 import { tower15Geometry, tower30Geometry, tower50Geometry } from '../models/buildings';
 import { concertHallGeometry, barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
 import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
@@ -89,6 +89,8 @@ export interface Building {
   /** Wages paid to the staff today, and yesterday's accounts of a business (revenue, wages, tax, the owner's profit). */
   wagesToday?: number;
   books?: { revenue: number; wages: number; tax: number; profit: number };
+  /** Mines and quarries: stone, coal or iron dug since the mountain last lost a level. */
+  dug?: number;
   /** A fire truck is already on its way. */
   fireCrew?: boolean;
   /** Cemetery: buried records. */
@@ -191,6 +193,12 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'warehouse': return warehouseGeometry();
     case 'bikefactory': return bikeFactoryGeometry();
     case 'migration': return migrationOfficeGeometry();
+    case 'gazebo': return gazeboGeometry();
+    case 'pond': return pondGeometry();
+    case 'clocktower': return clockTowerGeometry();
+    case 'flagpole': return flagpoleGeometry();
+    case 'planter': return planterGeometry();
+    case 'archway': return archwayGeometry();
     case 'tower15': return tower15Geometry();
     case 'tower30': return tower30Geometry();
     case 'tower50': return tower50Geometry();

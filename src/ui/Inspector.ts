@@ -1,4 +1,4 @@
-import { el, icon, IconName } from './dom';
+import { el, icon, IconName, hoverBusy } from './dom';
 import { t } from '../i18n/i18n';
 
 export interface InspectorBar { label: string; value: number; color: string; text?: string }
@@ -41,6 +41,7 @@ export class Inspector {
     // nothing changed: keep the DOM (and the buttons under the cursor) as they are
     const sig = JSON.stringify(v);
     if (v.key === this.key && sig === this.sig && this.root.classList.contains('show')) return;
+    if (v.key === this.key && this.root.classList.contains('show') && hoverBusy(this.root)) return;
     this.sig = sig;
     const list = this.root.querySelector('.ins-list') as HTMLDivElement | null;
     const same = v.key === this.key;

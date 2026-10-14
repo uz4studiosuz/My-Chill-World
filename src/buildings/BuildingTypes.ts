@@ -5,7 +5,7 @@ export type BuildingKind =
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
   | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
-  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration';
+  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
 
 /** How a building's workers behave while at work. */
@@ -128,6 +128,12 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   fountain: def({ kind: 'fountain', name: 'Fountain', size: 1, money: 350, stone: 12, upkeep: 1, needsRoad: false, energy: 1 }),
   flowerbed: def({ kind: 'flowerbed', name: 'Flower Bed', size: 1, money: 60, stone: 2, needsRoad: false }),
   statue: def({ kind: 'statue', name: 'Monument', size: 1, money: 600, stone: 20, iron: 4, needsRoad: false, energy: 0.2 }),
+  gazebo: def({ kind: 'gazebo', name: 'Gazebo', size: 1, money: 300, wood: 15, stone: 4, needsRoad: false }),
+  pond: def({ kind: 'pond', name: 'Duck Pond', size: 2, money: 500, stone: 12, needsRoad: false }),
+  clocktower: def({ kind: 'clocktower', name: 'Clock Tower', size: 1, money: 900, stone: 30, iron: 4, needsRoad: false, energy: 0.3 }),
+  flagpole: def({ kind: 'flagpole', name: 'Flag Pole', size: 1, money: 120, iron: 2, needsRoad: false }),
+  planter: def({ kind: 'planter', name: 'Flower Pots', size: 1, money: 80, stone: 3, needsRoad: false }),
+  archway: def({ kind: 'archway', name: 'City Gate', size: 1, money: 600, stone: 20, needsRoad: false }),
   bench: def({ kind: 'bench', name: 'Benches', size: 1, money: 50, wood: 4, needsRoad: false }),
   lamppost: def({ kind: 'lamppost', name: 'Lamp Post', size: 1, money: 80, iron: 1, needsRoad: false, energy: 0.2 }),
   sapling: def({ kind: 'sapling', name: 'Tree', size: 1, money: 30, needsRoad: false }),
@@ -167,7 +173,11 @@ export const CLEAN_POWER: Partial<Record<BuildingKind, boolean>> = { windturbine
 export const POLLUTERS: Partial<Record<BuildingKind, number>> = { factory: 3, carfactory: 4, powerplant: 3, ironmine: 2, quarry: 1.5, landfill: 3, sawmill: 1, coalplant: 6, coalmine: 2.5, steelmill: 4, brickworks: 2 };
 export const POLLUTION_RANGE = 8;
 /** Decorations: how much they cheer up homes within DECOR_RANGE tiles (happiness points per item, capped). */
-export const DECOR: Partial<Record<BuildingKind, number>> = { bigpark: 3, fountain: 1.5, flowerbed: 0.6, statue: 1.2, bench: 0.5, lamppost: 0.4, sapling: 0.5, roadsign: 0.2, playground: 1.0 };
+export const DECOR: Partial<Record<BuildingKind, number>> = { bigpark: 3, fountain: 1.5, flowerbed: 0.6, statue: 1.2, bench: 0.5, lamppost: 0.4, sapling: 0.5, roadsign: 0.2, playground: 1.0, park: 1.5, gazebo: 1.5, pond: 2.5, clocktower: 2, flagpole: 0.8, planter: 0.7, archway: 1.5 };
+/** A road tile inside a mountain (a tunnel). */
+export const TUNNEL_COST = { money: 45, stone: 6 };
+/** A mine or quarry eats into the mountain: one level of rock goes per this much stone, coal or iron dug. */
+export const DIG_PER_LEVEL = { quarry: 160, coalmine: 110, ironmine: 90 } as Record<string, number>;
 export const DECOR_RANGE = 6;
 /** Airport: goods a plane trades (sold above `keep`, bought below `low`), price per unit. */
 export const AIR_TRADE: Record<'food' | 'wood' | 'stone' | 'iron', { keep: number; low: number; price: number }> = {

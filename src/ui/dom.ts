@@ -107,3 +107,8 @@ if (typeof window !== 'undefined') {
   window.addEventListener('pointercancel', () => { pressing = false; }, true);
 }
 export const uiBusy = () => pressing || performance.now() - pressAt < 350;
+/**
+ * The pointer rests on a button of this panel (and nothing was clicked just now): a timed refresh waits, so the
+ * button under the cursor is not replaced (which made hover effects flicker). A click still redraws at once.
+ */
+export const hoverBusy = (root: Element) => performance.now() - pressAt > 400 && !!root.querySelector('button:hover, .stab:hover, .person:hover');

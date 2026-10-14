@@ -68,7 +68,7 @@ export class RoadMesh {
             // dashed centre line, period 0.5 so it lines up across tiles
             for (const d of dirs) this.arm(cx, cz, d, 0.125, 0.375, -0.025, 0.025, Y_LINE, COL_LINE);
           } else {
-            this.zebras(cx, cz, dirs, h);
+            this.zebras(x, z, cx, cz, dirs, h);
           }
         }
       }
@@ -83,10 +83,20 @@ export class RoadMesh {
     this.bridges.visible = bridgeParts.length > 0;
   }
 
-  private zebras(cx: number, cz: number, dirs: Dir[], h: number) {
+  private zebras(x: number, z: number, cx: number, cz: number, dirs: Dir[], h: number) {
     const stripes = 5;
     const sw = (2 * h - 0.08) / (stripes * 2 - 1);
+    const { type, conn } = this.net;
     for (const d of dirs) {
+      // two junctions side by side (or a roundabout next door): no zebra between them, or the stripes overlap
+      const nx = x + d.dx, nz = z + d.dz;
+      if (nx >= 0 && nz >= 0 && nx < N && nz < N) {
+        const nk = nz * N + nx;
+        if (type[nk] === ROAD_RING) continue;
+        let arms = 0;
+        for (const dd of DIRS) if (conn[nk] & dd.bit) arms++;
+        if (arms > 2) continue;
+      }
       for (let i = 0; i < stripes; i++) {
         const a0 = -h + 0.04 + i * 2 * sw;
         this.arm(cx, cz, d, 0.41, 0.49, a0, a0 + sw, Y_LINE, COL_LINE);

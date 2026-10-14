@@ -1,6 +1,6 @@
 import { Sample } from '../sim/History';
 import { drawChart, Series } from './Chart';
-import { el, icon, IconName } from './dom';
+import { el, icon, IconName, hoverBusy } from './dom';
 import { t } from '../i18n/i18n';
 
 /** A block of a statistics page built by the game (key figures, rows, shares). */
@@ -134,6 +134,7 @@ export class StatsPanel {
 
   render() {
     if (!this.visible) return;
+    if (hoverBusy(this.root)) return;
     this.tabBtns.forEach((b, id) => b.classList.toggle('active', id === this.tab));
     const s = this.get();
     // nothing changed: keep the page as it is (no flicker)

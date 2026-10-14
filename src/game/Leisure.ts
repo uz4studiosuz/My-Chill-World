@@ -630,7 +630,7 @@ export class Leisure {
   /** Extra happiness target for a city. */
   bonus(cityId: number, own: Building[]) {
     const has = (k: string) => own.some((b) => b.kind === k && (!BUILDINGS[b.kind].jobs || b.workers > 0));
-    return Math.min(6, this.beauty.get(cityId) ?? 0) + (has('stadium') ? 3 : 0) + (has('cinema') ? 3 : 0) + (has('academy') ? 2 : 0)
+    return (has('stadium') ? 3 : 0) + (has('cinema') ? 3 : 0) + (has('academy') ? 2 : 0)
       + (has('mosque') ? 3 : 0) + (has('themepark') ? 3 : 0) + (has('teahouse') ? 2 : 0) + (has('barber') ? 1.5 : 0) + (has('gym') ? 1 : 0) + (has('casino') ? 1 : 0)
       + (this.trust.get(cityId) ?? 0) + (this.sport.get(cityId) ?? 0);
   }

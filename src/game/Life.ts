@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE } from '../buildings/BuildingTypes';
+import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE, DIG_PER_LEVEL } from '../buildings/BuildingTypes';
 import type { BuildingKind, CropKind } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
@@ -1280,6 +1280,30 @@ export class Life {
     for (const m of pop.members(f)) if (m.age >= 18) pop.note(m, 'Registered at the migration company in {city}', { city: city.name });
   }
 
+  /** Digging eats slowly into the nearest mountain: one level of rock goes per DIG_PER_LEVEL of stone, coal or iron. */
+  private dig(b: Building, amount: number) {
+    if (amount <= 0) return;
+    b.dug = (b.dug ?? 0) + amount;
+    const per = DIG_PER_LEVEL[b.kind] ?? 150;
+    if (b.dug < per) return;
+    b.dug -= per;
+    const { map } = this.c;
+    const s = BUILDINGS[b.kind].size;
+    let best = -1, bd = Infinity;
+    for (let z = b.z - 3; z < b.z + s + 3; z++) for (let x = b.x - 3; x < b.x + s + 3; x++) {
+      if (x < 0 || z < 0 || x >= N || z >= N) continue;
+      const k = z * N + x;
+      if (map.height[k] <= 0 || this.c.net.type[k]) continue;
+      // the closest rock first, the lower edge before the peak
+      const d = Math.max(Math.abs(x - (b.x + s / 2)), Math.abs(z - (b.z + s / 2))) + map.height[k] * 0.2;
+      if (d < bd) { bd = d; best = k; }
+    }
+    if (best < 0) return;
+    map.height[best] -= 1;
+    this.c.terrain.queueReshape(best);
+    if (map.mountainsNear(b.x, b.z, 3) === 0) this.cityEvent(b.city, t('The {name} has dug away all the rock around it', { name: t(BUILDINGS[b.kind].name) }));
+  }
+
   /** Is there a staffed food shop in the town (families can buy food)? */
   hasFoodShop(cityId: number) { return this.foodShops.has(cityId); }
 
@@ -1340,8 +1364,9 @@ export class Life {
           }
         }
       }
-      if (b.kind === 'coalmine') this.c.eco.add(city, 'coal', CHAIN2.coalPerDay * Math.min(1, b.workers / d.jobs) * share, 'Coal mines');
-      if (b.kind === 'ironmine') this.c.eco.add(city, 'iron', IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share, 'Iron mines');
+      if ((b.kind === 'coalmine' || b.kind === 'ironmine') && this.c.map.mountainsNear(b.x, b.z, 3) === 0) continue; // the seam is worked out
+      if (b.kind === 'coalmine') { const n = CHAIN2.coalPerDay * Math.min(1, b.workers / d.jobs) * share; this.c.eco.add(city, 'coal', n, 'Coal mines'); this.dig(b, n); }
+      if (b.kind === 'ironmine') { const n = IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share; this.c.eco.add(city, 'iron', n, 'Iron mines'); this.dig(b, n); }
       if (b.kind === 'carfactory' && b.stored < CARS.factoryMax) {
         const made = CARS.perDay * Math.min(1, b.workers / d.jobs) * (b.powered ? 1 : 0.4) * share;
         const iron = made * CARS.iron;
@@ -1387,7 +1412,10 @@ export class Life {
     for (const b of buildings.ofKind('quarry')) {
       const th = buildings.townHall(b.city);
       if (b.built < 1) continue;
-      b.stored = Math.min(QUARRY.maxStored, b.stored + QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share);
+      if (this.c.map.mountainsNear(b.x, b.z, 3) === 0) continue; // the rock is gone
+      const dug = QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share;
+      if (b.stored < QUARRY.maxStored) this.dig(b, dug);
+      b.stored = Math.min(QUARRY.maxStored, b.stored + dug);
       if (!th || b.stored < QUARRY.truckLoad) continue;
       // no road link: a miner carries the stone to the Town Hall on foot
       if (b.access < 0 || th.access < 0 || !traffic.canRoute(b.access, th.access)) {
@@ -1920,7 +1948,9 @@ export class Life {
     const add = (label: string, v: number) => { if (Math.abs(v) >= 0.05) mood.push([label, v]); };
     if (this.festival) add('Festival', 12);
     if (city.railLink) add('Railway link', 4);
-    add('Leisure, decorations, letters and sport', this.leisure.bonus(city.id, own));
+    add('Leisure, letters and sport', this.leisure.bonus(city.id, own));
+    // parks, fountains and decorations near the homes
+    add('Decorations and greenery', Math.min(8, (this.leisure.beautyOf.get(city.id) ?? 0) * 1.5));
     add('Air pollution', -Math.min(15, city.pollution * 4));
     add('Parks', Math.min(1, (parks * 80) / n) * 10);
     if (has('grocery') || has('market') || has('supermarket')) add('Food shops', 7);

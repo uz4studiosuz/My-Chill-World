@@ -1,4 +1,4 @@
-import { el, icon, IconName } from './dom';
+import { el, icon, IconName, hoverBusy } from './dom';
 import { t } from '../i18n/i18n';
 
 export interface ResourceSection {
@@ -51,6 +51,7 @@ export class ResourcePanel {
 
   render() {
     if (!this.key) return;
+    if (hoverBusy(this.root)) return;
     const v = this.build(this.key);
     if (!v) return this.hide();
     const oldBody = this.root.querySelector('.rp-body') as HTMLElement | null;

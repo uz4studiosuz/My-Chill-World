@@ -278,6 +278,41 @@ export class Terrain {
     this.clearTiles(changed);
     this.buildGround();
     this.buildWater();
+    this.fixDecor();
+  }
+
+  /**
+   * Trees, rocks and grass placed for another shape of the land (a saved world loaded over a freshly generated one,
+   * a mountain dug away) are removed where they would now stand in water or float in the air.
+   */
+  private fixDecor() {
+    const touched = new Set<THREE.InstancedMesh>();
+    for (const [k, refs] of this.decorByTile) {
+      const want = this.map.height[k] > 0 ? this.map.topY(k) : 0;
+      for (const r of refs) {
+        if (r.m === HIDDEN) continue;
+        const y = r.m.elements[13];
+        if (!this.map.water[k] && Math.abs(y - want) < 0.05) continue;
+        r.mesh.setMatrixAt(r.index, HIDDEN);
+        r.m = HIDDEN;
+        touched.add(r.mesh);
+        if (r.tree) { this.trees.delete(k); this.stumps.delete(k); }
+      }
+    }
+    touched.forEach((m) => (m.instanceMatrix.needsUpdate = true));
+  }
+
+  /** Tiles whose height changed (mines digging): the ground is rebuilt for all of them at once, now and then. */
+  private pending: number[] = [];
+  private pendingAt = 0;
+  queueReshape(k: number) { this.pending.push(k); }
+  /** Rebuild the ground for the queued tiles (at most every few seconds — it is a big job). */
+  flushReshape(now: number) {
+    if (!this.pending.length || now - this.pendingAt < 3000) return;
+    this.pendingAt = now;
+    const list = this.pending;
+    this.pending = [];
+    this.reshape(list);
   }
 
   /** Lakes are frozen (winter). */
