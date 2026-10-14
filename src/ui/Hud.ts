@@ -570,7 +570,7 @@ export class Hud {
   setStats(s: HudStats) {
     const sign = s.daily >= 0 ? '+' : '';
     this.stat.money.innerHTML = `$${fmt(s.money)} <small class="${s.daily >= 0 ? 'pos' : 'neg'}">${sign}${fmt(s.daily)}</small>`;
-    this.stat.city.textContent = s.cities > 1 ? `${s.cityName} ▾` : s.cityName;
+    this.stat.city.textContent = `${s.cityName} ▾`;
     this.stat.stone.textContent = fmt(s.stone);
     this.stat.wood.textContent = fmt(s.wood);
     this.stat.iron.textContent = fmt(s.iron);

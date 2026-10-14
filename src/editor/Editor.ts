@@ -12,7 +12,7 @@ import { PRESETS, PresetPart } from './presets';
 
 /** One box of a voxel model — the same shape the game's models are made of: box(w, h, d, x, y, z, color). */
 /** A part of the model: a box, or a round / sloped shape, turned along an axis. */
-interface Part { id: number; w: number; h: number; d: number; x: number; y: number; z: number; color: string; name?: string; shape?: ShapeKind; axis?: 'x' | 'y' | 'z'; /** Rounded corners (boxes): radius in tiles. */ r?: number; /** Group: parts of a group are selected and moved together. */ g?: number }
+interface Part { id: number; w: number; h: number; d: number; x: number; y: number; z: number; color: string; name?: string; shape?: ShapeKind; axis?: 'x' | 'y' | 'z'; /** Rounded corners (boxes): radius in tiles. */ r?: number; /** Group: parts of a group are selected and moved together. */ g?: number; /** Group name. */ gn?: string; /** Hidden in the editor (still exported). */ hide?: boolean }
 
 interface ModelFile { format: 'mcw-model'; version: 1; name: string; size: 1 | 2 | 3; parts: Omit<Part, 'id'>[] }
 
@@ -54,6 +54,8 @@ export class Editor {
   private down = { x: 0, y: 0 };
   /** Several parts selected: the gizmo moves this pivot and every part follows (moved and scaled together). */
   private pivot = new THREE.Object3D();
+  /** Groups folded in the layers list. */
+  private folded = new Set<number>();
   private pivotStart: { center: THREE.Vector3; parts: Map<number, { pos: THREE.Vector3; scale: THREE.Vector3 }> } | null = null;
 
   constructor(private host: HTMLElement) {
@@ -256,14 +258,60 @@ export class Editor {
 
   private renderList() {
     const { list } = this.ui;
+    const scroll = list.scrollTop;
     list.replaceChildren();
+    const eye = (hidden: boolean, onClick: () => void) => {
+      const b = document.createElement('span');
+      b.className = 'ed-eye' + (hidden ? ' off' : '');
+      b.textContent = hidden ? '◌' : '●';
+      b.title = hidden ? t('Show') : t('Hide');
+      b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+      return b;
+    };
+    const partRow = (p: Part, i: number, nested: boolean) => {
+      const row = document.createElement('div');
+      row.className = 'ed-row' + (this.selected.includes(p.id) ? ' on' : '') + (nested ? ' nested' : '') + (p.hide ? ' hidden' : '');
+      row.innerHTML = `<i style="background:${p.color};border-radius:${p.shape && p.shape !== 'box' && p.shape !== 'wedge' ? '50%' : p.r ? '5px' : '2px'}"></i><span></span><small>${round(p.w)}×${round(p.h)}×${round(p.d)}</small>`;
+      (row.querySelector('span') as HTMLElement).textContent = `${p.name ?? t(SHAPE_NAME[p.shape ?? 'box'])} ${i + 1}`;
+      row.appendChild(eye(!!p.hide, () => { p.hide = !p.hide || undefined; this.rebuild(); }));
+      // a click on a part inside a group picks just that part
+      row.addEventListener('click', (e) => this.select(p.id, e.shiftKey, nested));
+      return row;
+    };
+    const seen = new Set<number>();
     this.parts.forEach((p, i) => {
-      const row = document.createElement('button');
-      row.className = 'ed-row' + (this.selected.includes(p.id) ? ' on' : '');
-      row.innerHTML = `<i style="background:${p.color};border-radius:${p.shape && p.shape !== 'box' && p.shape !== 'wedge' ? '50%' : '3px'}"></i><span>${p.name ?? t(SHAPE_NAME[p.shape ?? 'box'])} ${i + 1}</span><small>${p.w}×${p.h}×${p.d}</small>`;
-      row.addEventListener('click', (e) => this.select(p.id, e.shiftKey));
-      list.appendChild(row);
+      if (p.g === undefined) { list.appendChild(partRow(p, i, false)); return; }
+      if (seen.has(p.g)) return;
+      seen.add(p.g);
+      const g = p.g;
+      const members = this.parts.map((q, j) => [q, j] as const).filter(([q]) => q.g === g);
+      const allSel = members.every(([q]) => this.selected.includes(q.id));
+      const head = document.createElement('div');
+      head.className = 'ed-grp' + (allSel ? ' on' : '');
+      const caret = document.createElement('span');
+      caret.className = 'ed-caret';
+      caret.textContent = this.folded.has(g) ? '▸' : '▾';
+      caret.addEventListener('click', (e) => { e.stopPropagation(); if (this.folded.has(g)) this.folded.delete(g); else this.folded.add(g); this.renderList(); });
+      const name = document.createElement('b');
+      name.textContent = p.gn ?? `${t('Group')} ${g}`;
+      name.title = t('Double-click to rename');
+      name.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const v = window.prompt(t('Group name'), name.textContent ?? '');
+        if (v === null) return;
+        for (const [q] of members) q.gn = v.trim() || undefined;
+        this.renderList();
+        this.save();
+      });
+      const count = document.createElement('small');
+      count.textContent = `${members.length}`;
+      const hidden = members.every(([q]) => q.hide);
+      head.append(caret, name, count, eye(hidden, () => { for (const [q] of members) q.hide = !hidden || undefined; this.rebuild(); }));
+      head.addEventListener('click', (e) => this.select(p.id, e.shiftKey));
+      list.appendChild(head);
+      if (!this.folded.has(g)) for (const [q, j] of members) list.appendChild(partRow(q, j, true));
     });
+    list.scrollTop = scroll;
     const n = this.imported.children.length;
     this.ui.status.textContent = `${this.parts.length} ${t('parts')}${n ? ` · ${n} ${t('imported models')}` : ''} · ${t('Plot')} ${this.size}×${this.size}`;
   }
@@ -359,7 +407,7 @@ export class Editor {
     this.pushUndo();
     const ids: number[] = [];
     const g = Math.max(0, ...this.parts.map((p) => p.g ?? 0)) + 1;
-    for (const p of list) { const id = this.nextId++; this.parts.push({ ...p, w: round(p.w), h: round(p.h), d: round(p.d), x: round(p.x), y: round(p.y), z: round(p.z), r: p.r === undefined ? undefined : round(p.r), name: p.name ? t(p.name) : undefined, id, g }); ids.push(id); }
+    for (const p of list) { const id = this.nextId++; this.parts.push({ ...p, w: round(p.w), h: round(p.h), d: round(p.d), x: round(p.x), y: round(p.y), z: round(p.z), r: p.r === undefined ? undefined : round(p.r), name: p.name ? t(p.name) : undefined, id, g, gn: t(name) }); ids.push(id); }
     this.rebuild();
     this.selected = ids;
     this.refreshSelection();
@@ -389,6 +437,7 @@ export class Editor {
       m.castShadow = true;
       m.receiveShadow = true;
       m.userData.part = p.id;
+      m.visible = !p.hide;
       this.root.add(m);
       this.meshes.set(p.id, m);
     }
@@ -411,7 +460,7 @@ export class Editor {
     if (this.selected.length < 2) return this.toast(t('Select two or more parts first (Shift+click)'));
     this.pushUndo();
     const g = Math.max(0, ...this.parts.map((p) => p.g ?? 0)) + 1;
-    for (const p of this.parts) if (this.selected.includes(p.id)) p.g = g;
+    for (const p of this.parts) if (this.selected.includes(p.id)) { p.g = g; p.gn = `${t('Group')} ${g}`; }
     this.toast(t('Grouped {n} parts — they now move together. Alt+click picks one part.', { n: this.selected.length }));
     this.rebuild();
   }
@@ -419,7 +468,7 @@ export class Editor {
   private ungroup() {
     if (!this.selected.length) return;
     this.pushUndo();
-    for (const p of this.parts) if (this.selected.includes(p.id)) p.g = undefined;
+    for (const p of this.parts) if (this.selected.includes(p.id)) { p.g = undefined; p.gn = undefined; }
     this.toast(t('Ungrouped'));
     this.rebuild();
   }
@@ -617,7 +666,7 @@ export class Editor {
     const r = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.ray.setFromCamera(ndc, this.camera);
-    const hit = this.ray.intersectObjects([...this.meshes.values()], false)[0];
+    const hit = this.ray.intersectObjects([...this.meshes.values()].filter((m) => m.visible), false)[0];
     if (hit) this.select(hit.object.userData.part as number, e.shiftKey, e.altKey);
     else if (!e.shiftKey) this.select(null);
   }
@@ -864,6 +913,15 @@ body.editor-page #loading { display: none; }
 .ed-panel { position: fixed; top: 58px; bottom: 34px; width: 230px; overflow-y: auto; background: #1a1d22; border: 1px solid #343a43; border-radius: 10px; padding: 10px; color: #eceef1; font-family: Nunito, system-ui, sans-serif; z-index: 2; scrollbar-width: none; }
 .ed-panel::-webkit-scrollbar { display: none; }
 .ed-left { left: 10px; }
+.ed-grp { display: flex; align-items: center; gap: 6px; padding: 6px 6px; margin-top: 4px; border-radius: 8px; background: #23272e; cursor: pointer; font-size: 12px; }
+.ed-grp.on { background: #3a2f17; outline: 1px solid #f2a93b; }
+.ed-grp b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-grp small { color: #8b949e; }
+.ed-caret { width: 14px; text-align: center; color: #f2a93b; }
+.ed-row.nested { margin-left: 14px; border-left: 2px solid #343a43; }
+.ed-row.hidden { opacity: .45; }
+.ed-eye { margin-left: auto; padding: 0 4px; color: #aab4be; cursor: pointer; font-size: 11px; }
+.ed-eye.off { color: #5d6670; }
 .ed-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .ed-shape, .ed-small { font-size: 11px !important; padding: 6px 2px !important; }
 .ed-radius { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; margin-top: 8px; font-size: 12px; color: #aab4be; }
@@ -884,7 +942,7 @@ body.editor-page #loading { display: none; }
 .ed-props .ed-input { width: 100%; margin-top: 6px; }
 .ed-empty { font-size: 12px; color: #8e96a1; }
 .ed-list { display: flex; flex-direction: column; gap: 3px; }
-.ed-row { display: flex; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; background: #272b32; color: #eceef1; padding: 5px 7px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; text-align: left; }
+.ed-row { display: flex; align-items: center; cursor: pointer;  display: flex; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; background: #272b32; color: #eceef1; padding: 5px 7px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; text-align: left; }
 .ed-row.on { border-color: #f2a93b; }
 .ed-row i { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid #343a43; }
 .ed-row small { margin-left: auto; color: #8e96a1; font-size: 10.5px; }

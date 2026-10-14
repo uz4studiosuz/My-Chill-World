@@ -34,7 +34,7 @@ export class WorldPanel {
   visible = false;
   private open = new Set<number>();
 
-  constructor(parent: HTMLElement, private get: () => WorldTown[], private show: (id: number) => void, private trade: () => void) {
+  constructor(parent: HTMLElement, private get: () => WorldTown[], private show: (id: number) => void, private trade: () => void, private buildFor: (id: number) => void = () => {}, private active: () => number = () => -1) {
     this.root = el('div', 'respanel world-panel');
     parent.appendChild(this.root);
   }
@@ -63,6 +63,9 @@ export class WorldPanel {
     x.addEventListener('click', () => this.hide());
     head.append(titles, x);
     const body = el('div', 'rp-body');
+    const help = el('div', 'rp-note');
+    help.textContent = t('Neighbour towns run themselves: you cannot build on their land or change them. Trade with them, send gifts and answer their letters — friends pay more and sell cheaper.');
+    body.appendChild(help);
     for (const tw of towns) {
       const card = el('div', 'wt-card');
       const top = el('div', 'wt-top');
@@ -122,6 +125,12 @@ export class WorldPanel {
       btns.appendChild(mk(t('Show on the map'), () => this.show(tw.id)));
       if (tw.news.length > 3) btns.appendChild(mk(this.open.has(tw.id) ? t('Less news') : t('All news'), () => { if (this.open.has(tw.id)) this.open.delete(tw.id); else this.open.add(tw.id); this.render(); }));
       if (!tw.mine) btns.appendChild(mk(t('Trade'), this.trade));
+      if (tw.mine && towns.filter((x) => x.mine).length > 1) {
+        const on = this.active() === tw.id;
+        const bb = mk(on ? `✓ ${t('Building here')}` : t('Build here'), () => this.buildFor(tw.id));
+        bb.disabled = on;
+        btns.appendChild(bb);
+      }
       card.appendChild(btns);
       body.appendChild(card);
     }

@@ -467,6 +467,8 @@ export class Life {
     for (const b of buildings.list) if (!BUILDINGS[b.kind].energy) b.powered = true;
     for (const b of consumers) {
       const e = BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1);
+      // fields, mines and parks away from the roads run a small generator of their own
+      if (!this.gridIds.has(b.id) && !BUILDINGS[b.kind].needsRoad) { b.powered = true; continue; }
       b.powered = this.gridIds.has(b.id) && left >= e;
       if (b.powered) { left -= e; got.set(b.city, (got.get(b.city) ?? 0) + e); }
     }

@@ -415,7 +415,7 @@ export class Game implements ToolHost {
       openDrive: () => (this.drive.active ? this.drive.stop() : this.startDrive()),
       openPetitions: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.toggle(); },
       toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setNature(on); return on; },
-      cycleCity: () => this.cycleCity(),
+      cycleCity: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
       confirmBuild: () => this.tool?.confirm(),
       cancelBuild: () => this.tool?.cancel(),
       rotateBuild: () => this.tool?.rotate(),
@@ -467,7 +467,12 @@ export class Game implements ToolHost {
       this.worldPanel?.hide();
       this.cam.setState(h.mesh.position.x, h.mesh.position.z, this.cam.yaw, Math.max(8, this.cam.viewHalf));
       this.select({ type: 'building', id: h.id });
-    }, () => { this.worldPanel?.hide(); this.trade.newDay(this.eco.day); if (!this.tradePanel?.visible) this.tradePanel?.toggle(); });
+    }, () => { this.worldPanel?.hide(); this.trade.newDay(this.eco.day); if (!this.tradePanel?.visible) this.tradePanel?.toggle(); }, (id) => {
+      this.eco.active = id;
+      this.refreshHud();
+      this.worldPanel?.render();
+      this.hud?.toast(t('Now building for {name}', { name: this.eco.city.name }));
+    }, () => this.eco.active);
     this.resPanel = new ResourcePanel(this.hud.root, (key) => this.resourceView(key));
     this.decision = new DecisionPanel(this.hud.root);
     this.lifeBook = new LifeBook(this.hud.root, (d) => `${t(MONTHS[monthOf(d)])}, ${t('Year {n}', { n: yearOf(d) })}`);
@@ -738,6 +743,10 @@ export class Game implements ToolHost {
   // ---------- ToolHost ----------
 
   checkLine(kind: LineKind, path: Tile[]): CheckResult {
+    for (const tl of path) {
+      const town = this.foreignTown(tl.x, tl.z);
+      if (town) return { ok: false, reason: t('This land belongs to the neighbour town {city}', { city: town.name }) };
+    }
     if (kind === 'rail') {
       let fresh = 0;
       for (const tl of path) {
@@ -857,8 +866,36 @@ export class Game implements ToolHost {
     return { geo, size: def.size, rot };
   }
 
+  /** The neighbour town whose land this tile is (its buildings and streets, and a margin around them). */
+  foreignTown(x: number, z: number): City | undefined {
+    const now = this.time;
+    if (!this.territory || now - this.territory.t > 2 || this.territory.n !== this.buildings.list.length) {
+      const boxes: { city: City; x0: number; z0: number; x1: number; z1: number }[] = [];
+      for (const c of this.eco.cities.values()) {
+        if (!c.ai) continue;
+        let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+        for (const b of this.buildings.list) {
+          if (b.city !== c.id || BUILDINGS[b.kind].needsRoad === false && b.kind !== 'townhall' && (b.kind === 'quarry' || b.kind === 'woodcutter')) continue;
+          const s = BUILDINGS[b.kind].size;
+          x0 = Math.min(x0, b.x); z0 = Math.min(z0, b.z); x1 = Math.max(x1, b.x + s - 1); z1 = Math.max(z1, b.z + s - 1);
+        }
+        if (x0 <= x1) boxes.push({ city: c, x0: x0 - 3, z0: z0 - 3, x1: x1 + 3, z1: z1 + 3 });
+      }
+      this.territory = { t: now, n: this.buildings.list.length, boxes };
+    }
+    return this.territory.boxes.find((bx) => x >= bx.x0 && x <= bx.x1 && z >= bx.z0 && z <= bx.z1)?.city;
+  }
+  private territory?: { t: number; n: number; boxes: { city: City; x0: number; z0: number; x1: number; z1: number }[] };
+
   checkPlace(kind: PlaceKind, tl: Tile, _rotDir = 0): CheckResult {
-    if (kind === 'roundabout') return this.checkRoundabout(tl);
+    if (kind === 'roundabout') { const town = this.foreignTown(tl.x, tl.z); return town ? { ok: false, reason: t('This land belongs to the neighbour town {city}', { city: town.name }) } : this.checkRoundabout(tl); }
+    {
+      const s = BUILDINGS[kind].size;
+      for (let dz = 0; dz < s; dz++) for (let dx = 0; dx < s; dx++) {
+        const town = this.foreignTown(tl.x + dx, tl.z + dz);
+        if (town) return { ok: false, reason: t('This land belongs to the neighbour town {city}', { city: town.name }) };
+      }
+    }
     const def = BUILDINGS[kind];
     const mv = this.moving && this.moving.kind === kind ? this.moving : null;
     if (mv) {
@@ -870,6 +907,9 @@ export class Game implements ToolHost {
     }
     const r = this.buildings.check(kind, tl.x, tl.z);
     if (!r.ok) return { ok: false, reason: t(r.reason!) };
+    // your buildings can't hang on a neighbour town's streets
+    const acc = BUILDINGS[kind].needsRoad ? this.buildings.findAccess(kind, tl.x, tl.z).access : -1;
+    if (acc >= 0) { const town = this.foreignTown(acc % N, (acc / N) | 0); if (town) return { ok: false, reason: t("These streets belong to {city} — build along your own roads", { city: town.name }) }; }
     if (kind === 'townhall' && this.buildings.halls().some((h) => Math.max(Math.abs(h.x - tl.x), Math.abs(h.z - tl.z)) < CITY_MIN_DISTANCE)) {
       return { ok: false, reason: t('Too close to another Town Hall') };
     }
@@ -951,6 +991,11 @@ export class Game implements ToolHost {
 
   /** Ask first: list what will be demolished, then do it. */
   bulldoze(path: Tile[]) {
+    if (path.some((tl) => this.foreignTown(tl.x, tl.z))) {
+      const town = path.map((tl) => this.foreignTown(tl.x, tl.z)).find(Boolean)!;
+      this.hud?.toast(t('{city} is a neighbour town — you cannot change it', { city: town.name }));
+      path = path.filter((tl) => !this.foreignTown(tl.x, tl.z));
+    }
     const roads = path.filter((tl) => this.net.hasRoad(tl)).length;
     const names = new Map<string, number>();
     const seen = new Set<number>();
@@ -966,6 +1011,8 @@ export class Game implements ToolHost {
   }
 
   private doBulldoze(path: Tile[]) {
+    // a neighbour town's streets and buildings are not yours to remove
+    path = path.filter((tl) => !this.foreignTown(tl.x, tl.z));
     const roads = path.filter((tl) => this.net.hasRoad(tl));
     const targets = new Set<Building>();
     let keptTownHall = false;
@@ -1583,8 +1630,28 @@ export class Game implements ToolHost {
     const aptFam = b.kind === 'apartment' && this.aptFamily !== null ? this.pop.families.get(this.aptFamily) : undefined;
     if (b.kind === 'apartment' && (!aptFam || aptFam.home !== b.id)) this.aptFamily = null;
     const view = aptFam && aptFam.home === b.id ? this.familyView(aptFam, b) : b.kind === 'apartment' ? this.apartmentView(b) : b.kind === 'house' ? this.houseView(b) : b.kind === 'townhall' ? this.cityView(b) : this.buildingView(b);
-    view.actions = [...(view.actions ?? []), ...this.buildingActions(b)];
+    const foreign = !!this.cityOf(b).ai;
+    view.actions = foreign
+      ? (view.actions ?? []).filter((a) => a.icon === 'info' || a.icon === 'people' || a.icon === 'house' || a.icon === 'roads')
+      : [...(view.actions ?? []), ...this.buildingActions(b)];
+    if (foreign && !view.actions.some((a) => a.icon === 'info')) view.actions.push({ label: t('Info'), icon: 'info', onClick: () => this.showInfo(b) });
+    view.rows = [[t('Owner'), this.ownerText(b)], ...(view.rows ?? [])];
+    if (foreign) view.tags = [{ text: t('Neighbour town: {city}', { city: this.cityOf(b).name }), tone: 'info' }, ...(view.tags ?? [])];
     this.inspector.show(view);
+  }
+
+  /** Who owns a building: a family, the town hall of a town, or a neighbour town. */
+  private ownerText(b: Building) {
+    const city = this.cityOf(b);
+    const fam = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
+    const town = city.ai ? t('Neighbour town {city}', { city: city.name }) : t('Town hall of {city}', { city: city.name });
+    if (fam) return `${t('{family} family', { family: fam.surname })}${city.ai ? ` · ${city.name}` : ''}`;
+    if (BUSINESS_KINDS.includes(b.kind)) return `${town} · ${t('for sale')}`;
+    if (b.kind === 'house') {
+      const res = this.pop.familyAt(b.id);
+      return res ? `${town} · ${t('lived in by the {family} family', { family: res.surname })}` : town;
+    }
+    return town;
   }
 
   private vehicleView(v: Vehicle): InspectorView {
@@ -2494,17 +2561,6 @@ export class Game implements ToolHost {
   }
 
   /** Switch to the next city: the camera flies to its Town Hall and building costs come from its treasury. */
-  private cycleCity() {
-    const halls = this.buildings.halls().filter((h) => !this.eco.cities.get(h.city)?.ai);
-    if (!halls.length) return;
-    const i = halls.findIndex((h) => h.city === this.eco.active);
-    const next = halls[(i + 1) % halls.length];
-    this.eco.active = next.city;
-    this.cam.setState(next.mesh.position.x, next.mesh.position.z, this.cam.yaw, this.cam.viewHalf);
-    this.select({ type: 'building', id: next.id });
-    this.refreshHud();
-  }
-
   /** Send stone, wood or food by truck to another city (needs a road between the Town Halls). */
   private tradeActions(city: City): NonNullable<InspectorView['actions']> {
     const others = [...this.eco.cities.values()].filter((c) => c.id !== city.id);
@@ -2723,7 +2779,8 @@ export class Game implements ToolHost {
     const pops = this.life.populationByCity();
     const pop = pops.get(city.id) ?? 0;
     const yesterday = this.eco.day - 1;
-    const stories = (this.eventLog?.entries ?? []).filter((e) => e.day === yesterday).map((e) => e.text);
+    const foreign = [...this.eco.cities.values()].filter((c) => c.ai).map((c) => c.name);
+    const stories = (this.eventLog?.entries ?? []).filter((e) => e.day === yesterday).map((e) => e.text).filter((s) => !foreign.some((n) => s.includes(n)));
     const fams = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === city.id);
     const richest = fams.reduce<typeof fams[number] | undefined>((a, f) => (!a || f.money > a.money ? f : a), undefined);
     const snap = this.snapshot();
