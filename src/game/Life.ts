@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE, DIG_PER_LEVEL } from '../buildings/BuildingTypes';
+import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE, DIG_PER_LEVEL, UTILITY } from '../buildings/BuildingTypes';
 import type { BuildingKind, CropKind } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
@@ -701,6 +701,17 @@ export class Life {
         business += turnover * city.taxRate * 0.8;
         const owner = b.owner >= 0 ? pop.families.get(b.owner) : undefined;
         let profit = tillProfit;
+        // the owner pays the business's electricity bill
+        const power = owner && b.powered ? d.energy * UTILITY.electricity : 0;
+        if (owner && power) { owner.money -= power; eco.add(city, 'money', power, 'Electricity bills (businesses)'); profit -= power; }
+        // the owner sets the staff's pay: more when places stay empty, a little less when the business barely pays
+        if (owner && d.jobs) {
+          const f0 = b.wageF ?? (city.wages[b.kind] ?? 1);
+          let nf = f0;
+          if (b.workers < d.jobs) nf = Math.min(2.5, f0 + 0.05);
+          else if (b.books && b.books.profit < b.books.wages * 0.1) nf = Math.max(0.7, f0 - 0.03);
+          b.wageF = Math.round(nf * 100) / 100;
+        }
         if (owner) {
           const p = turnover * (1 - city.taxRate * 0.8) * OWNER_SHARE;
           this.earn(owner, p, 'Business profit');

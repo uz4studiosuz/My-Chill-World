@@ -11,7 +11,7 @@ import { logGeometry, personMesh } from './people';
 import { carGeometry, cargoGeometry, truckGeometry } from './vehicles';
 import { cowGeometry, sheepGeometry } from './animals';
 import { canopyGeometry, mountainGeometry, pineGeometry, rockGeometry, trunkGeometry } from './nature';
-import { box } from '../utils/voxel';
+import { box, merge, shape } from '../utils/voxel';
 
 export type CatalogGroup = 'Buildings' | 'Roads' | 'People' | 'Vehicles' | 'Animals' | 'Nature';
 
@@ -177,6 +177,39 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'construction', name: 'Construction Company', group: 'Buildings', desc: 'Builders and a crane: faster construction.', make: () => mesh(buildingGeometry('construction')) },
 
   { id: 'road', name: 'Road', group: 'Roads', desc: 'Two lanes with sidewalks. Junctions get traffic lights and zebra crossings.', make: () => roadPiece(3, 3, (n, c) => { line(n, ROAD_TWO_LANE, c - 1, c, c + 1, c); line(n, ROAD_TWO_LANE, c, c - 1, c, c + 1); }) },
+  {
+    id: 'litroad', name: 'Lit Street', group: 'Roads', desc: 'A road with street lamps.',
+    make: () => {
+      const g = roadPiece(3, 1, (n, c) => line(n, ROAD_TWO_LANE, c - 1, c, c + 1, c));
+      for (const x of [-0.6, 1.6]) g.add(mesh(box(0.05, 0.7, 0.05, x, 0.35, 0.95, '#3b3f45')), mesh(box(0.22, 0.04, 0.06, x + 0.09, 0.7, 0.95, '#3b3f45')), mesh(box(0.1, 0.05, 0.1, x + 0.17, 0.66, 0.95, '#ffe08a')));
+      return g;
+    },
+  },
+  {
+    id: 'rail', name: 'Railway', group: 'Roads', desc: 'Tracks on sleepers for the trains.',
+    make: () => {
+      const parts = [box(3, 0.12, 1.4, 0.5, -0.06, 0.5, '#8cb156'), box(3, 0.04, 0.6, 0.5, 0.02, 0.5, '#9a8f80')];
+      for (let i = 0; i < 9; i++) parts.push(box(0.1, 0.04, 0.56, -0.9 + i * 0.35, 0.05, 0.5, '#6b4a2e'));
+      parts.push(box(3, 0.05, 0.05, 0.5, 0.09, 0.32, '#9aa3ab'), box(3, 0.05, 0.05, 0.5, 0.09, 0.68, '#9aa3ab'));
+      return mesh(merge(parts));
+    },
+  },
+  {
+    id: 'pipe', name: 'Water Pipe', group: 'Roads', desc: 'An underground water pipe (shown above ground here).',
+    make: () => mesh(merge([box(3, 0.12, 1.4, 0.5, -0.06, 0.5, '#8cb156'), shape('cylinder', 3, 0.16, 0.16, 0.5, 0.1, 0.5, '#5d8fb5', 'x', 12), shape('cylinder', 0.24, 0.06, 0.24, 0.5, 0.2, 0.5, '#d9443b', 'y', 10)])),
+  },
+  {
+    id: 'tunnel', name: 'Tunnel', group: 'Roads', desc: 'A road into a mountain through a stone portal.',
+    make: () => {
+      const g = roadPiece(3, 1, (n, c) => line(n, ROAD_TWO_LANE, c - 1, c, c + 1, c));
+      g.add(mesh(merge([
+        box(1.4, 1.0, 1.6, 1.3, 0.5, 0.5, '#8d8a83'), box(1.1, 0.4, 1.3, 1.4, 1.2, 0.5, '#7d7a73'),
+        box(0.14, 0.62, 0.16, 0.54, 0.31, -0.02, '#a7a196'), box(0.14, 0.62, 0.16, 0.54, 0.31, 1.02, '#a7a196'), box(0.16, 0.14, 1.2, 0.54, 0.62, 0.5, '#a7a196'),
+        box(0.02, 0.54, 0.94, 0.6, 0.27, 0.5, '#15171a'),
+      ])));
+      return g;
+    },
+  },
   {
     id: 'path', name: 'Footpath', group: 'Roads', desc: 'Free paths for pedestrians — walking is faster on paths than on grass.',
     make: () => {

@@ -1,6 +1,6 @@
 import { ToolId } from '../build/BuildTool';
 import { IS_TOUCH } from '../config';
-import { BUILDINGS, BuildingKind, PIPE_COST, PATH_COST } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, PIPE_COST, PATH_COST, TUNNEL_COST } from '../buildings/BuildingTypes';
 import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
@@ -29,6 +29,7 @@ const b = (tool: BuildingKind & ToolId, cat: Category, tag: string, desc: string
 };
 
 export const ITEMS: ToolItem[] = [
+  { tool: 'tunnel', cat: 'roads', name: 'Tunnel', desc: 'A road straight through a mountain: draw it across the rock. Dearer than a road, but much shorter than going round.', money: TUNNEL_COST.money, stone: TUNNEL_COST.stone, wood: 0, perTile: true, tag: 'Through mountains', icon: 'roads' },
   { tool: 'road', cat: 'roads', name: 'Road', desc: 'Two-lane road with sidewalks, no street lamps. Over water it becomes a bridge.', ...ROAD_COST[2], wood: 0, perTile: true, tag: 'Cars, power, water', icon: 'road' },
   { tool: 'litroad', cat: 'roads', name: 'Lit Street', desc: 'Road with street lamps that shine at night. Lamps use a little electricity. Drag over an existing road to add lamps.', money: ROAD_COST[2].money + 10, stone: ROAD_COST[2].stone, wood: 0, perTile: true, tag: 'Lamps at night', icon: 'energy' },
   { tool: 'roundabout', cat: 'roads', name: 'Roundabout', desc: 'Place it on a junction — roads connect to the middle of each side.', ...ROUNDABOUT_COST, wood: 0, tag: '3×3 · no lights', icon: 'roundabout' },

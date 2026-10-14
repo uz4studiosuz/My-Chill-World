@@ -169,7 +169,8 @@ export class Leisure {
     if (tod > 0.74 && tod < 0.84) this.outings(['teahouse'], (c) => c.age >= 16, 0.04, 16, Math.min(0.92, tod + 0.08), 18, 'Drinking tea at the choyxona');
     if (tod > 0.74 && tod < 0.82) this.outings(['gym'], (c) => c.age >= 16 && c.age < 62, 0.03, 10, tod + 0.06, 16, 'Working out at the gym');
     if (tod > 0.76 && tod < 0.82) this.outings(['concerthall'], (c) => c.age >= 12, this.concertTonight ? 0.25 : 0.02, this.concertTonight ? 120 : 30, 0.95, 26, this.concertTonight ? 'At a concert' : 'Listening to music');
-    if (tod > 0.8 && tod < 0.9) this.outings(['casino'], (c) => c.age >= 21, 0.025, 20, 0.97, 24, 'Playing at the casino');
+    // believers (and the mosque's imams and muezzins) never gamble
+    if (tod > 0.8 && tod < 0.9) this.outings(['casino'], (c) => c.age >= 21 && !believer(c) && this.c.buildings.get(c.job)?.kind !== 'mosque', 0.025, 20, 0.97, 24, 'Playing at the casino');
     if (tod > 0.4 && tod < 0.7) this.outings(['barber'], (c) => c.age >= 5, 0.008, 4, tod + 0.04, 12, 'Getting a haircut');
     if (!weekend && tod > 0.63 && tod < 0.7) this.outings(['themepark'], (c) => c.age >= 5 && c.age < 16, 0.04, 20, Math.min(0.8, tod + 0.1), 24, 'Riding the attractions');
     // tired people sit down on a bench, in a park or by a fountain for a while
@@ -292,11 +293,17 @@ export class Leisure {
     const price = b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0;
     if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; }
     const visit = VISIT_PRICE[b.kind];
-    if (visit && f && f.money > visit[0]) {
+    if (b.kind === 'casino' && f) {
+      // bets of $1–3, round after round, until the evening ends or the player has lost what he allowed himself
+      const limit = Math.max(1, Math.min(60, Math.floor(f.money * 0.08)));
+      let net = 0, rounds = 0;
+      while (rounds < 40 && -net < limit) { rounds++; const bet = 1 + Math.floor(Math.random() * 3); net += Math.random() < 0.46 ? bet : -bet; }
+      if (net < 0) { this.host.sell(c, b, -net); pop.note(c, 'Lost ${n} at the casino', { n: -net }); }
+      else if (net > 0) { f.money += net; b.sales = Math.max(0, (b.sales ?? 0) - net); pop.note(c, 'Won ${n} at the casino', { n: net }); }
+    } else if (visit && f && f.money > visit[0]) {
       const stake = Math.round(visit[0] + Math.random() * (visit[1] - visit[0]));
       this.host.sell(c, b, stake);
       // at the casino some win back more than their stake; most lose it
-      if (b.kind === 'casino' && Math.random() < 0.3) { const win = Math.round(stake * (1.5 + Math.random())); f.money += win; b.sales = Math.max(0, (b.sales ?? 0) - win * 0.5); pop.note(c, 'Won ${n} at the casino', { n: win }); }
       if (b.kind === 'gym') { c.health = Math.min(100, c.health + 6); c.fit = eco.day + 6; }
       if (b.kind === 'barber') c.energy = Math.min(100, (c.energy ?? 80) + 10);
       if (b.kind === 'teahouse') { c.hunger = Math.min(100, c.hunger + 25); c.energy = Math.min(100, (c.energy ?? 80) + 15); }

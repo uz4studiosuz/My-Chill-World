@@ -14,7 +14,7 @@ export type PlaceKind =
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
   | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
-export type LineKind = 'road' | 'litroad' | 'path' | 'canal' | 'rail' | 'pipe';
+export type LineKind = 'road' | 'litroad' | 'path' | 'canal' | 'rail' | 'pipe' | 'tunnel';
 export type ToolId = 'pan' | 'bulldoze' | LineKind | PlaceKind;
 
 export interface CheckResult { ok: boolean; reason?: string; money?: number; stone?: number; wood?: number; iron?: number; bridges?: number }
@@ -43,7 +43,7 @@ const OK = new THREE.Color('#5fe08a');
 const BAD = new THREE.Color('#ff5a4f');
 const REMOVE = new THREE.Color('#ff8a3d');
 
-const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || t === 'path' || t === 'canal' || t === 'rail' || t === 'pipe';
+const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || t === 'path' || t === 'canal' || t === 'rail' || t === 'pipe' || t === 'tunnel';
 const isPlace = (t: ToolId): t is PlaceKind => t !== 'pan' && t !== 'bulldoze' && !isLine(t);
 
 export class BuildTool {

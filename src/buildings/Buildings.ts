@@ -91,6 +91,8 @@ export interface Building {
   books?: { revenue: number; wages: number; tax: number; profit: number };
   /** Mines and quarries: stone, coal or iron dug since the mountain last lost a level. */
   dug?: number;
+  /** Pay of the staff set by the owning family (×the usual pay), instead of the town hall's. */
+  wageF?: number;
   /** A fire truck is already on its way. */
   fireCrew?: boolean;
   /** Cemetery: buried records. */

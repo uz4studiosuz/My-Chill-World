@@ -1,5 +1,5 @@
 import { DAYS_PER_YEAR } from '../config';
-import { BUILDINGS, JOB_PRIORITY, RENT, DEGREE_JOBS, BIKE } from '../buildings/BuildingTypes';
+import { BUILDINGS, JOB_PRIORITY, RENT, DEGREE_JOBS, BIKE, UTILITY } from '../buildings/BuildingTypes';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { Walker } from './Walkers';
 import { clanName, firstName } from './names';
@@ -91,6 +91,8 @@ export interface Family {
   /** Money earned today and yesterday, by source (wages, business profit, rent, bank interest). */
   earn?: Record<string, number>;
   earnY?: Record<string, number>;
+  /** Yesterday's household bills. */
+  bills?: { electricity: number; water: number };
 }
 
 export interface DeathReport {
@@ -160,7 +162,6 @@ const FOOD_PRICE = 1;
 const RETIRE_AGE = 65;
 const ADULT_AGE = 18;
 const UNI_END = 22;
-const UTILITY_PER_PERSON = 1.5;
 const SHOP_PER_PERSON = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 const PER_YEAR = 1 / DAYS_PER_YEAR;
 
@@ -481,8 +482,13 @@ export class Population {
       const propTax = PROPERTY_TAX * (buildings.get(f.home)?.level ?? 1);
       earned -= propTax;
       r.propertyTax += propTax;
-      // utilities (power, water) and, where there is a market, everyday shopping
-      const bills = people.length * UTILITY_PER_PERSON;
+      // bills: electricity for what the home uses (when it has power), water for every person
+      const hb = buildings.get(f.home);
+      const hd = hb ? BUILDINGS[hb.kind] : undefined;
+      const power = hb && hd && hb.powered ? (hd.energy * (hb.kind === 'house' ? hb.level : 1)) / Math.max(1, hd.units) * UTILITY.electricity : 0;
+      const water = people.length * UTILITY.water;
+      const bills = power + water;
+      f.bills = { electricity: Math.round(power * 10) / 10, water: Math.round(water * 10) / 10 };
       earned -= bills;
       r.utilities += bills;
       for (const kind of ['grocery', 'clothes', 'market'] as const) {

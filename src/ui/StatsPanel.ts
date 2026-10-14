@@ -253,10 +253,11 @@ export class StatsPanel {
           const name = el('span', 'job-name');
           name.textContent = j.name;
           const pay = el('span', `job-fill ${j.factor > 1.01 ? 'pos' : j.factor < 0.99 ? 'neg' : ''}`);
-          pay.textContent = `$${j.wage}${j.factor !== 1 ? ` (${j.factor > 1 ? '+' : ''}${Math.round((j.factor - 1) * 100)}%)` : ''}`;
+          const diff = Math.round((j.wage - j.wage / Math.max(0.01, j.factor)) * 10) / 10;
+          pay.textContent = `$${j.wage}${Math.abs(diff) >= 0.1 ? ` (${diff > 0 ? '+' : '−'}$${Math.abs(diff)})` : ''}`;
           pay.title = j.publicJob ? t('Paid by the town hall') : t('Paid by the business');
           const seg = el('div', 'seg');
-          for (const [step, label] of [[-1, '−10%'], [1, '+10%']] as const) {
+          for (const [step, label] of [[-5, '−$5'], [-1, '−$1'], [1, '+$1'], [5, '+$5']] as const) {
             const b = el('button', 'segbtn');
             b.textContent = label;
             b.addEventListener('click', () => this.setWage(j.kind, step));

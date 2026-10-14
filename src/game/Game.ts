@@ -10,7 +10,8 @@ import { BRIDGE_COST, ROAD_COST, ROAD_TWO_LANE, ROUNDABOUT_COST, RoadNetwork, is
 import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
-import { Buildings, Building, rotToDir } from '../buildings/Buildings';
+import { Buildings, Building, rotToDir, SIDES } from '../buildings/Buildings';
+import { box, merge, shape } from '../utils/voxel';
 import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
@@ -335,7 +336,7 @@ export class Game implements ToolHost {
       const o = this.eco.cities.get(b.city)?.jobPriority[b.kind];
       return o === 'high' ? 0 : o === 'low' ? 7 : JOB_PRIORITY[b.kind] ?? 5;
     };
-    this.pop.wageFactor = (b) => this.eco.cities.get(b.city)?.wages[b.kind] ?? 1;
+    this.pop.wageFactor = (b) => (b.owner >= 0 && b.wageF !== undefined ? b.wageF : this.eco.cities.get(b.city)?.wages[b.kind] ?? 1);
     // people may work in another town when a road joins the two town halls
     this.pop.commute = (a, b) => {
       const key = a < b ? `${a}:${b}` : `${b}:${a}`;
@@ -485,8 +486,11 @@ export class Game implements ToolHost {
       if (kind === '*') city.wageAuto = !city.wageAuto;
       else {
         city.wageAuto = false;
-        const w = Math.round(Math.max(0.6, Math.min(2, (city.wages[kind] ?? 1) + step * 0.1)) * 100) / 100;
-        if (Math.abs(w - 1) < 0.01) delete city.wages[kind]; else city.wages[kind] = w;
+        // a step is dollars a day: from 30% of the usual pay up to five times it
+        const base = BUILDINGS[kind as BuildingKind]?.salary ?? 10;
+        const pay = Math.max(base * 0.3, Math.min(base * 5, base * (city.wages[kind] ?? 1) + step));
+        const w = Math.round((pay / base) * 1000) / 1000;
+        if (Math.abs(w - 1) < 0.005) delete city.wages[kind]; else city.wages[kind] = w;
       }
       this.stats?.render();
     });
@@ -761,6 +765,7 @@ export class Game implements ToolHost {
       if (sdt > 0) {
         this.time += sdt;
         this.life.update(sdt);
+        this.advanceRoads(sdt);
         this.autoCity.update(sdt);
         this.animals.update(sdt);
         this.history.update(sdt, () => ({
@@ -873,6 +878,7 @@ export class Game implements ToolHost {
   // ---------- ToolHost ----------
 
   checkLine(kind: LineKind, path: Tile[]): CheckResult {
+    if (kind === 'tunnel') kind = 'road'; // a tunnel is a road drawn through a mountain
     // a road, a footpath or a railway may cross a neighbour's land to join the towns; canals and pipes may not
     const joins = kind === 'road' || kind === 'litroad' || kind === 'path' || kind === 'rail';
     for (const tl of path) {
@@ -951,6 +957,7 @@ export class Game implements ToolHost {
   }
 
   buildLine(kind: LineKind, path: Tile[]) {
+    if (kind === 'tunnel') kind = 'road';
     const r = this.checkLine(kind, path);
     if (!r.ok) { sound.play('error'); return this.hud?.toast(r.reason!); }
     sound.play('build');
@@ -981,15 +988,101 @@ export class Game implements ToolHost {
       this.networkChanged();
       return;
     }
-    this.net.pushUndo(r.money, r.stone);
     this.eco.spend(r.money!, r.stone!, 0, 0, 'Roads');
     this.footpaths.remove(path);
-    this.net.buildPath(path, ROAD_TWO_LANE);
+    // existing roads on the way get (or lose) their lamps at once; the new tiles are laid by the builders
     this.lights.setLit(path.filter((tl) => this.net.type[idx(tl.x, tl.z)]).map((tl) => idx(tl.x, tl.z)), kind === 'litroad');
     this.terrain.clearTiles(path.map((tl) => idx(tl.x, tl.z)));
-    this.effects.pave(path);
-    this.networkChanged();
+    this.roadJobs.push({ tiles: path.map((tl) => ({ x: tl.x, z: tl.z })), done: 0, lit: kind === 'litroad', city: this.eco.active, prog: 0, money: r.money ?? 0, stone: r.stone ?? 0 });
+    this.drawRoadSites();
+    this.networkChanged(false);
   }
+
+  /** Roads being laid: the tiles in order, how many are done, and what they cost (for undo). */
+  private roadJobs: { tiles: Tile[]; done: number; lit: boolean; city: number; prog: number; money: number; stone: number }[] = [];
+  private roadSites = new THREE.Group();
+
+  /**
+   * The builders lay the ordered roads tile by tile: slowly without a construction company, faster with every
+   * builder at work. A finished tile joins the road network at once.
+   */
+  private advanceRoads(dt: number) {
+    if (!this.roadJobs.length || dt <= 0) return;
+    const crews = new Map<number, number>();
+    let changed = false;
+    for (const job of this.roadJobs.slice(0, 3)) {
+      let crew = crews.get(job.city);
+      if (crew === undefined) {
+        crew = this.buildings.list.reduce((a, b) => a + (b.kind === 'construction' && b.city === job.city && b.built >= 1 ? b.workers : 0), 0);
+        crews.set(job.city, crew);
+      }
+      job.prog += dt * (0.12 + 0.06 * Math.min(crew, 12));
+      while (job.done < job.tiles.length) {
+        const tl = job.tiles[job.done];
+        const k = idx(tl.x, tl.z);
+        const was = !!this.net.type[k];
+        if (!was && job.prog < 1) break;
+        if (!was) job.prog -= 1;
+        this.net.buildPath(job.done > 0 ? [job.tiles[job.done - 1], tl] : [tl], ROAD_TWO_LANE);
+        if (job.lit) this.lights.setLit([k], true);
+        if (!was) this.effects.pave([tl]);
+        job.done++;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    this.roadJobs = this.roadJobs.filter((j) => j.done < j.tiles.length);
+    this.netPending = true;
+    this.drawRoadSites();
+  }
+
+  /** Gravel where a road is still to be laid, cones and two workers where the builders are at work. */
+  private drawRoadSites() {
+    if (!this.roadSites.parent) this.scene.add(this.roadSites);
+    for (const ch of [...this.roadSites.children]) this.roadSites.remove(ch);
+    const todo: Tile[] = [], active: Tile[] = [];
+    for (const job of this.roadJobs) {
+      let first = true;
+      for (let i = job.done; i < job.tiles.length; i++) {
+        const tl = job.tiles[i];
+        const k = idx(tl.x, tl.z);
+        if (this.net.type[k]) continue;
+        todo.push(tl);
+        if (first) { active.push(tl); first = false; }
+      }
+    }
+    if (!todo.length) return;
+    const gravel = new THREE.InstancedMesh(this.siteGeo.gravel, this.siteGeo.mat, todo.length);
+    const m = new THREE.Matrix4();
+    todo.forEach((tl, i) => {
+      const k = idx(tl.x, tl.z);
+      m.makeTranslation(tileToWorld(tl.x), this.map.height[k] > 0 ? this.map.topY(k) + 0.01 : this.map.water[k] ? 0.1 : 0.012, tileToWorld(tl.z));
+      gravel.setMatrixAt(i, m);
+    });
+    gravel.receiveShadow = true;
+    this.roadSites.add(gravel);
+    for (const tl of active) {
+      const crew = new THREE.Mesh(this.siteGeo.crew, this.siteGeo.mat);
+      crew.position.set(tileToWorld(tl.x), 0.012, tileToWorld(tl.z));
+      crew.castShadow = true;
+      this.roadSites.add(crew);
+    }
+  }
+  private siteGeo = (() => {
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const gravel = box(0.92, 0.03, 0.92, 0, 0.015, 0, '#b49a6c');
+    const parts: THREE.BufferGeometry[] = [
+      ...[[-0.38, -0.38], [0.38, -0.38], [-0.38, 0.38], [0.38, 0.38]].map(([x, z]) => shape('cone', 0.07, 0.13, 0.07, x, 0.065, z, '#f07a1e', 'y', 8)),
+      // two road workers in orange vests with yellow helmets
+      ...[[-0.12, 0.05], [0.14, -0.08]].flatMap(([x, z]) => [
+        box(0.06, 0.1, 0.05, x, 0.05, z, '#3b4a63'), box(0.08, 0.1, 0.06, x, 0.15, z, '#f07a1e'),
+        box(0.055, 0.055, 0.055, x, 0.23, z, '#f1c9a5'), box(0.07, 0.025, 0.07, x, 0.27, z, '#f2c230'),
+      ]),
+      // a small road roller
+      box(0.22, 0.1, 0.12, 0.05, 0.11, 0.25, '#f2c230'), shape('cylinder', 0.14, 0.12, 0.14, -0.1, 0.07, 0.25, '#4a4f57', 'z', 12),
+    ];
+    return { mat, gravel, crew: merge(parts) };
+  })();
 
   getGhost(kind: PlaceKind, t: Tile, rotDir: number): GhostInfo | null {
     if (kind === 'roundabout') return null;
@@ -1232,6 +1325,17 @@ export class Game implements ToolHost {
   }
 
   private undo() {
+    // the last road ordered and not yet finished: cancelled, what is still unbuilt is paid back
+    const job = this.roadJobs[this.roadJobs.length - 1];
+    if (job) {
+      const left = job.tiles.slice(job.done).filter((tl) => !this.net.type[idx(tl.x, tl.z)]).length;
+      const share = job.tiles.length ? left / job.tiles.length : 0;
+      this.roadJobs.pop();
+      this.eco.add(this.eco.city, 'money', Math.round(job.money * share), 'Undo refunds');
+      this.eco.add(this.eco.city, 'stone', Math.round(job.stone * share), 'Undo refunds');
+      this.drawRoadSites();
+      return;
+    }
     const refund = this.net.undo();
     if (!refund) return;
     this.eco.add(this.eco.city, 'money', refund.money, 'Undo refunds');
@@ -1793,10 +1897,10 @@ export class Game implements ToolHost {
         if (!this.net.type[nk] || this.map.height[nk] > 0) continue;
         // the portal stands on the edge between the mountain tile and the open road
         const g = new THREE.Group();
-        const top = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.12), frame); top.position.set(0, 0.5, 0);
-        const l = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), frame); l.position.set(-0.42, 0.25, 0);
-        const r = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), frame); r.position.set(0.42, 0.25, 0);
-        const hole = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.44, 0.02), dark); hole.position.set(0, 0.22, 0.05);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.14, 0.16), frame); top.position.set(0, 0.6, 0);
+        const l = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.6, 0.16), frame); l.position.set(-0.53, 0.3, 0);
+        const r = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.6, 0.16), frame); r.position.set(0.53, 0.3, 0);
+        const hole = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.54, 0.02), dark); hole.position.set(0, 0.27, 0.07);
         g.add(top, l, r, hole);
         g.position.set(tileToWorld(x) + dx * 0.5, 0, tileToWorld(z) + dz * 0.5);
         g.rotation.y = Math.atan2(dx, dz);
@@ -2498,6 +2602,7 @@ export class Game implements ToolHost {
         const out: NonNullable<InspectorView['sections']> = [];
         const y = Object.entries(f.earnY ?? {}).filter(([, v]) => Math.abs(v) >= 0.5).sort((a2, b2) => b2[1] - a2[1]);
         out.push({ title: t('Income yesterday'), rows: y.length ? [...y.map(([k, v]) => [t(k), `+$${Math.round(v).toLocaleString('en-US')}`, 'good'] as [string, string, 'good']), [t('Total'), `$${Math.round(y.reduce((a2, [, v]) => a2 + v, 0)).toLocaleString('en-US')}`]] : [[t('Known tomorrow'), '—']] });
+        if (f.bills) out.push({ title: t('Bills yesterday'), rows: [[t('Electricity'), `−$${f.bills.electricity}`], [t('Water'), `−$${f.bills.water}`]] });
         const biz = this.buildings.list.filter((x) => x.owner === f.id && !x.removed);
         if (biz.length) out.push({ title: t('Family businesses ({n})', { n: biz.length }), rows: biz.map((x) => [`${t(BUILDINGS[x.kind].name)} · ${this.cityOf(x).name}`, x.books ? `${x.workers}/${BUILDINGS[x.kind].jobs} · +$${x.books.profit}` : `${x.workers}/${BUILDINGS[x.kind].jobs}`, x.books && x.books.profit > 0 ? 'good' : undefined] as [string, string, ('good' | 'bad')?]) });
         return out;
@@ -2561,10 +2666,13 @@ export class Game implements ToolHost {
     const rows: InspectorView['rows'] = [];
     const bars: InspectorView['bars'] = [];
     rows.push([t('City'), city.name]);
-    if (b.books && (b.owner >= 0 || BUSINESS_KINDS.includes(b.kind))) {
+    // every business shows yesterday's accounts (shops, the casino, the hotel, factories…)
+    if (!b.books && (b.owner >= 0 || BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind] || VISIT_PRICE[b.kind] || BUILDINGS[b.kind].revenue)) rows.push([t('Takings yesterday'), t('Known tomorrow')]);
+    if (b.books) {
       const bk = b.books;
       rows.push([t('Takings yesterday'), `$${bk.revenue}`], [t('Wages paid'), `−$${bk.wages}`], [t('Tax paid'), `−$${bk.tax}`]);
       if (b.owner >= 0) rows.push([t("Owner's profit"), `+$${bk.profit}`, bk.profit > 0 ? 'good' : 'bad']);
+      if (b.owner >= 0 && BUILDINGS[b.kind].jobs) rows.push([t('Pay set by the owner'), `$${(BUILDINGS[b.kind].salary * (b.wageF ?? 1)).toFixed(1)}/${t('day')}`]);
     }
     const actions: NonNullable<InspectorView['actions']> = [];
     if (b.built < 1) {
@@ -3302,6 +3410,20 @@ export class Game implements ToolHost {
       { title: t('Buildings by kind'), donut: [...byCat.entries()].map(([k, v], i) => [t(k), v, C[i % C.length]] as [string, number, string]) },
       { title: t('Most common'), bars: [...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, v], i) => [k, v, C[i % C.length], `${v}`] as [string, number, string, string]) },
       { title: t('State'), rows: [[t('Buildings'), `${own.length}`], [t('Under construction'), `${own.length - built.length}`], [t('Nobody works there'), `${empty}`, empty ? 'bad' : 'good'], [t('Without power'), `${dark}`, dark ? 'bad' : 'good']] },
+      // every business with yesterday's takings, the tax it paid and the owner's profit (best first)
+      ...(() => {
+        const biz = built.filter((b) => b.books && (b.books.revenue > 0 || b.owner >= 0)).sort((a, b) => b.books!.revenue - a.books!.revenue);
+        const total = biz.reduce((a, b) => a + b.books!.revenue, 0), tax = biz.reduce((a, b) => a + b.books!.tax, 0);
+        return [{ title: t('Businesses yesterday ({n})', { n: biz.length }), wide: true,
+          rows: biz.length ? biz.map((b) => {
+            const owner = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
+            const bk = b.books!;
+            return [`${t(BUILDINGS[b.kind].name)} · ${owner ? t('{name} family', { name: owner.surname }) : t('City-owned')}`,
+              `${t('takings')} $${bk.revenue} · ${t('tax')} $${bk.tax}${owner ? ` · ${t('profit')} ${bk.profit >= 0 ? '+' : '−'}$${Math.abs(bk.profit)}` : ''}`,
+              bk.profit < 0 ? 'bad' : undefined, () => { this.cityReport?.hide(); this.cam.flyTo(b.mesh.position.x, b.mesh.position.z, 6); this.select({ type: 'building', id: b.id }); }] as [string, string, ('good' | 'bad' | undefined), () => void];
+          }) : [[t('No business has taken any money yet'), '—']],
+          note: t('Takings of all businesses yesterday: ${a}; business tax for the town: ${b}.', { a: Math.round(total), b: Math.round(tax) }) } as ReportSection];
+      })(),
     ] });
     if (!city.ai) {
       const towns = [...this.eco.cities.values()].filter((c) => c.ai);
@@ -4374,11 +4496,16 @@ export class Game implements ToolHost {
     for (const [id, h] of s.worldHistory ?? []) this.worldHistory.set(id, h);
     for (const [id, d] of s.dealings ?? []) this.dealings.set(id, d);
     for (const [id, h] of s.priceHistory ?? []) this.priceHistory.set(id, h);
+    this.roadJobs = (s.roadJobs ?? []).map((j) => ({ tiles: j.tiles.map(([x, z]) => ({ x, z })), done: j.done, lit: j.lit, city: j.city, prog: 0, money: j.money, stone: j.stone }));
+    if (this.roadJobs.length) queueMicrotask(() => this.drawRoadSites());
     this.pipes.rebuild();
     this.terrain.clearTiles(s.cleared);
     this.terrain.loadStumps(s.stumps);
     for (const b of s.buildings) {
-      const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.built, level: b.level, owner: b.owner });
+      // the side it faced when it was placed (turned with R), if a road is still there
+      const dir = b.rot === undefined ? 0 : Math.max(0, SIDES.findIndex((sd) => Math.abs(Math.atan2(Math.sin(sd.rot - b.rot!), Math.cos(sd.rot - b.rot!))) < 0.01));
+      const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.built, level: b.level, owner: b.owner, preferredDir: dir });
+      if (b.wageF !== undefined) nb.wageF = b.wageF;
       if (b.cropT !== undefined) nb.cropT = b.cropT;
       if (b.parent !== undefined) nb.parent = b.parent;
       if (b.cattleCount !== undefined) nb.cattleCount = b.cattleCount;
@@ -4424,6 +4551,7 @@ export class Game implements ToolHost {
       worldHistory: [...this.worldHistory.entries()],
       dealings: [...this.dealings.entries()],
       priceHistory: [...this.priceHistory.entries()],
+      roadJobs: this.roadJobs.map((j) => ({ tiles: j.tiles.map((tl) => [tl.x, tl.z] as [number, number]), done: j.done, lit: j.lit, city: j.city, money: j.money, stone: j.stone })),
       terrain: { height: Array.from(this.map.height), water: Array.from(this.map.water) },
       cleared: this.terrain.clearedList(),
       stumps: this.terrain.stumpList(),
@@ -4432,6 +4560,7 @@ export class Game implements ToolHost {
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
         graves: b.graves, cattleCount: b.cattleCount, crop: b.cropKind, cropManual: b.cropManual || undefined,
         built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, parent: b.parent, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
+        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF,
       })),
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },

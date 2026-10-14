@@ -176,6 +176,8 @@ export const POLLUTION_RANGE = 8;
 export const DECOR: Partial<Record<BuildingKind, number>> = { bigpark: 3, fountain: 1.5, flowerbed: 0.6, statue: 1.2, bench: 0.5, lamppost: 0.4, sapling: 0.5, roadsign: 0.2, playground: 1.0, park: 1.5, gazebo: 1.5, pond: 2.5, clocktower: 2, flagpole: 0.8, planter: 0.7, archway: 1.5 };
 /** A road tile inside a mountain (a tunnel). */
 export const TUNNEL_COST = { money: 45, stone: 6 };
+/** Household bills: electricity per unit of power a home uses a day, water per person a day. */
+export const UTILITY = { electricity: 0.9, water: 0.6 };
 /** A mine or quarry eats into the mountain: one level of rock goes per this much stone, coal or iron dug. */
 export const DIG_PER_LEVEL = { quarry: 160, coalmine: 110, ironmine: 90 } as Record<string, number>;
 export const DECOR_RANGE = 6;
