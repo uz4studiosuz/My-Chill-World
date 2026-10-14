@@ -1321,7 +1321,8 @@ export class Life {
     b.dug -= per;
     const { map } = this.c;
     const s = BUILDINGS[b.kind].size;
-    let best = -1, bd = Infinity;
+    const face = this.mineFaces.get(b.id);
+    let best = face && map.height[face.rock] > 0 ? face.rock : -1, bd = best >= 0 ? -1 : Infinity;
     for (let z = b.z - 3; z < b.z + s + 3; z++) for (let x = b.x - 3; x < b.x + s + 3; x++) {
       if (x < 0 || z < 0 || x >= N || z >= N) continue;
       const k = z * N + x;
@@ -3255,43 +3256,75 @@ export class Life {
    * Quarrymen and miners work outside at the rock face next to their quarry or mine: they walk to the nearest
    * mountain tile, hack at it (dust and chips fly — grey stone, black coal, rusty iron), and move on now and then.
    */
-  private mineLoop(c: Citizen, site: Building) {
-    const { buildings, walkers, eco, effects, map } = this.c;
-    const atWork = () => this.alive(c) && c.state === 'away' && c.at === site.id && !site.removed && eco.timeOfDay < c.returnAt;
-    if (!atWork()) return;
+  /** The rock face each quarry or mine works on: one rock tile, worked from one side until it is gone. */
+  private mineFaces = new Map<number, { rock: number; stand: { x: number; z: number }; tile: number; dx: number; dz: number; crew: number[] }>();
+  private mineFace(site: Building) {
+    const { map, buildings } = this.c;
+    const open = (k: number) => map.height[k] <= 0 && !map.water[k] && buildings.occ[k] === -1;
+    const cur = this.mineFaces.get(site.id);
+    if (cur && map.height[cur.rock] > 0 && open(cur.tile)) return cur;
+    this.mineFaces.delete(site.id);
     const s = BUILDINGS[site.kind].size;
-    // the rock faces around the site: mountain tiles with open ground beside them
-    const faces: { rock: number; stand: { x: number; z: number } }[] = [];
+    const cx = site.x + s / 2, cz = site.z + s / 2;
+    const from = buildings.frontTile(site);
+    const cands: { k: number; d: number }[] = [];
     for (let z = site.z - 4; z < site.z + s + 4; z++) for (let x = site.x - 4; x < site.x + s + 4; x++) {
       if (x < 1 || z < 1 || x >= N - 1 || z >= N - 1) continue;
       const k = z * N + x;
-      if (map.height[k] <= 0) continue;
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nk = (z + dz) * N + x + dx;
-        if (map.height[nk] > 0 || map.water[nk] || buildings.occ[nk] !== -1) continue;
-        faces.push({ rock: k, stand: { x: tileToWorld(x + dx) - dx * 0.18, z: tileToWorld(z + dz) - dz * 0.18 } });
+      // the closest rock first, the lower edge before the peak (the same order the digging takes it away)
+      if (map.height[k] > 0 && !this.c.net.type[k]) cands.push({ k, d: Math.max(Math.abs(x + 0.5 - cx), Math.abs(z + 0.5 - cz)) + map.height[k] * 0.2 });
+    }
+    cands.sort((p, q) => p.d - q.d);
+    for (const { k } of cands.slice(0, 24)) {
+      const x = k % N, z = (k / N) | 0;
+      // the side of the rock facing the site, which people can actually walk to (never across the rocks)
+      const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+        .map(([dx, dz]) => ({ dx, dz, t: (z + dz) * N + x + dx }))
+        .filter((o) => open(o.t))
+        .sort((p, q) => Math.hypot(p.t % N + 0.5 - cx, ((p.t / N) | 0) + 0.5 - cz) - Math.hypot(q.t % N + 0.5 - cx, ((q.t / N) | 0) + 0.5 - cz));
+      for (const o of sides) {
+        if (!pedPath(this.graph, this.graph.node(from), this.graph.node(o.t), 4000)) continue;
+        const face = { rock: k, tile: o.t, dx: o.dx, dz: o.dz, crew: [] as number[], stand: { x: tileToWorld(x + o.dx) - o.dx * 0.18, z: tileToWorld(z + o.dz) - o.dz * 0.18 } };
+        this.mineFaces.set(site.id, face);
+        return face;
       }
     }
-    if (!faces.length) { if (c.walker) { walkers.dismiss(c.walker); c.walker = undefined; } c.activity = 'No rock left to dig'; return; }
-    const f = faces[Math.floor(Math.random() * Math.min(faces.length, 8))];
+    return null;
+  }
+
+  private mineLoop(c: Citizen, site: Building) {
+    const { buildings, walkers, eco, effects } = this.c;
+    const atWork = () => this.alive(c) && c.state === 'away' && c.at === site.id && !site.removed && eco.timeOfDay < c.returnAt;
+    if (!atWork()) return;
+    const f = this.mineFace(site);
+    if (!f) { if (c.walker) { walkers.dismiss(c.walker); c.walker = undefined; } c.activity = 'No rock left to dig'; return; }
     const rockAt = { x: tileToWorld(f.rock % N), z: tileToWorld((f.rock / N) | 0) };
     const dust = site.kind === 'coalmine' ? ['#2a2d31', '#4a4f57', '#8d8a83'] : site.kind === 'ironmine' ? ['#8a4b2e', '#a7a196', '#6b4a3a'] : ['#bdb7aa', '#d8d2c4', '#8d8a83'];
     const outside = c.walker && !c.walker.leaving;
     const start = outside ? { x: c.walker!.x, z: c.walker!.z } : buildings.door(site);
     const startTile = outside ? tileAt(start) : buildings.frontTile(site);
+    // each worker has a place of their own along the face
+    f.crew = f.crew.filter((id) => id === c.id || this.c.pop.citizens.get(id)?.job === site.id);
+    if (!f.crew.includes(c.id)) f.crew.push(c.id);
+    const slot = ([0, -0.26, 0.26, -0.13, 0.13, -0.36, 0.36][f.crew.indexOf(c.id) % 7]);
+    const stand = { x: f.stand.x + (f.dz ? slot : 0), z: f.stand.z + (f.dx ? slot : 0) };
+    const near = c.walker && Math.hypot(c.walker.x - stand.x, c.walker.z - stand.z) < 0.05;
     c.activity = site.kind === 'quarry' ? 'Walking to the rock face' : 'Walking into the mine';
-    this.walk(c, start, startTile, null, () => {
+    const work = () => {
       let hits = 3 + Math.floor(Math.random() * 4);
       const hack = () => {
         const w = c.walker;
         if (!w || !atWork()) return;
         c.activity = site.kind === 'quarry' ? 'Breaking stone' : site.kind === 'coalmine' ? 'Digging coal' : 'Digging iron ore';
-        if (Math.random() < 0.6) effects.puff(f.stand.x + (rockAt.x - f.stand.x) * 0.5, f.stand.z + (rockAt.z - f.stand.z) * 0.5, 0.18, 4, dust);
+        if (Math.random() < 0.6) effects.puff(stand.x + (rockAt.x - stand.x) * 0.5, stand.z + (rockAt.z - stand.z) * 0.5, 0.18, 4, dust);
         if (--hits <= 0) { this.mineLoop(c, site); return; }
-        walkers.holdFor(w, 1.4, 'chop', hack, rockAt);
+        walkers.holdFor(w, 1.4, 'chop', hack, { x: rockAt.x + (stand.x - f.stand.x), z: rockAt.z + (stand.z - f.stand.z) });
       };
       hack();
-    }, 'none', f.stand);
+    };
+    // still at the same face: keep hacking without walking around the rock
+    if (near) work();
+    else this.walk(c, start, startTile, null, work, 'none', stand);
   }
 
   /**

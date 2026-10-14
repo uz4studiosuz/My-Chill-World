@@ -179,7 +179,7 @@ export const TUNNEL_COST = { money: 45, stone: 6 };
 /** Household bills: electricity per unit of power a home uses a day, water per person a day. */
 export const UTILITY = { electricity: 0.9, water: 0.6 };
 /** A mine or quarry eats into the mountain: one level of rock goes per this much stone, coal or iron dug. */
-export const DIG_PER_LEVEL = { quarry: 160, coalmine: 110, ironmine: 90 } as Record<string, number>;
+export const DIG_PER_LEVEL = { quarry: 80, coalmine: 60, ironmine: 50 } as Record<string, number>;
 export const DECOR_RANGE = 6;
 /** Airport: goods a plane trades (sold above `keep`, bought below `low`), price per unit. */
 export const AIR_TRADE: Record<'food' | 'wood' | 'stone' | 'iron', { keep: number; low: number; price: number }> = {
