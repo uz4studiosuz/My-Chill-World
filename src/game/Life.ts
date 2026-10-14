@@ -299,6 +299,21 @@ export class Life {
     return true;
   }
 
+  /** Bicycles ready at the factories, standing in a row in front (one factory shows up to six). */
+  factoryBikes() {
+    const out: { x: number; z: number; rot: number }[] = [];
+    for (const m of this.c.buildings.list) {
+      if (m.kind !== 'bikefactory' || m.built < 1) continue;
+      const n = Math.min(BIKE.max, Math.floor(m.stored));
+      const cr = Math.cos(m.rot), sr = Math.sin(m.rot);
+      for (let i = 0; i < n; i++) {
+        const lx = -0.75 + i * 0.22, lz = 0.6;
+        out.push({ x: m.mesh.position.x + lx * cr + lz * sr, z: m.mesh.position.z - lx * sr + lz * cr, rot: m.rot + Math.PI / 2 });
+      }
+    }
+    return out;
+  }
+
   parkedCars() {
     const { pop, buildings } = this.c;
     const out: { x: number; z: number; rot: number; color: THREE.Color }[] = [];
@@ -743,7 +758,7 @@ export class Life {
       for (const inc of r.incidents) if (inc.kind === 'accident') this.crash(city.id);
       for (const inc of r.incidents) {
         if (inc.kind === 'fight') say(t('{a} and {b} got into a fight', { a: inc.a, b: inc.b ?? '' }));
-        else if (inc.kind === 'accident') say(t('{a} was hurt in a car accident', { a: inc.a }));
+        else if (inc.kind === 'accident') say(t('{a} was hurt in a car accident', { a: inc.a }) + (inc.wrecked ? ` — ${t('the car was wrecked')}` : ''));
         else say(t('{a} was murdered by {b}! The killer was arrested', { a: inc.a, b: inc.b ?? '' }));
       }
       for (const d of r.deaths.slice(0, 3)) say(t('{name} died ({cause})', { name: `${d.name} ${d.surname}`.trim(), cause: t(d.cause) }));
@@ -1688,7 +1703,7 @@ export class Life {
       const here = cur.city === city.id;
       if (here ? c.skill < 1 : !home || home.city === city.id || !pop.commute(home.city, city.id)) continue;
       const pay = (b: Building) => BUILDINGS[b.kind].salary * this.c.pop.wageFactor(b);
-      const best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && pay(b) >= pay(cur) * 1.25 && b.id !== cur.id
+      const best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && pay(b) >= pay(cur) * 1.25 && b.id !== cur.id && pop.fits(c, b)
         && (here || ((!DEGREE_JOBS[b.kind] || c.skill >= 1) && Math.abs(b.x - home!.x) + Math.abs(b.z - home!.z) <= 90)));
       // nobody leaves an essential job (water, food, power, builders…) for a less essential one
       if (!best || this.c.pop.priority(best) > this.c.pop.priority(cur) || (this.c.pop.priority(cur) <= 2 && cur.workers <= 1)) continue;
@@ -2280,7 +2295,7 @@ export class Life {
       return;
     }
     const work = c.job === b.id ? BUILDINGS[b.kind].work : 'indoor';
-    c.activity = c.job === b.id ? 'At work' : c.school === b.id ? 'At school' : 'Visiting';
+    c.activity = c.job === b.id ? (b.kind === 'fishery' ? 'Fishing on the boat' : 'At work') : c.school === b.id ? 'At school' : 'Visiting';
     if (c.job !== b.id && c.school !== b.id) this.shop(c, b);
     if (b.kind === 'hospital' && c.job !== b.id) {
       // a visit to the doctor: paid to the city on the spot
@@ -2706,7 +2721,8 @@ export class Life {
       return;
     }
 
-    const nextIdx = (fromIdx + 1) % stops.length;
+    // after the last stop the bus goes on to the first stop again (not back to the depot)
+    const nextIdx = fromIdx + 1 < stops.length ? fromIdx + 1 : stops.length > 2 ? 1 : 0;
     const fromB = buildings.get(stops[fromIdx]);
     const toB = buildings.get(stops[nextIdx]);
     if (!fromB || !toB || fromB.access < 0 || toB.access < 0) return;
@@ -2930,7 +2946,8 @@ export class Life {
 
       for (let i = 0; i < stops.length; i++) {
         const s = buildings.get(stops[i]);
-        if (!s) continue;
+        // people wait only at bus stops and stations, never at the depot
+        if (!s || s.kind === 'busdepot') continue;
         const dOrigin = dist(origin, s);
         if (dOrigin < bestPickupDist) {
           bestPickupDist = dOrigin;

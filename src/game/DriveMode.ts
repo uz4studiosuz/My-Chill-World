@@ -34,6 +34,9 @@ export class DriveMode {
   private view: 'cockpit' | 'chase' = 'cockpit';
   private ui?: HTMLDivElement;
   private speedo?: HTMLSpanElement;
+  /** Small map around the car (turns with it: the way ahead is always up). */
+  private mini?: HTMLCanvasElement;
+  private miniT = 0;
   private abort?: AbortController;
   active = false;
   onExit: () => void = () => {};
@@ -118,9 +121,63 @@ export class DriveMode {
     const right = document.createElement('div');
     right.className = 'drive-pads right';
     right.append(pad('b', '▼', 'down'), pad('g', '▲', 'up'));
-    ui.append(bar, left, right);
+    this.mini = document.createElement('canvas');
+    this.mini.className = 'drive-minimap';
+    ui.append(bar, left, right, this.mini);
     parent.appendChild(ui);
     this.ui = ui;
+  }
+
+  /** Draw the minimap: roads, buildings, water and mountains around the car; the car in the middle points up. */
+  private drawMini() {
+    const c = this.mini;
+    if (!c) return;
+    const size = c.clientWidth || 160;
+    const dpr = Math.min(devicePixelRatio, 2);
+    if (c.width !== Math.round(size * dpr)) { c.width = Math.round(size * dpr); c.height = Math.round(size * dpr); }
+    const g = c.getContext('2d')!;
+    const R = 26, px = size / (R * 2);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, size, size);
+    g.save();
+    g.beginPath();
+    g.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
+    g.clip();
+    g.fillStyle = '#5f8f4a';
+    g.fillRect(0, 0, size, size);
+    g.translate(size / 2, size / 2);
+    // the way ahead points up
+    g.rotate(-Math.PI / 2 - Math.atan2(Math.cos(this.heading), Math.sin(this.heading)));
+    const { map, net, buildings } = this.c;
+    const cx = worldToTile(this.x), cz = worldToTile(this.z);
+    const ox = this.x - (cx + 0.5 - N / 2), oz = this.z - (cz + 0.5 - N / 2);
+    for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+      const tx = cx + dx, tz = cz + dz;
+      if (!inBounds(tx, tz) || dx * dx + dz * dz > R * R * 1.05) continue;
+      const k = idx(tx, tz);
+      const col = net.type[k] ? '#2f3338' : buildings.occ[k] !== -1 ? '#d8b98a' : map.water[k] ? '#3f86c4' : map.height[k] > 0 ? '#8d8a83' : null;
+      if (!col) continue;
+      g.fillStyle = col;
+      g.fillRect((dx - ox) * px - px / 2, (dz - oz) * px - px / 2, px + 0.6, px + 0.6);
+    }
+    g.restore();
+    // the car: an arrow in the middle
+    g.fillStyle = '#ffd54a';
+    g.strokeStyle = '#1d1a14';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(size / 2, size / 2 - 8);
+    g.lineTo(size / 2 + 6, size / 2 + 6);
+    g.lineTo(size / 2, size / 2 + 3);
+    g.lineTo(size / 2 - 6, size / 2 + 6);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,.55)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
+    g.stroke();
   }
 
   /** Can the car stand at this point? */
@@ -173,6 +230,8 @@ export class DriveMode {
       this.camera.lookAt(this.x + fx * 0.4, 0.1, this.z + fz * 0.4);
     }
     this.camera.updateMatrixWorld();
+    this.miniT -= dt;
+    if (this.miniT <= 0) { this.miniT = 0.15; this.drawMini(); }
     if (this.speedo) this.speedo.textContent = `${Math.round(Math.abs(this.speed) * 25)} ${t('km/h')} · ${onRoad ? t('Road') : t('Off-road')}`;
   }
 }

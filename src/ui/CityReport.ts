@@ -17,14 +17,19 @@ export interface ReportSection {
   /** Lines over time. */
   chart?: { series: Series[]; format?: 'money' | 'pct' | 'num' | 'kw' };
   rows?: [string, string, ('good' | 'bad')?][];
+  /** Buttons (for example raising or lowering the tax). */
+  actions?: { label: string; onClick: () => void; off?: boolean }[];
   note?: string;
 }
 
-/** A tab: report sections, the town hall itself (figures and buttons), or another window shown inside (trade). */
+/**
+ * A tab: report sections, the town hall itself (figures and buttons), and/or another window shown inside —
+ * 'trade' (the whole trade window) or 'stats:<page>' (one statistics page under the sections).
+ */
 export interface ReportTab { id: string; label: string; sections?: ReportSection[]; hall?: InspectorView; embed?: string }
 export interface CityReportView { title: string; subtitle: string; tabs: ReportTab[] }
 /** A window that can live inside the town hall window (trade). */
-export interface Embed { el: () => HTMLElement; open: () => void; close: () => void }
+export interface Embed { el: () => HTMLElement; open: (page?: string) => void; close: () => void }
 
 const fmtOf = (f?: string) => (n: number) => f === 'money' ? `$${Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : Math.round(n)}` : f === 'pct' ? `${Math.round(n)}%` : f === 'kw' ? `${Math.round(n)} kW` : Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`;
 
@@ -69,9 +74,10 @@ export class CityReport {
   /** Called when the player closes the window. */
   onClose?: () => void;
   private last = '';
+  private shownTab = '';
 
   /** Embedded window currently shown, and where it came from. */
-  private embedded: { key: string; el: HTMLElement; home: HTMLElement | null } | null = null;
+  private embedded: { key: string; page?: string; el: HTMLElement; home: HTMLElement | null } | null = null;
 
   constructor(parent: HTMLElement, private get: (cityId: number) => CityReportView | null, private embeds: Record<string, Embed> = {}) {
     this.root = el('div', 'stats city-report');
@@ -90,9 +96,7 @@ export class CityReport {
     this.body = el('div', 'stats-body');
 
     this.body.addEventListener('scroll', () => {
-      if (this.visible && this.body.scrollTop >= 0) {
-        this.tabScroll.set(this.tab, this.body.scrollTop);
-      }
+      if (this.visible && this.shownTab === this.tab) this.tabScroll.set(this.tab, this.body.scrollTop);
     }, { passive: true });
 
     this.root.append(this.head, this.tabsEl, this.body);
@@ -108,7 +112,7 @@ export class CityReport {
     if (!e) return;
     this.embedded = null;
     this.embeds[e.key]?.close();
-    e.el.classList.remove('embedded');
+    e.el.classList.remove('embedded', 'embedded-page');
     if (e.home) e.home.appendChild(e.el);
   }
 
@@ -121,10 +125,11 @@ export class CityReport {
     this.last = key;
     if (!v.tabs.some((x) => x.id === this.tab)) this.tab = v.tabs[0]?.id ?? '';
 
-    if (this.body.scrollTop > 0) {
-      this.tabScroll.set(this.tab, this.body.scrollTop);
-    }
+    // the same tab keeps exactly its place while the figures update (realtime); another tab returns to where it was
+    const sameTab = this.shownTab === this.tab;
+    if (sameTab) this.tabScroll.set(this.tab, this.body.scrollTop);
     const targetScroll = this.tabScroll.get(this.tab) ?? 0;
+    this.shownTab = this.tab;
 
     this.headTitle.textContent = v.title;
     this.headSubtitle.textContent = v.subtitle;
@@ -147,13 +152,14 @@ export class CityReport {
     const later: (() => void)[] = [];
     const cur = v.tabs.find((x2) => x2.id === this.tab);
 
-    // embedded window (trade)
-    if (cur?.embed && this.embeds[cur.embed]) {
-      const em = this.embeds[cur.embed];
-      if (this.embedded?.key !== cur.embed) {
+    const [embKey, embPage] = (cur?.embed ?? '').split(':');
+    const em = embKey ? this.embeds[embKey] : undefined;
+    // a whole window shown inside (trade): it scrolls by itself
+    if (em && !embPage && !cur?.sections?.length) {
+      if (this.embedded?.key !== embKey) {
         this.release();
         const node = em.el();
-        this.embedded = { key: cur.embed, el: node, home: node.parentElement };
+        this.embedded = { key: embKey, el: node, home: node.parentElement };
         em.open();
         node.classList.add('embedded');
       }
@@ -162,7 +168,7 @@ export class CityReport {
         this.body.replaceChildren(this.embedded!.el);
       }
     } else {
-      this.release();
+      if (!em || this.embedded?.key !== embKey) this.release();
       this.body.className = 'stats-body';
       this.body.replaceChildren();
 
@@ -231,18 +237,37 @@ export class CityReport {
           if (tone) (r.children[1] as HTMLElement).className = tone === 'good' ? 'pos' : 'neg';
           box.appendChild(r);
         }
+        if (sec.actions?.length) {
+          const acts = el('div', 'cr-actions');
+          for (const a of sec.actions) {
+            const btn = el('button', 'btn-mini');
+            btn.textContent = a.label;
+            btn.disabled = !!a.off;
+            btn.addEventListener('click', () => { a.onClick(); this.last = ''; this.render(); });
+            acts.appendChild(btn);
+          }
+          box.appendChild(acts);
+        }
         if (sec.note) { const n = el('div', 'rp-note'); n.textContent = sec.note; box.appendChild(n); }
         this.body.appendChild(box);
+      }
+      // one statistics page under the sections (live charts and controls)
+      if (em && embPage) {
+        if (this.embedded?.key !== embKey || this.embedded.page !== embPage) {
+          const node = this.embedded?.key === embKey ? this.embedded.el : em.el();
+          const home = this.embedded?.key === embKey ? this.embedded.home : node.parentElement;
+          this.embedded = { key: embKey, page: embPage, el: node, home };
+          node.classList.add('embedded', 'embedded-page');
+          em.open(embPage);
+        }
+        const head = el('div', 'cr-live');
+        head.textContent = t('Live statistics');
+        this.body.append(head, this.embedded.el);
       }
     }
 
     this.body.scrollTop = targetScroll;
     later.forEach((f) => f());
-    requestAnimationFrame(() => {
-      if (this.visible && targetScroll > 0) {
-        this.body.scrollTop = targetScroll;
-      }
-    });
   }
 
   /** The town hall's own panel, wide: figures as bars, rows in blocks, and its buttons. */

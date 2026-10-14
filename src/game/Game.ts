@@ -10,7 +10,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building, rotToDir } from '../buildings/Buildings';
-import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST } from '../buildings/BuildingTypes';
+import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -382,7 +382,13 @@ export class Game implements ToolHost {
 
     this.waterLife = new WaterLife(this.map,
       () => this.buildings.list.filter((b) => b.kind === 'townhall').map((b) => ({ x: b.x, z: b.z })),
-      () => this.buildings.list.filter((b) => b.kind === 'fishery').map((b) => ({ x: b.x, z: b.z })));
+      () => this.buildings.list.filter((b) => b.kind === 'fishery').map((b) => ({ x: b.x, z: b.z, id: b.id })));
+    // the fisherman on the boat is the real worker on duty at the hut
+    this.waterLife.crewOf = (id) => {
+      const hut = this.buildings.get(id);
+      const c = hut && hut.workers > 0 ? this.life.staffOnDuty(hut)[0] : undefined;
+      return c ? c.variant : -1;
+    };
     this.life.leisure.iceSpots = () => this.waterLife.iceSpots;
     this.animals = new Animals(this.map, (k) => this.map.isLand(k) && !this.net.type[k] && !this.net.isIsland(k) && this.buildings.occ[k] === -1);
     this.scene.add(
@@ -551,7 +557,7 @@ export class Game implements ToolHost {
       this.hud?.toast(t('Now building for {name}', { name: this.eco.city.name }));
     }, () => this.eco.active, (id) => { this.worldPanel?.hide(); this.cityReport?.open(id); });
     this.cityReport = new CityReport(this.hud.root, (id) => this.cityReportView(id), {
-      stats: { el: () => this.stats!.element, open: () => this.stats!.show(), close: () => this.stats!.hide() },
+      stats: { el: () => this.stats!.element, open: (page) => (page ? this.stats!.openTab(page) : this.stats!.show()), close: () => this.stats!.hide() },
       trade: { el: () => this.tradePanel!.element, open: () => { this.trade.newDay(this.eco.day); this.tradePanel!.open(); }, close: () => this.tradePanel!.hide() },
     });
     this.cityReport.onClose = () => { const s = this.selection; if (s?.type === 'building' && this.buildings.get(s.id)?.kind === 'townhall') this.select(null); };
@@ -732,6 +738,7 @@ export class Game implements ToolHost {
     const steps = total > 0 ? Math.min(60, Math.ceil(total / 0.2)) : 1;
     const sdt = total / steps;
     this.traffic.setParked(this.life.parkedCars());
+    this.walkers.standingBikes = this.life.factoryBikes();
     for (let i = 0; i < steps; i++) {
       if (sdt > 0) {
         this.time += sdt;
@@ -1527,11 +1534,11 @@ export class Game implements ToolHost {
     return !!ha && !!hb && ha.access >= 0 && hb.access >= 0 && this.traffic.canRoute(ha.access, hb.access);
   }
 
-  /** Can people walk or cycle from one town hall to the other along footpaths and the sidewalks of roads? */
+  /** Are two towns joined by footpaths, sidewalks of roads or a railway (people walk, cycle or take the train)? */
   private footLinked(a: number, b: number) {
     const ha = this.buildings.townHall(a), hb = this.buildings.townHall(b);
     if (!ha || !hb || ha.access < 0 || hb.access < 0) return false;
-    const ok = (k: number) => !!this.net.type[k] || !!this.footpaths.tiles[k];
+    const ok = (k: number) => !!this.net.type[k] || !!this.footpaths.tiles[k] || !!this.railway.tiles[k];
     const seen = new Uint8Array(N * N);
     const stack = [ha.access];
     seen[ha.access] = 1;
@@ -2988,6 +2995,7 @@ export class Game implements ToolHost {
         [t('Homes'), n(homes.length), t('{a} houses · {b} apartment blocks', { a: homes.filter((b) => b.kind === 'house').length, b: homes.filter((b) => BUILDINGS[b.kind].units > 1).length })],
         [t('Jobs'), `${staff}/${jobs}`, t('{n} open jobs', { n: Math.max(0, jobs - staff) }), staff >= jobs],
         [t('Unemployed'), n(Math.max(0, counts.workforce - counts.workers)), t('of {n} able to work', { n: counts.workforce }), counts.workforce <= counts.workers],
+        [t('Workers from other towns'), n(this.commuters(id, true)), t('{n} of ours work in other towns', { n: this.commuters(id, false) })],
         [t('Pupils'), n(counts.students), ''],
         [t('Treasury'), money(city.money), `${t('yesterday')} ${bal.net >= 0 ? '+' : ''}${money(bal.net)}`, bal.net >= 0],
         [t('Happiness'), `${Math.round(city.happiness)}%`, city.happiness >= 60 ? t('people are content') : t('could be better'), city.happiness >= 55],
@@ -3082,6 +3090,7 @@ export class Game implements ToolHost {
     const hallB = this.buildings.townHall(id);
     if (hallB) {
       const hv = this.cityView(hallB);
+      if (!city.ai) hv.rows = [...(hv.rows ?? []), [t('Come from other towns to work here'), `${this.commuters(id, true)}`], [t('Work in other towns'), `${this.commuters(id, false)}`]];
       if (city.ai) hv.actions = (hv.actions ?? []).filter((a) => a.icon === 'people');
       else hv.actions = (hv.actions ?? []).filter((a) => a.icon !== 'info' && a.icon !== 'buildings');
       tabs.unshift({ id: 'hall', label: t('Town hall'), hall: hv });
@@ -3106,7 +3115,7 @@ export class Game implements ToolHost {
     tabs.push({ id: 'prices', label: t('Prices'), sections: [
       { title: t('Goods (today, from the traders)'), rows: goods.map((g) => [t(GOOD_NAME[g]), `${t('Sell')} $${this.trade.bestSell(g, linked).price.toFixed(1)} · ${t('Buy')} $${this.trade.buyPrice(g, linked).toFixed(1)}`] as [string, string]) },
       { title: t('Cars and homes'), rows: [
-        [t('A new car at the car market'), `$${CAR_PRICE}`], [t('A car sold to another region'), `$${Math.round(CAR_PRICE * 0.75)}`], [t('A car imported'), `$${Math.round(CAR_PRICE * 1.1)}`],
+        [t('A new car at the car market'), `$${CAR_PRICE}`], [t('A bicycle from the factory'), `$${BIKE.price}`], [t('An old bicycle bought back'), `$${BIKE.buyBack}`], [t('A car sold to another region'), `$${Math.round(CAR_PRICE * 0.75)}`], [t('A car imported'), `$${Math.round(CAR_PRICE * 1.1)}`],
         [t('A house (to build)'), `$${BUILDINGS.house.money}`], [t('Rent of a flat'), `$${RENT}/${t('day')}`], [t('Grave plot'), `$${GRAVE_COST}`],
       ] },
       { title: t('Bills and services'), rows: [
@@ -3164,9 +3173,8 @@ export class Game implements ToolHost {
     }) });
     if (!city.ai) {
       const sp = this.statPages(city, own);
-      if (sp.production?.length) {
-        tabs.push({ id: 'production', label: t('Production'), sections: sp.production as ReportSection[] });
-      }
+      // the production page is shown live below (statistics), so no copy of it here
+      if (sp.production?.length) tabs.push({ id: 'production', label: t('Production'), embed: 'stats:production' });
       const rc = this.net.counts(this.map.water);
       tabs.push({ id: 'traffic', label: t('Traffic'), sections: [
         { title: t('Traffic'), kpis: [
@@ -3203,7 +3211,42 @@ export class Game implements ToolHost {
           ] as [string, string, ('good' | 'bad')?]) },
         ] });
       }
-      tabs.push({ id: 'statistics', label: t('Statistics'), embed: 'stats' }, { id: 'market', label: t('Trade window'), embed: 'trade' });
+      tabs.push({ id: 'market', label: t('Trade window'), embed: 'trade' });
+      // ---- taxes: the rate, what each tax brings, how people feel about it ----
+      const taxDays = [...ledger].reverse();
+      const taxOf = (k: string) => taxDays.map((l) => Math.round(l.money?.[k] ?? 0));
+      const taxMood = city.mood.find(([k]) => k === 'Taxes')?.[1] ?? 0;
+      const totalTax = bal.incomeTax + bal.businessTax + bal.propertyTax;
+      const setTax = (d: number) => { city.taxRate = Math.round(Math.min(0.4, Math.max(0.1, city.taxRate + d)) * 100) / 100; this.refreshInspector(); };
+      tabs.push({ id: 'taxes', label: t('Taxes'), sections: [
+        { title: t('Tax rate'), kpis: [
+          [t('Income tax'), `${Math.round(city.taxRate * 100)}%`, t('of every wage')],
+          [t('Business tax'), `${Math.round(city.taxRate * 80)}%`, t('of every sale (80% of the income tax)')],
+          [t('Taxes yesterday'), money(totalTax), totalTax && bal.net ? t('{n}% of the income', { n: Math.round((totalTax / Math.max(1, totalTax + bal.utilities + bal.foodSales + (bal.fares ?? 0) + (bal.services ?? 0))) * 100) }) : ''],
+          [t('Mood from taxes'), `${taxMood >= 0 ? '+' : '−'}${Math.abs(taxMood).toFixed(1)}`, city.taxRate > 0.32 ? t('people complain — taxes are high') : city.taxRate < 0.2 ? t('people like low taxes') : t('people accept it'), taxMood >= 0],
+        ], actions: [
+          { label: t('Tax −5%'), onClick: () => setTax(-0.05), off: city.taxRate <= 0.1 },
+          { label: t('Tax +5%'), onClick: () => setTax(0.05), off: city.taxRate >= 0.4 },
+        ], note: t('From 10% to 40%. Every 5% above 25% costs about 4 points of happiness; below 25% people are happier. Businesses pay 80% of the income tax rate on their sales.') },
+        { title: t('Taxes yesterday'), bars: [
+          [t('Income tax'), bal.incomeTax, '#6fb6ff', money(bal.incomeTax)],
+          [t('Business tax'), bal.businessTax, '#f2b33d', money(bal.businessTax)],
+          [t('Property tax'), bal.propertyTax, '#7be08f', money(bal.propertyTax)],
+        ] },
+        { title: t('Taxes per day'), wide: true, chart: { series: [series(t('Income tax'), '#6fb6ff', taxOf('Income tax')), series(t('Business tax'), '#f2b33d', taxOf('Business tax')), series(t('Property tax'), '#7be08f', taxOf('Property tax'))], format: 'money' } },
+        { title: t('Who pays'), rows: [
+          [t('Working people'), n(counts.workers)], [t('Businesses'), n(own.filter((b) => BUSINESS_KINDS.includes(b.kind) && b.built >= 1).length)],
+          [t('Homes (property tax)'), n(homes.length)], [t('Unemployed (pay nothing)'), n(Math.max(0, counts.workforce - counts.workers)), counts.workforce > counts.workers ? 'bad' : 'good'],
+        ] },
+      ] });
+      // ---- the statistics pages live inside their tabs; the tabs in a sensible order ----
+      const live: Record<string, string> = { overview: 'overview', people: 'people', jobs: 'jobs', money: 'economy', utilities: 'energy', trade: 'finance', relations: 'cities', traffic: 'traffic', nature: 'nature' };
+      for (const tb of tabs) if (live[tb.id] && !tb.embed) tb.embed = `stats:${live[tb.id]}`;
+      if (!tabs.some((x) => x.id === 'relations')) tabs.push({ id: 'relations', label: t('Cities'), embed: 'stats:cities' });
+      const order = ['hall', 'overview', 'taxes', 'money', 'people', 'jobs', 'professions', 'buildings', 'utilities', 'production', 'goods', 'trade', 'market', 'prices', 'relations', 'cities', 'traffic', 'nature'];
+      tabs.sort((a, b) => (order.indexOf(a.id) + 1 || 99) - (order.indexOf(b.id) + 1 || 99));
+      const money0 = tabs.find((x) => x.id === 'money');
+      if (money0) money0.label = t('Budget');
     }
     return { title: `${city.name}${city.ai ? ` · ${t('Neighbour town')}` : ''}`, subtitle: `${t('Day {n}', { n: this.eco.day })} · ${t('{n} people', { n: pop })} · ${t('{n} families', { n: fams.length })}`, tabs };
   }
@@ -3245,6 +3288,12 @@ export class Game implements ToolHost {
     if (['grocery', 'market', 'supermarket', 'bakery', 'teahouse', 'kiosk'].includes(b.kind)) {
       const people = this.life.populationByCity().get(city.id) ?? 0;
       out.push([t('Food for the town'), t('{n} days', { n: people ? (city.food / people).toFixed(1) : '∞' }), people && city.food < people * 2 ? 'bad' : 'good']);
+    }
+    if (b.kind === 'bikefactory') {
+      out.push([t('Makes'), t('Bicycles for families')], [t('Bicycles ready'), `${Math.floor(b.stored)}/${BIKE.max}`, b.stored >= 1 ? 'good' : 'bad'],
+        [t('Price'), `$${BIKE.price}`], [t('Old bike bought back'), `$${BIKE.buyBack}`], [t('Iron per bicycle'), `${BIKE.iron}`], [t('Iron in stock'), `${Math.floor(city.iron)}`, city.iron >= 5 ? 'good' : 'bad'],
+        [t('Families with bicycles'), `${[...this.pop.families.values()].filter((f) => f.bike && this.buildings.get(f.home)?.city === city.id).length}`]);
+      if (city.iron < 5) out.push([t('Problem'), t('Not enough {what} — it waits', { what: t('Iron').toLowerCase() }), 'bad']);
     }
     if (b.kind === 'warehouse') {
       out.push([t('Keeps'), t('+{n} of each good, +{f} food', { n: STORAGE.warehouse, f: STORAGE.warehouseFood })]);

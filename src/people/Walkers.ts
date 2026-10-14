@@ -45,6 +45,8 @@ const MAX_PER_VARIANT = 400;
 
 /** Pedestrians: walking along footpaths / sidewalks / fields, carrying logs or babies, working. */
 export class Walkers {
+  /** Bicycles standing in front of the factories (set by the game every frame). */
+  standingBikes: { x: number; z: number; rot: number }[] = [];
   /** May a walker enter the segment (x0,z0)→(x1,z1)? Used for red lights at crossings. */
   gate?: (x0: number, z0: number, x1: number, z1: number) => boolean;
   readonly group = new THREE.Group();
@@ -217,7 +219,7 @@ export class Walkers {
       if (w.hidden) continue;
       const tt = this.time * 9 + w.phase;
       const walking = w.hold <= 0 && !w.leaving;
-      let bob = walking ? (w.bike ? 0.045 : Math.abs(Math.sin(tt)) * 0.008) : 0;
+      let bob = walking ? (w.bike ? 0.05 : Math.abs(Math.sin(tt)) * 0.008) : 0;
       if (w.anim === 'play') bob = Math.abs(Math.sin(tt * 0.8)) * 0.05;
       if (w.anim === 'cheer') bob = Math.max(0, Math.sin(tt * 0.7 + w.phase)) * 0.04;
       if (w.anim === 'sit') bob = -0.02;
@@ -248,6 +250,14 @@ export class Walkers {
     });
     this.baby.count = nb;
     this.log.count = nl;
+    for (const b of this.standingBikes) {
+      if (nk >= MAX_PER_VARIANT) break;
+      this.q.setFromEuler(this.e.set(0, b.rot, 0, 'YXZ'));
+      this.p.set(b.x, 0.02, b.z);
+      this.sc.set(1, 1, 1);
+      this.m.compose(this.p, this.q, this.sc);
+      this.bikes.setMatrixAt(nk++, this.m);
+    }
     this.stretcher.count = ns;
     this.bikes.count = nk;
     this.bikes.instanceMatrix.needsUpdate = true;

@@ -96,7 +96,7 @@ export interface DeathReport {
   age: number;
 }
 
-export interface Incident { kind: 'fight' | 'accident' | 'murder'; a: string; b?: string }
+export interface Incident { kind: 'fight' | 'accident' | 'murder'; a: string; b?: string; /** The family car was wrecked. */ wrecked?: boolean }
 
 export interface DailyOptions {
   /** Extra daily health recovery from hospitals and parks. */
@@ -192,6 +192,9 @@ export class Population {
     return this.members(f).some((m) => m.age < 2);
   }
 
+  /** May this person take a job at this building? (Imams and muezzins of a mosque are men.) */
+  fits(c: Citizen, b: Building) { return !(b.kind === 'mosque' && c.sex === 'f'); }
+
   canWork(c: Citizen) {
     return c.age >= ADULT_AGE && c.age < RETIRE_AGE && !this.onLeave(c) && !(c.school >= 0 && c.age < UNI_END);
   }
@@ -285,7 +288,7 @@ export class Population {
         if (!ok) c.school = -1;
         else seats.set(c.school, seats.get(c.school)! - 1);
       }
-      if (c.job >= 0 && (!free.has(c.job) || !this.canWork(c) || free.get(c.job)! <= 0)) c.job = -1;
+      if (c.job >= 0 && (!free.has(c.job) || !this.canWork(c) || free.get(c.job)! <= 0 || !this.fits(c, buildings.get(c.job)!))) c.job = -1;
       if (c.job >= 0) free.set(c.job, free.get(c.job)! - 1);
     }
     const nearest = (pool: Map<number, number>, from: Building | undefined, kind?: string, who?: Citizen) => {
@@ -295,6 +298,7 @@ export class Population {
         const b = buildings.get(id)!;
         if (kind && b.kind !== kind) continue;
         if (from && b.city !== from.city) continue;
+        if (who && !kind && !this.fits(who, b)) continue;
         // jobs: the most needed first; among equal ones the emptier workplace wins, so newcomers spread out evenly
         const fill = kind ? 0 : (1 - n / Math.max(1, BUILDINGS[b.kind].jobs)) * 80;
         const pay = kind ? 0 : -BUILDINGS[b.kind].salary * this.wageFactor(b) * 1.5;
@@ -323,7 +327,7 @@ export class Population {
       for (const [id, n] of free) {
         if (n <= 0) continue;
         const b = buildings.get(id)!;
-        if (b.city === hb.city || !this.commute(hb.city, b.city)) continue;
+        if (b.city === hb.city || !this.commute(hb.city, b.city) || !this.fits(c, b)) continue;
         const d = Math.abs(b.x - hb.x) + Math.abs(b.z - hb.z) + this.priority(b) * 30;
         if (d < bd && Math.abs(b.x - hb.x) + Math.abs(b.z - hb.z) <= 90) { bd = d; best = id; }
       }
@@ -565,10 +569,15 @@ export class Population {
         }
       }
       if (Math.random() < Math.min(0.25, 0.02 + cars * 0.0015)) {
-        const v = pick(adults);
+        // mostly someone driving the family car — and the car is wrecked (one car less in town)
+        const drivers = adults.filter((a) => this.families.get(a.family)?.car);
+        const v = drivers.length && Math.random() < 0.85 ? pick(drivers) : pick(adults);
         if (this.citizens.has(v.id)) {
           v.health -= rand(25, 55);
-          r.incidents.push({ kind: 'accident', a: v.name });
+          const fam = this.families.get(v.family);
+          const wrecked = !!fam?.car && fam.car.at !== 'moving';
+          if (wrecked) { fam!.car = null; for (const m of this.members(fam!)) if (m.age >= 18) this.note(m, 'The family car was wrecked in a crash'); }
+          r.incidents.push({ kind: 'accident', a: v.name, wrecked });
           // some crashes are fatal
           if (v.health <= 0 || Math.random() < 0.12) die(v, 'accident');
         }

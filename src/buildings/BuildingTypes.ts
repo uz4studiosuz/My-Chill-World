@@ -157,7 +157,7 @@ export const BUSINESS_TAX = 0.2;
 export const CEMETERY_UPGRADE = { money: 500, stone: 25, wood: 10, maxLevel: 3 };
 export const CAR_PRICE = 700;
 /** Bicycles: the price a family pays, what the factory pays back for an old one, bikes per day at full staff, iron per bike, bikes a factory keeps. */
-export const BIKE = { price: 60, buyBack: 20, perDay: 12, iron: 0.5, max: 40 };
+export const BIKE = { price: 60, buyBack: 20, perDay: 12, iron: 0.5, max: 6 };
 /** A footpath tile costs this much (paved walkway). */
 export const PATH_COST = 3;
 /** Plants that burn no wood (the wind blows, the sun shines — solar only by day). */

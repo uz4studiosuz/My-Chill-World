@@ -114,6 +114,13 @@ export class StatsPanel {
     else this.show();
   }
 
+  /** Show one page (inside the town hall window the page buttons are hidden). */
+  openTab(tab: string) {
+    if (TABS.some((x) => x.id === tab)) this.tab = tab as Tab;
+    this.last = '';
+    this.show();
+  }
+
   show() {
     this.visible = true;
     this.root.classList.add('show');

@@ -3,10 +3,11 @@ import { DIRS, N, idx, inBounds, tileToWorld, worldToTile } from '../world/grid'
 import type { WorldMap } from '../world/WorldMap';
 import { box, merge, shape } from '../utils/voxel';
 import { WATER_LEVEL } from '../config';
+import { PERSON_VARIANTS, personGeometry } from '../models/people';
 
 type BoatKind = 'sail' | 'fishing' | 'ferry';
 
-interface Boat { kind: BoatKind; x: number; z: number; tx: number; tz: number; heading: number; speed: number; body: number; wait: number }
+interface Boat { kind: BoatKind; x: number; z: number; tx: number; tz: number; heading: number; speed: number; body: number; wait: number; /** Fishing boat: its hut, and where it is moored. */ fishery?: number; hx?: number; hz?: number }
 interface Duck { x: number; z: number; ph: number; body: number; cx: number; cz: number }
 
 const sailboat = () => merge([
@@ -16,7 +17,8 @@ const sailboat = () => merge([
 ]);
 const fishingBoat = () => merge([
   box(0.14, 0.06, 0.32, 0, 0.02, 0, '#3a6fd1'), box(0.12, 0.02, 0.3, 0, 0.055, 0, '#c98a5a'),
-  box(0.1, 0.1, 0.1, 0, 0.11, -0.06, '#f4f1ea'), box(0.012, 0.18, 0.012, 0, 0.15, 0.08, '#6b4a2e'),
+  box(0.11, 0.05, 0.08, 0, 0.09, -0.1, '#5d6670'), box(0.12, 0.012, 0.09, 0, 0.12, -0.1, '#8a5a35'),
+  box(0.008, 0.16, 0.008, 0.05, 0.14, 0.11, '#6b4a2e'), box(0.004, 0.004, 0.12, 0.05, 0.22, 0.17, '#3b3f45'),
 ]);
 const ferry = () => merge([
   box(0.3, 0.07, 0.6, 0, 0.025, 0, '#e9edf0'), box(0.28, 0.02, 0.56, 0, 0.065, 0, '#5d6670'),
@@ -44,8 +46,11 @@ export class WaterLife {
   private umbrellas: THREE.InstancedMesh;
   private time = 0;
   private wasFrozen = false;
+  /** The fisherman on duty at a fishing hut: his look (variant), or -1 when nobody is at work. Set by the game. */
+  crewOf: (fisheryId: number) => number = () => -1;
+  private crew: THREE.InstancedMesh[] = [];
 
-  constructor(private map: WorldMap, private towns: () => { x: number; z: number }[], private fisheries: () => { x: number; z: number }[]) {
+  constructor(private map: WorldMap, private towns: () => { x: number; z: number }[], private fisheries: () => { x: number; z: number; id: number }[]) {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     const make = (g: THREE.BufferGeometry, n: number, colorful = false) => {
       const m = new THREE.InstancedMesh(g, colorful ? new THREE.MeshLambertMaterial({ vertexColors: true }) : mat, n);
@@ -56,6 +61,7 @@ export class WaterLife {
       return m;
     };
     this.meshes = { sail: make(sailboat(), 16), fishing: make(fishingBoat(), 16), ferry: make(ferry(), 4), duck: make(duck(), 60) };
+    for (let v = 0; v < PERSON_VARIANTS; v++) this.crew.push(make(personGeometry(v), 16));
     this.towels = make(towel(), 40, true);
     this.umbrellas = make(umbrella(), 40, true);
     this.rebuild();
@@ -105,7 +111,11 @@ export class WaterLife {
         const k = idx(f.x + dx, f.z + dz);
         if (this.bodyOf[k] >= 0 && Math.abs(dx) + Math.abs(dz) < bd) { bd = Math.abs(dx) + Math.abs(dz); best = k; }
       }
-      if (best >= 0 && this.boats.length < 30) this.addBoat('fishing', this.bodyOf[best], best);
+      if (best >= 0 && this.boats.length < 30) {
+        this.addBoat('fishing', this.bodyOf[best], best);
+        const b = this.boats[this.boats.length - 1];
+        b.fishery = f.id; b.hx = b.x; b.hz = b.z;
+      }
     }
     this.beaches();
   }
@@ -185,12 +195,17 @@ export class WaterLife {
     if (frozen !== this.wasFrozen) { this.wasFrozen = frozen; this.findIce(frozen); }
     this.towels.visible = this.umbrellas.visible = summer && !frozen && night < 0.5;
     const counts: Record<BoatKind | 'duck', number> = { sail: 0, fishing: 0, ferry: 0, duck: 0 };
+    const crewN = this.crew.map(() => 0);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
     const y = WATER_LEVEL - 0.02;
     if (!frozen) {
       for (const b of this.boats) {
+        // a fishing boat goes out only with its fisherman on board; without him it waits at the hut
+        const fisher = b.fishery !== undefined ? this.crewOf(b.fishery) : 0;
+        if (b.fishery !== undefined && fisher < 0) { b.tx = b.hx!; b.tz = b.hz!; }
         if (dt > 0) {
-          if (b.wait > 0) b.wait -= dt;
+          if (b.fishery !== undefined && fisher < 0 && Math.hypot(b.tx - b.x, b.tz - b.z) < 0.1) b.wait = 1;
+          else if (b.wait > 0) b.wait -= dt;
           else {
             const dx = b.tx - b.x, dz = b.tz - b.z, d = Math.hypot(dx, dz);
             if (d < 0.1) {
@@ -219,6 +234,12 @@ export class WaterLife {
         p.set(b.x, y + Math.sin(this.time * 2 + b.z) * 0.006, b.z);
         m.compose(p, q, s);
         this.meshes[b.kind].setMatrixAt(counts[b.kind]++, m);
+        if (b.fishery !== undefined && fisher >= 0 && crewN[fisher] < 16) {
+          const off = new THREE.Vector3(0, 0.065, 0.04).applyQuaternion(q);
+          p.set(b.x + off.x, y + off.y, b.z + off.z);
+          m.compose(p, q, s);
+          this.crew[fisher].setMatrixAt(crewN[fisher]++, m);
+        }
       }
       for (const d of this.ducks) {
         const t = this.time * 0.25 + d.ph;
@@ -231,6 +252,7 @@ export class WaterLife {
         this.meshes.duck.setMatrixAt(counts.duck++, m);
       }
     }
+    this.crew.forEach((mesh, i) => { mesh.count = frozen ? 0 : crewN[i]; mesh.instanceMatrix.needsUpdate = true; });
     for (const k of Object.keys(this.meshes) as (BoatKind | 'duck')[]) {
       this.meshes[k].count = counts[k];
       this.meshes[k].instanceMatrix.needsUpdate = true;

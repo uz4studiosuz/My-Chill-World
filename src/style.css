@@ -1449,3 +1449,26 @@ button.chip:hover { background: var(--raised); }
 
 /* the newspaper sits at the left edge, below the top bar */
 .news { left: 10px !important; transform: none !important; width: min(340px, calc(100vw - 20px)) !important; max-height: calc(100vh - var(--safe-top) - 200px); overflow-y: auto; }
+
+/* minimap while driving */
+.drive-minimap { position: absolute; top: calc(var(--safe-top) + 64px); right: 14px; width: 170px; height: 170px; border-radius: 50%; box-shadow: 0 6px 18px rgba(0,0,0,.35); pointer-events: none; }
+@media (max-width: 600px) { .drive-minimap { width: 120px; height: 120px; right: 10px; } }
+
+/* town hall window: clear headings, small subtitles, a statistics page below the sections */
+.city-report .stats-head b { font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+.city-report .cr-titles small { font-size: 11.5px !important; font-weight: 600; opacity: .8; }
+.city-report .srows-title { font-family: var(--font-display); font-size: 15px; font-weight: 800; opacity: 1; color: var(--text); margin-bottom: 8px; letter-spacing: -.005em; }
+.city-report .kpi small { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+.city-report .kpi b { font-size: 19px; font-weight: 800; }
+.city-report .kpi span { font-size: 10.5px; }
+.city-report .info-row span:first-child { font-size: 12.5px; }
+.city-report .stats-tabs { flex-wrap: wrap; row-gap: 6px; }
+.cr-live { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+.stats.embedded-page { grid-column: 1 / -1; height: auto !important; }
+.stats.embedded-page > .stats-tabs { display: none !important; }
+.stats.embedded-page > .stats-body { overflow: visible !important; max-height: none !important; height: auto !important; padding: 0 !important; }
+.cr-actions .btn-mini:disabled { opacity: .45; }
+.stats.embedded-page { display: block !important; }
+.stats.embedded-page > .stats-body { flex: none !important; }
+.city-report .cr-sec .cr-actions { display: flex !important; justify-content: flex-start !important; gap: 8px; grid-column: 1 / -1; }
+.stats.embedded-page { overflow: visible !important; min-height: max-content; }
