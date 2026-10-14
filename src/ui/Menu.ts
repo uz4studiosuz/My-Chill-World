@@ -17,7 +17,7 @@ const TIPS: [string, string][] = [
 ];
 
 export interface MenuHandlers {
-  newWorld: (name: string, seed: number, calm: boolean) => void;
+  newWorld: (name: string, seed: number, calm: boolean, towns: number) => void;
   loadWorld: (id: string) => void;
   resume: () => void;
   save: () => void;
@@ -153,15 +153,33 @@ export class Menu {
     calmBtn.addEventListener('click', () => { calm = !calm; paintCalm(); });
     const calmNote = el('small', 'calm-note');
     calmNote.textContent = t('No disasters, crime or bankruptcy — just build and watch.');
+    // neighbour towns that run themselves: none, or a few (the map must not fill up at once)
+    let towns = 2;
+    const townRow = el('div', 'town-pick');
+    const townLabel = el('span', '');
+    townLabel.textContent = t('Neighbour towns (run themselves)');
+    const seg = el('div', 'seg');
+    const paintTowns = () => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('active', +(b as HTMLButtonElement).value === towns));
+    for (const v of [0, 1, 2, 3, 4]) {
+      const b = el('button', 'segbtn') as HTMLButtonElement;
+      b.value = `${v}`;
+      b.textContent = v ? `${v}` : t('None');
+      b.addEventListener('click', () => { towns = v; paintTowns(); });
+      seg.appendChild(b);
+    }
+    paintTowns();
+    townRow.append(townLabel, seg);
+    const townNote = el('small', 'calm-note');
+    townNote.textContent = t('They grow on their own in other corners of the map: you can watch them in World and trade with them.');
     const form = el('div', 'home-form');
     const hint = el('small', 'calm-note');
     hint.textContent = t('Every seed makes a different landscape.');
-    form.append(name.parentElement!, seed.parentElement!, hint, calmBtn, calmNote);
+    form.append(name.parentElement!, seed.parentElement!, hint, townRow, townNote, calmBtn, calmNote);
     this.renderHome([
       form,
       homeItem('Create', () => {
         const s = parseInt(seed.value, 10);
-        this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9), calm);
+        this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9), calm, towns);
       }, undefined, true),
       homeItem('Back', () => this.showMain()),
     ], 'New World');

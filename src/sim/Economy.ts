@@ -62,6 +62,8 @@ export interface City {
   ai?: boolean;
   tint?: string;
   relation?: number;
+  /** Character of an autonomous town's mayor (what it likes to build, how it spends). */
+  style?: string;
   /** Election campaign under way: candidates and their promises. */
   campaign?: { day: number; candidates: { id: number; promise: PromiseKind }[] };
   /** What the mayor promised, and by which day. */
@@ -91,7 +93,7 @@ export const LEDGER_DAYS = 7;
 
 export interface CitySave {
   id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; grain?: number; flour?: number; planks?: number; milk?: number; bricks?: number; steel?: number; coal?: number; cotton?: number; feed?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
-  jobPriority?: Record<string, 'high' | 'low'>; wageAuto?: boolean; wages?: Record<string, number>; ai?: boolean; tint?: string; relation?: number; campaign?: City['campaign']; promise?: City['promise'];
+  jobPriority?: Record<string, 'high' | 'low'>; wageAuto?: boolean; wages?: Record<string, number>; ai?: boolean; tint?: string; relation?: number; style?: string; campaign?: City['campaign']; promise?: City['promise'];
 }
 
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
@@ -237,7 +239,7 @@ export class Economy {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
         id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), grain: Math.round(c.grain), flour: Math.round(c.flour), planks: Math.round(c.planks), milk: Math.round(c.milk), bricks: Math.round(c.bricks), steel: Math.round(c.steel), coal: Math.round(c.coal), cotton: Math.round(c.cotton), feed: Math.round(c.feed), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
-        jobPriority: c.jobPriority, wageAuto: c.wageAuto, wages: c.wages, ai: c.ai, tint: c.tint, relation: c.relation === undefined ? undefined : Math.round(c.relation), campaign: c.campaign, promise: c.promise,
+        jobPriority: c.jobPriority, wageAuto: c.wageAuto, wages: c.wages, ai: c.ai, tint: c.tint, style: c.style, relation: c.relation === undefined ? undefined : Math.round(c.relation), campaign: c.campaign, promise: c.promise,
       })),
     };
   }
@@ -269,6 +271,7 @@ export class Economy {
       city.ai = c.ai;
       city.tint = c.tint;
       city.relation = c.relation;
+      city.style = c.style;
       city.campaign = c.campaign;
       city.promise = c.promise;
       this.cities.set(c.id, city);

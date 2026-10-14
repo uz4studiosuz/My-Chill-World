@@ -157,6 +157,7 @@ export interface HudHandlers {
   openDrive: () => void;
   openPhoto: () => void;
   openTrade: () => void;
+  openWorld: () => void;
   setLayer: (l: 'power' | 'water' | 'happy') => void;
   /** Details of one readout: where it comes from and where it goes. */
   openResource: (key: string) => void;
@@ -228,7 +229,7 @@ export class Hud {
     const nav = el('div', 'navgroup');
     const more = el('div', 'navmenu');
     const panels: [IconName, string, () => void, boolean][] = [
-      ['stats', 'Statistics', h.openStats, false], ['globe', 'Trade', h.openTrade, false], ['trophy', 'Goals', h.openGoals, false], ['mail', 'Letters', h.openPetitions, false],
+      ['stats', 'Statistics', h.openStats, false], ['globe', 'Trade', h.openTrade, false], ['eye', 'World', h.openWorld, false], ['trophy', 'Goals', h.openGoals, false], ['mail', 'Letters', h.openPetitions, false],
       ['list', 'Chronicle', h.openLog, true], ['car', 'Drive a car', h.openDrive, true], ['camera', 'Photo mode', h.openPhoto, true], ['book', 'Guide', h.openGuide, true],
     ];
     nav.appendChild(this.iconButton('menu', t('Menu'), h.openMenu));

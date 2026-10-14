@@ -7,11 +7,12 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { buildingGeometry } from '../buildings/Buildings';
 import { BUILDINGS, BuildingKind } from '../buildings/BuildingTypes';
 import { t } from '../i18n/i18n';
-import { ShapeKind, orient, unitShape } from '../utils/voxel';
+import { ShapeKind, orient, roundBoxUnit, unitShape } from '../utils/voxel';
+import { PRESETS, PresetPart } from './presets';
 
 /** One box of a voxel model — the same shape the game's models are made of: box(w, h, d, x, y, z, color). */
 /** A part of the model: a box, or a round / sloped shape, turned along an axis. */
-interface Part { id: number; w: number; h: number; d: number; x: number; y: number; z: number; color: string; name?: string; shape?: ShapeKind; axis?: 'x' | 'y' | 'z' }
+interface Part { id: number; w: number; h: number; d: number; x: number; y: number; z: number; color: string; name?: string; shape?: ShapeKind; axis?: 'x' | 'y' | 'z'; /** Rounded corners (boxes): radius in tiles. */ r?: number; /** Group: parts of a group are selected and moved together. */ g?: number }
 
 interface ModelFile { format: 'mcw-model'; version: 1; name: string; size: 1 | 2 | 3; parts: Omit<Part, 'id'>[] }
 
@@ -22,7 +23,7 @@ const PALETTE = [
   '#3a6fd1', '#3f6fb5', '#2d4f8a', '#4fa3d1', '#a8d0e6', '#6f9fc8', '#8a5a35', '#6b4a2e', '#b0478f', '#e85a7a',
 ];
 const round = (v: number) => Math.round(v * 1000) / 1000;
-const SHAPE_NAME: Record<ShapeKind, string> = { box: 'Box', cylinder: 'Cylinder', sphere: 'Sphere', cone: 'Cone', dome: 'Dome', wedge: 'Ramp' };
+const SHAPE_NAME: Record<ShapeKind, string> = { box: 'Box', cylinder: 'Cylinder', sphere: 'Sphere', cone: 'Cone', dome: 'Dome', wedge: 'Ramp', capsule: 'Capsule', torus: 'Ring', pyramid: 'Pyramid', hexagon: 'Hexagon', arch: 'Arch', tube: 'Pipe' };
 
 /**
  * Model editor at /editor: build a model from boxes (like every model in the game), recolour, move and resize
@@ -51,6 +52,9 @@ export class Editor {
   private ui!: { list: HTMLDivElement; props: HTMLDivElement; status: HTMLDivElement; name: HTMLInputElement; size: HTMLSelectElement; swatch: HTMLInputElement };
   private ray = new THREE.Raycaster();
   private down = { x: 0, y: 0 };
+  /** Several parts selected: the gizmo moves this pivot and every part follows (moved and scaled together). */
+  private pivot = new THREE.Object3D();
+  private pivotStart: { center: THREE.Vector3; parts: Map<number, { pos: THREE.Vector3; scale: THREE.Vector3 }> } | null = null;
 
   constructor(private host: HTMLElement) {
     document.title = 'My Chill World — Editor';
@@ -93,7 +97,7 @@ export class Editor {
       else this.syncFromGizmo();
     });
     this.gizmo.addEventListener('objectChange', () => this.syncFromGizmo(false));
-    this.scene.add(this.gizmo.getHelper());
+    this.scene.add(this.gizmo.getHelper(), this.pivot);
 
     this.buildUi();
     this.load();
@@ -161,25 +165,51 @@ export class Editor {
     );
 
     const left = h('div', 'ed-panel ed-left');
-    left.append(h('div', 'ed-h', t('Add')));
+    left.append(h('div', 'ed-h', t('Shapes')));
+    const shapes = h('div', 'ed-grid3');
+    const shapeBtn = (label: string, p: Partial<Part> & Pick<Part, 'w' | 'h' | 'd' | 'y'>) => {
+      const b = btn(t(label), () => this.add({ x: 0, z: 0, ...p }), 'ed-btn ed-shape');
+      b.dataset.s = p.r ? 'rounded' : p.shape ?? 'box';
+      return b;
+    };
+    shapes.append(
+      shapeBtn('Box', { w: 0.2, h: 0.2, d: 0.2, y: 0.1 }),
+      shapeBtn('Rounded box', { w: 0.24, h: 0.14, d: 0.32, y: 0.07, r: 0.04 }),
+      shapeBtn('Cylinder', { w: 0.2, h: 0.3, d: 0.2, y: 0.15, shape: 'cylinder' }),
+      shapeBtn('Sphere', { w: 0.2, h: 0.2, d: 0.2, y: 0.1, shape: 'sphere' }),
+      shapeBtn('Capsule', { w: 0.12, h: 0.3, d: 0.12, y: 0.15, shape: 'capsule' }),
+      shapeBtn('Cone', { w: 0.24, h: 0.3, d: 0.24, y: 0.15, shape: 'cone' }),
+      shapeBtn('Pyramid', { w: 0.3, h: 0.2, d: 0.3, y: 0.1, shape: 'pyramid' }),
+      shapeBtn('Dome', { w: 0.4, h: 0.2, d: 0.4, y: 0.1, shape: 'dome' }),
+      shapeBtn('Ramp', { w: 0.3, h: 0.15, d: 0.3, y: 0.075, shape: 'wedge' }),
+      shapeBtn('Arch', { w: 0.4, h: 0.2, d: 0.5, y: 0.1, shape: 'arch' }),
+      shapeBtn('Hexagon', { w: 0.24, h: 0.2, d: 0.24, y: 0.1, shape: 'hexagon' }),
+      shapeBtn('Ring', { w: 0.3, h: 0.06, d: 0.3, y: 0.03, shape: 'torus' }),
+      shapeBtn('Pipe', { w: 0.08, h: 0.4, d: 0.08, y: 0.2, shape: 'tube' }),
+    );
+    left.append(shapes, h('div', 'ed-h', t('Parts')));
     const adds = h('div', 'ed-grid2');
     adds.append(
-      btn(t('Box'), () => this.add({ w: 0.2, h: 0.2, d: 0.2, x: 0, y: 0.1, z: 0 })),
       btn(t('Wall'), () => this.add({ w: 0.6, h: 0.4, d: 0.05, x: 0, y: 0.2, z: 0 })),
       btn(t('Floor'), () => this.add({ w: 0.9, h: 0.02, d: 0.9, x: 0, y: 0.01, z: 0 })),
-      btn(t('Roof'), () => this.add({ w: 0.7, h: 0.1, d: 0.6, x: 0, y: 0.47, z: 0, color: '#c4553d' })),
+      btn(t('Roof'), () => this.add({ w: 0.7, h: 0.22, d: 0.6, x: 0, y: 0.51, z: 0, color: '#c4553d', shape: 'pyramid' })),
       btn(t('Window'), () => this.add({ w: 0.12, h: 0.1, d: 0.02, x: 0, y: 0.26, z: 0.21, color: '#a8d0e6' })),
       btn(t('Door'), () => this.add({ w: 0.12, h: 0.2, d: 0.02, x: 0, y: 0.1, z: 0.21, color: '#6b4a2e' })),
-      btn(t('Pillar'), () => this.add({ w: 0.05, h: 0.4, d: 0.05, x: 0, y: 0.2, z: 0, color: '#f4f1ea' })),
-      btn(t('Tree'), () => this.addTree()),
-      btn(t('Cylinder'), () => this.add({ w: 0.2, h: 0.3, d: 0.2, x: 0, y: 0.15, z: 0, shape: 'cylinder' })),
-      btn(t('Sphere'), () => this.add({ w: 0.2, h: 0.2, d: 0.2, x: 0, y: 0.1, z: 0, shape: 'sphere' })),
-      btn(t('Cone'), () => this.add({ w: 0.24, h: 0.3, d: 0.24, x: 0, y: 0.15, z: 0, shape: 'cone' })),
-      btn(t('Dome'), () => this.add({ w: 0.4, h: 0.2, d: 0.4, x: 0, y: 0.1, z: 0, shape: 'dome' })),
-      btn(t('Ramp'), () => this.add({ w: 0.3, h: 0.15, d: 0.3, x: 0, y: 0.075, z: 0, shape: 'wedge' })),
-      btn(t('Wheel'), () => this.add({ w: 0.03, h: 0.06, d: 0.06, x: 0, y: 0.03, z: 0, shape: 'cylinder', axis: 'x', color: '#1f2226' })),
+      btn(t('Pillar'), () => this.add({ w: 0.05, h: 0.4, d: 0.05, x: 0, y: 0.2, z: 0, color: '#f4f1ea', shape: 'cylinder' })),
+      btn(t('Wheel'), () => this.addPreset('Wheel')),
+      btn(t('Glass'), () => this.add({ w: 0.3, h: 0.12, d: 0.02, x: 0, y: 0.2, z: 0, color: '#6f9fc8', r: 0.008 })),
     );
-    left.append(adds, h('div', 'ed-h', t('Colour')));
+    // whole ready-made objects: added together, then edit any part
+    const tpl = h('select', 'ed-input') as HTMLSelectElement;
+    const o0 = h('option') as HTMLOptionElement;
+    o0.value = '';
+    o0.textContent = t('Add a ready object…');
+    tpl.appendChild(o0);
+    for (const name of Object.keys(PRESETS)) { const o = h('option') as HTMLOptionElement; o.value = name; o.textContent = t(name); tpl.appendChild(o); }
+    tpl.addEventListener('change', () => { if (tpl.value) this.addPreset(tpl.value); tpl.value = ''; });
+    const quick = h('div', 'ed-grid3');
+    for (const name of ['Car', 'Bus', 'Tree', 'Pine', 'House', 'Lamp post', 'Bench', 'Fence', 'Person']) quick.appendChild(btn(t(name), () => this.addPreset(name), 'ed-btn ed-small'));
+    left.append(adds, h('div', 'ed-h', t('Ready objects')), quick, tpl, h('div', 'ed-h', t('Colour')));
     const pal = h('div', 'ed-palette');
     for (const c of PALETTE) {
       const s = h('button', 'ed-swatch') as HTMLButtonElement;
@@ -201,6 +231,9 @@ export class Editor {
       btn(t('Delete') + ' (Del)', () => this.remove()),
       btn(t('Mirror X'), () => this.mirror()),
       btn(t('To ground'), () => this.toGround()),
+      btn(t('Group') + ' (Ctrl+G)', () => this.group()),
+      btn(t('Ungroup'), () => this.ungroup()),
+      btn(t('Select all'), () => { this.selected = this.parts.map((p) => p.id); this.refreshSelection(); }),
       btn(t('Undo') + ' (Z)', () => this.undo()),
       btn(t('Redo') + ' (Y)', () => this.redo()),
     );
@@ -270,7 +303,7 @@ export class Editor {
     // shape and direction of the selected part
     const shapeSel = document.createElement('select');
     shapeSel.className = 'ed-input';
-    for (const [v, label] of [['box', 'Box'], ['cylinder', 'Cylinder'], ['sphere', 'Sphere'], ['cone', 'Cone'], ['dome', 'Dome'], ['wedge', 'Ramp']] as const) {
+    for (const [v, label] of Object.entries(SHAPE_NAME) as [ShapeKind, string][]) {
       const o = document.createElement('option'); o.value = v; o.textContent = t(label); if ((p.shape ?? 'box') === v) o.selected = true; shapeSel.appendChild(o);
     }
     shapeSel.addEventListener('change', () => { this.pushUndo(); p.shape = shapeSel.value === 'box' ? undefined : shapeSel.value as ShapeKind; this.rebuild(); });
@@ -282,7 +315,31 @@ export class Editor {
     axisSel.addEventListener('change', () => { this.pushUndo(); p.axis = axisSel.value === 'y' ? undefined : axisSel.value as 'x' | 'z'; this.rebuild(); });
     nm.value = p.name ?? '';
     nm.addEventListener('change', () => { p.name = nm.value || undefined; this.renderList(); this.save(); });
-    props.append(grid, shapeSel, axisSel, nm);
+    props.append(grid, shapeSel, axisSel);
+    // rounded corners for boxes: no sharp edges on a car body
+    if (!p.shape || p.shape === 'box') {
+      const max = Math.min(p.w, p.h, p.d) / 2;
+      const wrap = document.createElement('label');
+      wrap.className = 'ed-radius';
+      wrap.innerHTML = `<span>${t('Corner radius')}</span><b>${(p.r ?? 0).toFixed(3)}</b>`;
+      const range = document.createElement('input');
+      range.type = 'range';
+      range.min = '0';
+      range.max = `${round(max)}`;
+      range.step = '0.001';
+      range.value = `${Math.min(max, p.r ?? 0)}`;
+      range.addEventListener('pointerdown', () => this.pushUndo());
+      range.addEventListener('input', () => {
+        const v = round(parseFloat(range.value));
+        p.r = v > 0.0005 ? v : undefined;
+        (wrap.querySelector('b') as HTMLElement).textContent = (p.r ?? 0).toFixed(3);
+        this.rebuildOne(p);
+      });
+      range.addEventListener('change', () => this.save());
+      wrap.appendChild(range);
+      props.appendChild(wrap);
+    }
+    props.appendChild(nm);
   }
 
   // ---------- model ----------
@@ -295,24 +352,38 @@ export class Editor {
     this.select(part.id);
   }
 
-  private addTree() {
+  /** Add a ready-made object (all its parts, selected together). */
+  private addPreset(name: string) {
+    const list: PresetPart[] | undefined = PRESETS[name];
+    if (!list) return;
     this.pushUndo();
     const ids: number[] = [];
-    for (const p of [
-      { w: 0.06, h: 0.2, d: 0.06, x: 0, y: 0.1, z: 0, color: '#6b4a2e', name: 'Trunk' },
-      { w: 0.3, h: 0.24, d: 0.3, x: 0, y: 0.3, z: 0, color: '#4f8a3a', name: 'Leaves' },
-      { w: 0.2, h: 0.12, d: 0.2, x: 0, y: 0.46, z: 0, color: '#5f9a3e', name: 'Leaves' },
-    ]) { const id = this.nextId++; this.parts.push({ ...p, id }); ids.push(id); }
+    const g = Math.max(0, ...this.parts.map((p) => p.g ?? 0)) + 1;
+    for (const p of list) { const id = this.nextId++; this.parts.push({ ...p, w: round(p.w), h: round(p.h), d: round(p.d), x: round(p.x), y: round(p.y), z: round(p.z), r: p.r === undefined ? undefined : round(p.r), name: p.name ? t(p.name) : undefined, id, g }); ids.push(id); }
     this.rebuild();
     this.selected = ids;
     this.refreshSelection();
+  }
+
+  private geometryOf(p: Part) {
+    if (p.r && (!p.shape || p.shape === 'box')) return roundBoxUnit(p.w, p.h, p.d, p.r);
+    return orient(unitShape(p.shape ?? 'box', 32), p.axis ?? 'y');
+  }
+
+  /** Replace one part's mesh geometry (radius or size changed). */
+  private rebuildOne(p: Part) {
+    const m = this.meshes.get(p.id);
+    if (!m) return;
+    m.geometry.dispose();
+    m.geometry = this.geometryOf(p);
+    m.scale.set(p.w, p.h, p.d);
   }
 
   private rebuild() {
     for (const m of this.meshes.values()) { this.root.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
     this.meshes.clear();
     for (const p of this.parts) {
-      const m = new THREE.Mesh(orient(unitShape(p.shape ?? 'box', 32), p.axis ?? 'y'), new THREE.MeshLambertMaterial({ color: p.color }));
+      const m = new THREE.Mesh(this.geometryOf(p), new THREE.MeshLambertMaterial({ color: p.color }));
       m.scale.set(p.w, p.h, p.d);
       m.position.set(p.x, p.y, p.z);
       m.castShadow = true;
@@ -326,11 +397,31 @@ export class Editor {
     this.save();
   }
 
-  private select(id: number | null, add = false) {
+  private select(id: number | null, add = false, single = false) {
+    const p = id === null ? undefined : this.parts.find((q) => q.id === id);
+    const ids = p && p.g !== undefined && !single ? this.parts.filter((q) => q.g === p.g).map((q) => q.id) : id === null ? [] : [id];
     if (id === null) this.selected = [];
-    else if (add) this.selected = this.selected.includes(id) ? this.selected.filter((s) => s !== id) : [...this.selected, id];
-    else this.selected = [id];
+    else if (add) this.selected = ids.every((i) => this.selected.includes(i)) ? this.selected.filter((s) => !ids.includes(s)) : [...new Set([...this.selected, ...ids])];
+    else this.selected = ids;
     this.refreshSelection();
+  }
+
+  /** Make one group of the selected parts (Ctrl+G): from now on they move together. */
+  private group() {
+    if (this.selected.length < 2) return this.toast(t('Select two or more parts first (Shift+click)'));
+    this.pushUndo();
+    const g = Math.max(0, ...this.parts.map((p) => p.g ?? 0)) + 1;
+    for (const p of this.parts) if (this.selected.includes(p.id)) p.g = g;
+    this.toast(t('Grouped {n} parts — they now move together. Alt+click picks one part.', { n: this.selected.length }));
+    this.rebuild();
+  }
+
+  private ungroup() {
+    if (!this.selected.length) return;
+    this.pushUndo();
+    for (const p of this.parts) if (this.selected.includes(p.id)) p.g = undefined;
+    this.toast(t('Ungrouped'));
+    this.rebuild();
   }
 
   private refreshSelection() {
@@ -339,8 +430,19 @@ export class Editor {
       mat.emissive.set(this.selected.includes(id) ? '#3a2a00' : '#000000');
     }
     const first = this.selected.length === 1 ? this.meshes.get(this.selected[0]) : undefined;
+    this.pivotStart = null;
     if (first) this.gizmo.attach(first);
-    else this.gizmo.detach();
+    else if (this.selected.length > 1) {
+      // many parts: the gizmo sits in their middle and moves / resizes all of them
+      const box = new THREE.Box3();
+      for (const id of this.selected) { const m = this.meshes.get(id); if (m) box.expandByObject(m); }
+      const c = box.getCenter(new THREE.Vector3());
+      this.pivot.position.copy(c);
+      this.pivot.scale.set(1, 1, 1);
+      this.pivot.rotation.set(0, 0, 0);
+      this.pivot.updateMatrixWorld();
+      this.gizmo.attach(this.pivot);
+    } else this.gizmo.detach();
     const p = this.parts.find((q) => q.id === this.selected[0]);
     if (p) { this.color = p.color; this.ui.swatch.value = p.color; }
     this.renderList();
@@ -348,6 +450,7 @@ export class Editor {
   }
 
   private syncFromGizmo(commit = true) {
+    if (this.selected.length > 1) return this.syncGroup(commit);
     const id = this.selected[0];
     const m = id !== undefined ? this.meshes.get(id) : undefined;
     const p = this.parts.find((q) => q.id === id);
@@ -358,11 +461,41 @@ export class Editor {
     p.w = Math.max(0.005, q(Math.abs(m.scale.x))); p.h = Math.max(0.005, q(Math.abs(m.scale.y))); p.d = Math.max(0.005, q(Math.abs(m.scale.z)));
     if (commit) {
       m.position.set(p.x, p.y, p.z);
+      if (p.r) this.rebuildOne(p);
       m.scale.set(p.w, p.h, p.d);
       this.renderProps();
       this.renderList();
       this.save();
     }
+  }
+
+  /** The pivot was dragged: move (and scale) every selected part around it. */
+  private syncGroup(commit: boolean) {
+    if (!this.pivotStart) {
+      const parts = new Map<number, { pos: THREE.Vector3; scale: THREE.Vector3 }>();
+      for (const id of this.selected) { const m = this.meshes.get(id); if (m) parts.set(id, { pos: m.position.clone(), scale: m.scale.clone() }); }
+      // the pivot already moved a little: its start is where the selection's centre was
+      const box = new THREE.Box3();
+      for (const id of this.selected) { const m = this.meshes.get(id); if (m) box.expandByObject(m); }
+      this.pivotStart = { center: box.getCenter(new THREE.Vector3()), parts };
+    }
+    const st = this.pivotStart;
+    const s = this.pivot.scale, d = this.pivot.position.clone().sub(st.center);
+    for (const [id, p0] of st.parts) {
+      const m = this.meshes.get(id);
+      if (!m) continue;
+      m.position.set(st.center.x + (p0.pos.x - st.center.x) * s.x + d.x, st.center.y + (p0.pos.y - st.center.y) * s.y + d.y, st.center.z + (p0.pos.z - st.center.z) * s.z + d.z);
+      m.scale.set(p0.scale.x * s.x, p0.scale.y * s.y, p0.scale.z * s.z);
+    }
+    if (!commit) return;
+    const q = (v: number) => { const sn = this.snap || 0.001; return round(Math.round(v / sn) * sn); };
+    for (const p of this.parts) {
+      const m = this.meshes.get(p.id);
+      if (!m || !st.parts.has(p.id)) continue;
+      p.x = q(m.position.x); p.y = q(m.position.y); p.z = q(m.position.z);
+      p.w = Math.max(0.005, q(Math.abs(m.scale.x))); p.h = Math.max(0.005, q(Math.abs(m.scale.y))); p.d = Math.max(0.005, q(Math.abs(m.scale.z)));
+    }
+    this.rebuild();
   }
 
   private applySnap() {
@@ -383,10 +516,13 @@ export class Editor {
   private duplicate() {
     if (!this.selected.length) return;
     this.pushUndo();
+    const top = Math.max(0, ...this.parts.map((p) => p.g ?? 0));
+    const groups = new Map<number, number>();
+    const regroup = (g: number) => { let n = groups.get(g); if (n === undefined) { n = top + groups.size + 1; groups.set(g, n); } return n; };
     const ids: number[] = [];
     for (const p of this.parts.filter((q) => this.selected.includes(q.id))) {
       const id = this.nextId++;
-      this.parts.push({ ...p, id, x: round(p.x + 0.1) });
+      this.parts.push({ ...p, id, g: p.g === undefined ? undefined : regroup(p.g), x: round(p.x + 0.1) });
       ids.push(id);
     }
     this.rebuild();
@@ -405,10 +541,13 @@ export class Editor {
   private mirror() {
     if (!this.selected.length) return;
     this.pushUndo();
+    const top = Math.max(0, ...this.parts.map((p) => p.g ?? 0));
+    const groups = new Map<number, number>();
+    const regroup = (g: number) => { let n = groups.get(g); if (n === undefined) { n = top + groups.size + 1; groups.set(g, n); } return n; };
     const ids: number[] = [];
     for (const p of this.parts.filter((q) => this.selected.includes(q.id))) {
       const id = this.nextId++;
-      this.parts.push({ ...p, id, x: round(-p.x) });
+      this.parts.push({ ...p, id, g: p.g === undefined ? undefined : regroup(p.g), x: round(-p.x) });
       ids.push(id);
     }
     this.rebuild();
@@ -479,7 +618,7 @@ export class Editor {
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.ray.setFromCamera(ndc, this.camera);
     const hit = this.ray.intersectObjects([...this.meshes.values()], false)[0];
-    if (hit) this.select(hit.object.userData.part as number, e.shiftKey);
+    if (hit) this.select(hit.object.userData.part as number, e.shiftKey, e.altKey);
     else if (!e.shiftKey) this.select(null);
   }
 
@@ -489,6 +628,8 @@ export class Editor {
     if (ctrl && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
     if (ctrl && e.key.toLowerCase() === 'y') { e.preventDefault(); this.redo(); return; }
     if (ctrl && e.key.toLowerCase() === 'd') { e.preventDefault(); this.duplicate(); return; }
+    if (ctrl && e.key.toLowerCase() === 'g') { e.preventDefault(); if (e.shiftKey) this.ungroup(); else this.group(); return; }
+    if (ctrl && e.key.toLowerCase() === 'a') { e.preventDefault(); this.selected = this.parts.map((p) => p.id); this.refreshSelection(); return; }
     if (ctrl) return;
     switch (e.key) {
       case 'Delete': case 'Backspace': this.remove(); break;
@@ -601,17 +742,18 @@ export class Editor {
     if (/^[0-9]/.test(fn)) fn = `model${fn}`;
     const num = (v: number) => { const r = round(v); return Object.is(r, -0) ? '0' : `${r}`; };
     const usesShape = this.parts.some((p) => p.shape && p.shape !== 'box');
+    const usesRound = this.parts.some((p) => p.r && (!p.shape || p.shape === 'box'));
     const lines = this.parts.map((p) => {
       const color = /^#[0-9a-fA-F]{6}$/.test(p.color) ? p.color.toLowerCase() : '#ffffff';
       const dims = `${num(p.w)}, ${num(p.h)}, ${num(p.d)}, ${num(p.x)}, ${num(p.y)}, ${num(p.z)}, '${color}'`;
-      const call = !p.shape || p.shape === 'box' ? `box(${dims})` : `shape('${p.shape}', ${dims}${p.axis && p.axis !== 'y' ? `, '${p.axis}'` : ''})`;
+      const call = !p.shape || p.shape === 'box' ? (p.r ? `roundBox(${dims}, ${num(p.r)})` : `box(${dims})`) : `shape('${p.shape}', ${dims}${p.axis && p.axis !== 'y' ? `, '${p.axis}'` : ''})`;
       const note = p.name ? ` // ${p.name.replace(/[\r\n]+/g, ' ').replace(/\*\//g, '')}` : '';
       return `    ${call},${note}`;
     });
     // a whole file: save it as src/models/custom/${fn}.ts — it compiles as it is (one element per file, like every model)
     return [
       `import * as THREE from 'three';`,
-      `import { ${usesShape ? 'box, merge, shape' : 'box, merge'} } from '../../utils/voxel';`,
+      `import { ${['box', 'merge', ...(usesRound ? ['roundBox'] : []), ...(usesShape ? ['shape'] : [])].join(', ')} } from '../../utils/voxel';`,
       ``,
       `/** ${this.name.replace(/\*\//g, '')} — ${this.size}×${this.size} tiles (${this.parts.length} parts), made in the model editor. Faces +z (the road). */`,
       `export function ${fn}Geometry(): THREE.BufferGeometry {`,
@@ -722,6 +864,11 @@ body.editor-page #loading { display: none; }
 .ed-panel { position: fixed; top: 58px; bottom: 34px; width: 230px; overflow-y: auto; background: #1a1d22; border: 1px solid #343a43; border-radius: 10px; padding: 10px; color: #eceef1; font-family: Nunito, system-ui, sans-serif; z-index: 2; scrollbar-width: none; }
 .ed-panel::-webkit-scrollbar { display: none; }
 .ed-left { left: 10px; }
+.ed-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.ed-shape, .ed-small { font-size: 11px !important; padding: 6px 2px !important; }
+.ed-radius { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; margin-top: 8px; font-size: 12px; color: #aab4be; }
+.ed-radius b { color: #f2a93b; font-weight: 700; }
+.ed-radius input { grid-column: 1 / -1; width: 100%; accent-color: #f2a93b; }
 .ed-right { right: 10px; }
 .ed-h { font-size: 11px; font-weight: 800; color: #8e96a1; text-transform: uppercase; letter-spacing: 0.05em; margin: 10px 0 6px; }
 .ed-h:first-child { margin-top: 0; }

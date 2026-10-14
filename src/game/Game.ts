@@ -40,7 +40,8 @@ import { Airports } from './Airports';
 import { Overlays, Problem } from '../fx/Overlays';
 import { WaterLife } from '../fx/WaterLife';
 import { Trade, Good, GOOD_NAME } from './Trade';
-import { AutoCity, findTownSite, TOWN_TINTS } from './AutoCity';
+import { AutoCity, findTownSite, TOWN_TINTS, TOWN_STYLES, STYLE_NAME } from './AutoCity';
+import { WorldPanel, WorldTown } from '../ui/WorldPanel';
 import { mulberry32 } from '../utils/rng';
 import { TradePanel } from '../ui/TradePanel';
 import { DECISIONS, DecisionCtx } from './Decisions';
@@ -61,7 +62,7 @@ export interface GameOptions {
   /** Background world for the main menu: no input, no HUD, no saving. */
   demo?: boolean;
   save?: WorldSave;
-  create?: { name: string; seed: number; calm?: boolean };
+  create?: { name: string; seed: number; calm?: boolean; towns?: number };
   thumbs?: Map<string, string>;
 }
 
@@ -166,6 +167,7 @@ export class Game implements ToolHost {
   mapLayer: 'none' | 'power' | 'water' | 'happy' = 'none';
   readonly trade = new Trade();
   private autoCity!: AutoCity;
+  private worldPanel?: WorldPanel;
   private tradePanel?: TradePanel;
   private airports!: Airports;
   private overlays = new Overlays();
@@ -324,6 +326,9 @@ export class Game implements ToolHost {
       clearTiles: (ks) => this.terrain.clearTiles(ks),
       networkChanged: () => this.networkChanged(),
       say: (msg) => this.life.events.push(msg),
+      happiness: (id) => this.eco.cities.get(id)?.happiness ?? 50,
+      richest: (id) => [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === id)
+        .sort((a, b) => b.money - a.money).slice(0, 3).map((f) => ({ name: f.surname, money: f.money })),
     });
     this.railway.onArrive = (from, to) => this.trainArrived(from, to);
     this.railway.canRun = (s) => { for (const c of this.pop.citizens.values()) if (c.job === s.id && c.state === 'away' && c.at === s.id) return true; return false; };
@@ -340,7 +345,7 @@ export class Game implements ToolHost {
     this.calm = !!(opts.save?.calm ?? opts.create?.calm);
     this.life.calm = this.calm;
     if (opts.save) this.loadSave(opts.save);
-    else this.buildStarterTown();
+    else this.buildStarterTown(opts.create?.towns ?? 2);
     this.wantTutorial = !!opts.create && Tutorial.wanted();
 
     this.waterLife = new WaterLife(this.map,
@@ -405,6 +410,7 @@ export class Game implements ToolHost {
       openResource: (key) => { this.news?.hide(); this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.resPanel?.toggle(key); },
       openPhoto: () => this.togglePhoto(),
       setLayer: (l) => { this.mapLayer = this.mapLayer === l ? 'none' : l; this.overlayT = 0; this.hud?.setLayer(this.mapLayer); if (this.mapLayer !== 'none') this.hud?.toast(t(LAYER_NOTE[this.mapLayer])); },
+      openWorld: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
       openTrade: () => { this.resPanel?.hide(); this.stats?.hide(); this.trade.newDay(this.eco.day); this.tradePanel?.toggle(); },
       openDrive: () => (this.drive.active ? this.drive.stop() : this.startDrive()),
       openPetitions: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.toggle(); },
@@ -455,6 +461,13 @@ export class Game implements ToolHost {
         this.hud?.toast(t('{city} thanks you for the gift', { city: town.name }));
       },
     });
+    this.worldPanel = new WorldPanel(this.hud.root, () => this.worldView(), (id) => {
+      const h = this.buildings.townHall(id);
+      if (!h) return;
+      this.worldPanel?.hide();
+      this.cam.setState(h.mesh.position.x, h.mesh.position.z, this.cam.yaw, Math.max(8, this.cam.viewHalf));
+      this.select({ type: 'building', id: h.id });
+    }, () => { this.worldPanel?.hide(); this.trade.newDay(this.eco.day); if (!this.tradePanel?.visible) this.tradePanel?.toggle(); });
     this.resPanel = new ResourcePanel(this.hud.root, (key) => this.resourceView(key));
     this.decision = new DecisionPanel(this.hud.root);
     this.lifeBook = new LifeBook(this.hud.root, (d) => `${t(MONTHS[monthOf(d)])}, ${t('Year {n}', { n: yearOf(d) })}`);
@@ -2136,6 +2149,7 @@ export class Game implements ToolHost {
     if (this.petitions?.visible && ++this.petitionTick % 12 === 0 && !busy) this.petitions.render();
     if (this.resPanel?.visible && this.petitionTick++ % 4 === 0 && !busy) this.resPanel.render();
     if (this.tradePanel?.visible && this.petitionTick % 8 === 0 && !busy) this.tradePanel.render();
+    if (this.worldPanel?.visible && this.petitionTick % 8 === 0 && !busy) this.worldPanel.render();
     const mine = (c: Citizen) => this.cityOfCitizen(c) === e.active;
     const counts = this.pop.counts(mine);
     this.hud!.setStats({
@@ -2507,6 +2521,32 @@ export class Game implements ToolHost {
       { label: t('Send {n} wood', { n: 20 }), icon: 'wood', onClick: () => this.sendGoods(city, target, 'wood', 20) },
       { label: t('Send {n} food', { n: 50 }), icon: 'food', onClick: () => this.sendGoods(city, target, 'food', 50) },
     ];
+  }
+
+  /** Every town on the map for the World window: what it is like, how it is doing and its news. */
+  private worldView(): WorldTown[] {
+    const pops = this.life.populationByCity();
+    const out: WorldTown[] = [];
+    for (const c of this.eco.cities.values()) {
+      const own = this.buildings.list.filter((b) => b.city === c.id && !b.removed);
+      let jobs = 0, staff = 0;
+      for (const b of own) { jobs += BUILDINGS[b.kind].jobs; staff += b.workers; }
+      const fams = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === c.id).sort((a, b) => b.money - a.money);
+      const hist = this.autoCity.popHistory.get(c.id) ?? [];
+      const people = pops.get(c.id) ?? 0;
+      out.push({
+        id: c.id, name: c.name, tint: c.tint ?? '#f2a93b', mine: !c.ai,
+        style: c.ai ? STYLE_NAME[this.autoCity.styleOf(c)] : undefined,
+        mood: c.ai ? this.autoCity.mood.get(c.id) ?? 'stable' : c.happiness < 40 || c.money < 0 ? 'crisis' : c.balance.net > 0 ? 'growing' : 'stable',
+        people, growth: hist.length ? people - hist[0] : 0, money: c.money, happiness: c.happiness, tax: c.taxRate, loan: c.loan,
+        buildings: own.length, jobs: `${staff}/${jobs}`,
+        millionaires: fams.filter((f) => f.money >= 10000).length,
+        richest: fams.slice(0, 2).map((f) => ({ name: t('{family} family', { family: f.surname }), money: f.money })),
+        relation: c.ai ? c.relation ?? 40 : undefined,
+        news: c.ai ? this.autoCity.log.get(c.id) ?? [] : [],
+      });
+    }
+    return out.sort((a, b) => Number(b.mine) - Number(a.mine) || b.people - a.people);
   }
 
   /** Neighbour towns that run themselves: what they lack (they pay well) and what they have plenty of. */
@@ -2897,22 +2937,23 @@ export class Game implements ToolHost {
 
   // ---------- world setup / saving ----------
 
-  private buildStarterTown() {
+  private buildStarterTown(towns: number) {
     const capital = this.eco.found(townName(), START_GRANT);
-    this.layVillage(N / 2, N / 2, capital.id, 48);
+    this.layVillage(N / 2, N / 2, capital.id, 48, mulberry32(this.map.seed * 3 + 1));
     // one or two neighbour towns that run themselves
     const rnd = mulberry32(this.map.seed * 13 + 5);
     const taken: Tile[] = [{ x: N / 2, z: N / 2 }];
-    const n = 1 + (rnd() < 0.6 ? 1 : 0);
-    for (let i = 0; i < n; i++) {
-      const site = findTownSite(this.map, taken, 46, rnd);
+    for (let i = 0; i < towns; i++) {
+      const site = findTownSite(this.map, taken, towns > 2 ? 40 : 46, rnd);
       if (!site) break;
       taken.push(site);
       const town = this.eco.found(townName(), START_GRANT);
       town.ai = true;
       town.tint = TOWN_TINTS[i % TOWN_TINTS.length];
       town.relation = 40;
-      this.layVillage(site.x, site.z, town.id, 36 + Math.floor(rnd() * 16));
+      town.style = TOWN_STYLES[Math.floor(rnd() * TOWN_STYLES.length)];
+      town.taxRate = town.style === 'thrifty' ? 0.15 : town.style === 'industrial' ? 0.3 : 0.25;
+      this.layVillage(site.x, site.z, town.id, 36 + Math.floor(rnd() * 16), rnd);
     }
     this.eco.active = capital.id;
     this.net.clearUndo();
@@ -2920,53 +2961,75 @@ export class Game implements ToolHost {
   }
 
   /**
-   * A small, compact village around (cx, cz): a main street with lamps, a side street, the town hall, homes for
-   * about `people` people (and two empty ones for newcomers), water, power, food, a shop, builders, wood and stone.
+   * A small village around (cx, cz), different every time: the main street runs east–west or north–south with one
+   * or two side streets at random places, and every building picks its own spot (homes and the shop near the
+   * centre, the power plant and fields further out). About `people` people move in; two homes wait for newcomers.
    */
-  private layVillage(cx: number, cz: number, cityId: number, people: number) {
-    const main: Tile[] = [];
-    for (let x = cx - 9; x <= cx + 6; x++) main.push({ x, z: cz });
-    const side: Tile[] = [];
-    for (let z = cz; z <= cz + 4; z++) side.push({ x: cx + 1, z });
+  private layVillage(cx: number, cz: number, cityId: number, people: number, rnd: () => number = Math.random) {
+    const along = rnd() < 0.5;
+    const P = (a: number, b: number): Tile => (along ? { x: cx + a, z: cz + b } : { x: cx + b, z: cz + a });
+    const L1 = 7 + Math.floor(rnd() * 4), L2 = 5 + Math.floor(rnd() * 4);
+    const land = (tl: Tile) => inBounds(tl.x, tl.z) && this.map.isLand(idx(tl.x, tl.z));
+    const run = (tiles: Tile[]) => { const out: Tile[] = []; for (const tl of tiles) { if (!land(tl)) break; out.push(tl); } return out; };
+    const mainW: Tile[] = [], mainE: Tile[] = [];
+    for (let a = 0; a >= -L1; a--) mainW.push(P(a, 0));
+    for (let a = 0; a <= L2; a++) mainE.push(P(a, 0));
+    const main = [...run(mainW).reverse(), ...run(mainE).slice(1)];
     this.net.buildPath(main, ROAD_TWO_LANE);
     this.lights.setLit(main.map((tl) => idx(tl.x, tl.z)), true);
-    this.net.buildPath(side, ROAD_TWO_LANE);
-    this.terrain.clearTiles([...main, ...side].map((tl) => idx(tl.x, tl.z)));
+    const roads = [...main];
+    // side streets
+    const sides = 1 + (rnd() < 0.6 ? 1 : 0);
+    const used: number[] = [];
+    for (let i = 0; i < sides; i++) {
+      let a0 = 0;
+      for (let tries = 0; tries < 10; tries++) { a0 = -L1 + 3 + Math.floor(rnd() * (L1 + L2 - 4)); if (used.every((u) => Math.abs(u - a0) >= 4)) break; }
+      used.push(a0);
+      const dir = rnd() < 0.5 ? 1 : -1, len = 3 + Math.floor(rnd() * 4);
+      const side = run(Array.from({ length: len + 1 }, (_, k) => P(a0, k * dir)));
+      if (side.length > 1) { this.net.buildPath(side, ROAD_TWO_LANE); roads.push(...side); }
+    }
+    this.terrain.clearTiles(roads.map((tl) => idx(tl.x, tl.z)));
+
     const put = (kind: BuildingKind, x: number, z: number) => {
-      if (!this.buildings.footprint(kind, x, z).every((f) => inBounds(f.x, f.z) && this.map.isLand(idx(f.x, f.z)) && this.buildings.occ[idx(f.x, f.z)] === -1 && !this.net.type[idx(f.x, f.z)])) return null;
+      if (!this.buildings.check(kind, x, z).ok) return null;
       const b = this.buildings.place(kind, x, z, { animate: false, city: cityId });
       this.terrain.clearTiles(this.buildings.footprint(kind, x, z).map((f) => idx(f.x, f.z)));
       return b;
     };
-    put('townhall', cx - 1, cz - 2);
+    /** Best free spot: 'centre' = as close as possible, 'edge' / 'far' = a ring further out; a little random. */
+    const spot = (kind: BuildingKind, where: 'centre' | 'edge' | 'far', r = 15) => {
+      let best: Tile | null = null, bs = Infinity;
+      for (let z = cz - r; z <= cz + r; z++) for (let x = cx - r; x <= cx + r; x++) {
+        if (!inBounds(x, z)) continue;
+        const d = Math.hypot(x - cx, z - cz);
+        const sc = (where === 'centre' ? d : where === 'edge' ? Math.abs(d - 7) : Math.abs(d - 10)) + rnd() * 3;
+        if (sc >= bs || !this.buildings.check(kind, x, z).ok) continue;
+        best = { x, z };
+        bs = sc;
+      }
+      return best ? put(kind, best.x, best.z) : null;
+    };
+    spot('townhall', 'centre');
+    spot('watertower', 'centre');
+    spot('grocery', 'centre');
     const houses: Building[] = [];
-    for (const x of [cx - 5, cx - 4, cx - 3, cx + 2, cx + 3, cx + 4]) { const h = put('house', x, cz - 1); if (h) houses.push(h); }
-    for (const z of [cz + 2, cz + 3]) { const h = put('house', cx + 2, z); if (h) houses.push(h); }
-    put('watertower', cx - 2, cz - 1);
-    put('powerplant', cx - 9, cz - 2);
-    const farm = put('farm', cx - 6, cz + 2);
-    put('orchard', cx - 3, cz + 2);
-    put('grocery', cx, cz + 2);
-    const path: Tile[] = [];
-    for (let x = cx - 7; x <= cx - 1; x++) path.push({ x, z: cz + 1 });
-    this.footpaths.add(path.filter((tl) => this.buildings.occ[idx(tl.x, tl.z)] === -1));
+    const n = Math.max(5, Math.round(people / 6));
+    for (let i = 0; i < n; i++) { const h = spot('house', 'centre'); if (h) houses.push(h); }
+    spot('powerplant', 'edge');
+    const farm = spot('farm', 'far');
+    spot('orchard', rnd() < 0.5 ? 'edge' : 'far');
+    spot('construction', 'edge');
     if (farm) this.digStarterCanal(farm);
 
     let best: Tile | null = null, bestD = Infinity;
     for (let z = cz - 26; z <= cz + 26; z++) for (let x = cx - 26; x <= cx + 26; x++) {
       if (!inBounds(x, z) || !this.map.isLand(idx(x, z)) || this.terrain.trees.has(idx(x, z))) continue;
-      const d = Math.abs(x - cx) + Math.abs(z - cz);
+      const d = Math.abs(x - cx) + Math.abs(z - cz) + rnd() * 4;
       if (d < 10 || d >= bestD || this.buildings.occ[idx(x, z)] !== -1 || this.net.type[idx(x, z)] || this.canals.tiles[idx(x, z)]) continue;
       if (this.terrain.treesNear(x, z, 6) >= 10) { best = { x, z }; bestD = d; }
     }
     if (best) put('woodcutter', best.x, best.z);
-    // a construction company: its builders put up everything the town builds
-    let yard: Tile | null = null, yardD = Infinity;
-    for (let z = cz - 12; z <= cz + 12; z++) for (let x = cx - 12; x <= cx + 12; x++) {
-      const d = Math.abs(x - cx) + Math.abs(z - cz);
-      if (d < yardD && inBounds(x, z) && this.buildings.check('construction', x, z).ok && !this.terrain.trees.has(idx(x, z))) { yard = { x, z }; yardD = d; }
-    }
-    if (yard) put('construction', yard.x, yard.z);
     let quarry: Tile | null = null, quarryD = Infinity;
     for (let z = cz - 34; z <= cz + 34; z++) for (let x = cx - 34; x <= cx + 34; x++) {
       const d = Math.abs(x - cx) + Math.abs(z - cz);
@@ -2975,17 +3038,25 @@ export class Game implements ToolHost {
       quarryD = d;
     }
     if (quarry) put('quarry', quarry.x, quarry.z);
+    // a footpath from the centre towards the fields
+    if (farm) {
+      const path: Tile[] = [];
+      const fx = farm.x + 1, fz = farm.z + 1;
+      for (let k = 1; k <= 12; k++) {
+        const x = Math.round(cx + ((fx - cx) * k) / 12), z = Math.round(cz + ((fz - cz) * k) / 12);
+        if (inBounds(x, z) && this.map.isLand(idx(x, z)) && this.buildings.occ[idx(x, z)] === -1 && !this.net.type[idx(x, z)]) path.push({ x, z });
+      }
+      this.footpaths.add(path);
+    }
 
-    // enough hands for water, power, food, the builders, wood and stone
-    const sizes = houses.map(() => 5 + Math.floor(Math.random() * 3));
+    // families: about `people` people; nobody starts with a car (they buy one at a car market)
+    const sizes = houses.map(() => 4 + Math.floor(rnd() * 4));
     let sum = sizes.reduce((a, v) => a + v, 0);
-    while (sum > people) { const i = Math.floor(Math.random() * sizes.length); if (sizes[i] > 3) { sizes[i]--; sum--; } else if (sizes.every((v) => v <= 3)) break; }
-    while (sum < people) { const i = Math.floor(Math.random() * sizes.length); if (sizes[i] < 9) { sizes[i]++; sum++; } else if (sizes.every((v) => v >= 9)) break; }
-    // nobody starts with a car: families buy one at a car market when they have saved enough
-    houses.forEach((h, i) => this.pop.createFamily(h.id, { size: sizes[i], carChance: 0, money: 900 }));
-    // two empty houses wait for the first newcomers
-    put('house', cx, cz + 3);
-    put('house', cx + 2, cz + 4);
+    while (sum > people) { const i = Math.floor(rnd() * sizes.length); if (sizes[i] > 3) { sizes[i]--; sum--; } else if (sizes.every((v) => v <= 3)) break; }
+    while (sum < people) { const i = Math.floor(rnd() * sizes.length); if (sizes[i] < 9) { sizes[i]++; sum++; } else if (sizes.every((v) => v >= 9)) break; }
+    const occupied = houses.length > 2 ? houses.slice(0, houses.length - 2) : houses;
+    const extra = sizes.slice(occupied.length).reduce((a, v) => a + v, 0);
+    occupied.forEach((h, i) => this.pop.createFamily(h.id, { size: Math.min(10, sizes[i] + (i < extra ? 1 : 0)), carChance: 0, money: 700 + Math.floor(rnd() * 600) }));
   }
 
   /** Dig an irrigation canal from the starter farm to the nearest river or lake (BFS over open land). */

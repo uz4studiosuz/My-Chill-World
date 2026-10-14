@@ -1295,3 +1295,31 @@ button.chip:hover { background: var(--raised); }
 .nb-row small { color: var(--muted); font-size: 11px; min-width: 72px; }
 .nb-none { color: var(--muted); }
 .nb-row .btn-mini:disabled { opacity: .35; }
+
+.town-pick { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font: 600 13px var(--font-ui); color: var(--text); }
+.town-pick .seg { display: flex; gap: 4px; }
+.town-pick .segbtn { flex: 1; padding: 7px 0; border-radius: 9px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 700 13px var(--font-ui); cursor: pointer; }
+.town-pick .segbtn.active { background: var(--accent); color: var(--on-accent, #1c222c); border-color: var(--accent); }
+
+/* ---------- World window ---------- */
+.world-panel { width: min(620px, calc(100vw - 24px)); }
+.wt-card { background: var(--raised); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+.wt-top { display: flex; align-items: center; gap: 10px; }
+.wt-top .nb-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); flex: none; }
+.wt-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.wt-name b { font: 500 16px var(--font-display); }
+.wt-name small { color: var(--muted); font-size: 11.5px; }
+.wt-mood { flex: none; padding: 3px 10px; border-radius: 99px; color: #1b1d22; font: 800 11px var(--font-ui); }
+.wt-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.wt-stat { background: var(--base); border-radius: 9px; padding: 5px 7px; min-width: 0; }
+.wt-stat small { display: block; color: var(--muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-stat b { font-size: 13px; }
+.wt-stat b.pos { color: var(--good, #7be08f); }
+.wt-stat b.neg { color: var(--bad, #ff6b5e); }
+.wt-rich { font-size: 12px; color: var(--accent); }
+.wt-news { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.wt-news > div { display: flex; gap: 8px; }
+.wt-news small { color: var(--muted); flex: none; width: 52px; }
+.wt-empty { color: var(--muted); font-size: 12px; }
+.wt-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 560px) { .wt-grid { grid-template-columns: repeat(3, 1fr); } }
