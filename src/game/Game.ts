@@ -3388,7 +3388,9 @@ export class Game implements ToolHost {
     const people = fams.flatMap((f) => this.pop.members(f));
     const counts = this.pop.counts((c) => this.cityOfCitizen(c) === id);
     const pop = people.length;
-    const hist = [...(this.worldHistory.get(id) ?? []), { day: this.eco.day, pop, money: Math.round(city.money), happy: Math.round(city.happiness) }];
+    // the history plus today: the same numbers the daily record keeps (people with a job, not just those at work now)
+    const workNow = this.buildings.list.reduce((a, b) => a + (b.city === id ? b.workers : 0), 0);
+    const hist = [...(this.worldHistory.get(id) ?? []), { day: this.eco.day, pop, money: Math.round(city.money), happy: Math.round(city.happiness), work: workNow }];
     const day = (h: { day: number }) => h.day;
     void day;
     const homes = built.filter((b) => BUILDINGS[b.kind].units);
