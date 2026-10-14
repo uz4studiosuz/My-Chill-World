@@ -2400,4 +2400,7 @@ export const UZ: Record<string, string> = {
   "Planes fly in from the other towns on the map (towns with an airport fly more often): visitors arrive, and the plane takes what one town has far too much of to the other at that town's price. Alone on the map, planes come from abroad.": "Samolyotlar xaritadagi boshqa shaharlardan uchib keladi (aeroporti bor shaharlardan tez-tez): mehmonlar keladi, samolyot esa bir shaharda juda ko'p bo'lgan tovarni boshqasiga o'sha shahar narxida olib boradi. Xaritada yolg'iz bo'lsangiz, samolyotlar chet eldan keladi.",
   "Working in another town": "Boshqa shaharda ishlash",
   "Someone who finds no work at home takes a job in a neighbour town joined by road; the town where they work pays the wage. When your town pays at least 25% more, workers of the neighbours leave their jobs and come to you. The Jobs panel shows how many come in and go out.": "O'z shahrida ish topa olmagan odam yo'l bilan bog'langan qo'shni shaharda ishlaydi; maoshni u ishlaydigan shahar to'laydi. Sizning shahringiz kamida 25% ko'proq to'lasa, qo'shnilarning ishchilari ishini tashlab sizga keladi. Ishlar oynasida qancha odam kelib-ketishi ko'rinadi.",
+  "Built a road to {city}": "{city} shahriga yo'l qurildi",
+  "{city} built a road to your town — people can now come to work and trade": "{city} shahringizgacha yo'l qurdi — endi odamlar ishlash va savdo uchun kela oladi",
+  "{city} built a road to us": "{city} bizgacha yo'l qurdi",
 };
