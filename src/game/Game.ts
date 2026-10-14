@@ -180,6 +180,9 @@ export class Game implements ToolHost {
   private priceHistory = new Map<number, Record<string, number[]>>();
   /** Which pairs of towns are joined by road (for people working in another town); cleared when roads change. */
   private commuteCache = new Map<string, boolean>();
+  /** Road network changed by a neighbour town: rebuilt soon (not on every single tile). */
+  private netPending = false;
+  private netAt = 0;
   /** What happened between each neighbour town and the player: deals, gifts, letters (newest first). */
   private dealings = new Map<number, { day: number; text: string; money: number }[]>();
   private tradePanel?: TradePanel;
@@ -353,12 +356,12 @@ export class Game implements ToolHost {
       freeHomes: (id) => this.life.freeHomes(id).length,
       isWatered: (x, z, size) => this.canals.watered(x, z, size),
       digCanal: (farm) => { this.digStarterCanal(farm); this.life.rebuildGrid(); },
-      demolish: (b) => { this.destroyBuilding(b, true); this.networkChanged(); },
+      demolish: (b) => { this.destroyBuilding(b, true); this.netPending = true; },
       irrigated: (b) => this.canals.watered(b.x, b.z, BUILDINGS[b.kind].size) || b.irrigated,
       treesNear: (x, z, r) => this.terrain.treesNear(x, z, r),
       isBlocked: (k) => !!this.footpaths.tiles[k] || !!this.canals.tiles[k] || !!this.railway.tiles[k],
       clearTiles: (ks) => this.terrain.clearTiles(ks),
-      networkChanged: () => this.networkChanged(),
+      networkChanged: () => { this.netPending = true; },
       say: () => { /* big neighbour news stay in the neighbours' chronicle */ },
       happiness: (id) => this.eco.cities.get(id)?.happiness ?? 50,
       linkRoad: (c) => this.linkTown(c),
@@ -740,8 +743,12 @@ export class Game implements ToolHost {
   update(dt: number) {
     // fast speeds are split into small steps so cars, walkers and the economy stay stable
     const total = this.menuPaused ? 0 : dt * this.speed;
-    const steps = total > 0 ? Math.min(60, Math.ceil(total / 0.2)) : 1;
+    const stepLen = this.speed >= 100 ? 0.4 : this.speed >= 20 ? 0.3 : 0.2;
+    const steps = total > 0 ? Math.min(40, Math.ceil(total / stepLen)) : 1;
     const sdt = total / steps;
+    const frameStart = performance.now();
+    // the neighbour towns' new streets and buildings: the road network is rebuilt at most a few times a second
+    if (this.netPending && frameStart - this.netAt > 300) { this.netPending = false; this.netAt = frameStart; this.networkChanged(false); }
     this.traffic.setParked(this.life.parkedCars());
     this.walkers.standingBikes = this.life.factoryBikes();
     for (let i = 0; i < steps; i++) {
@@ -766,6 +773,8 @@ export class Game implements ToolHost {
       this.railway.update(sdt);
       this.airports.update(sdt);
       this.buildings.update(i === 0 ? dt : 0, sdt, DAY_SECONDS, growingSeason(monthOf(this.eco.day)), (b) => this.life.buildSpeed(b));
+      // out of time for this frame: skip the rest of it rather than freeze the screen
+      if (i < steps - 1 && performance.now() - frameStart > 24) break;
     }
     this.festivities(dt);
     this.waterLife.update(total > 0 ? Math.min(dt * this.speed, 0.5) : 0, this.terrain.frozen, seasonOf(monthOf(this.eco.day)) === 'summer', this.nightness);
@@ -1707,6 +1716,26 @@ export class Game implements ToolHost {
     this.life.events.push(t('The millionaire {family} family of {from} founded a new town: {city}', { family: rich.surname, from: from.name, city: town.name }));
   }
 
+  /** Fly to a family's home and open it (from the town hall window). */
+  private showFamily(f: Family) {
+    const home = this.buildings.get(f.home);
+    if (!home) return;
+    this.cityReport?.hide();
+    this.cam.setState(home.mesh.position.x, home.mesh.position.z, this.cam.yaw, Math.min(this.cam.viewHalf, 6));
+    if (BUILDINGS[home.kind].units > 1) this.aptFamily = f.id;
+    this.select({ type: 'building', id: home.id });
+    this.beamT = 4;
+  }
+
+  /** Fly to a person (out and about, or at home) and open their card. */
+  private showPerson(c: Citizen) {
+    this.cityReport?.hide();
+    const w = c.walker;
+    const at = w ? { x: w.x, z: w.z } : this.buildings.get(c.at)?.mesh.position ?? this.buildings.get(this.pop.families.get(c.family)?.home ?? -1)?.mesh.position;
+    if (at) this.cam.setState(at.x, at.z, this.cam.yaw, Math.min(this.cam.viewHalf, 5));
+    this.select({ type: 'person', id: c.id });
+  }
+
   /** People who live in one town and work in another: coming in (`into`) or going out. */
   private commuters(cityId: number, into: boolean) {
     let n = 0;
@@ -1734,7 +1763,7 @@ export class Game implements ToolHost {
       city.tourists += visitors;
       const deals: string[] = [];
       // the plane takes what this town has far too much of to the other town, if it needs it and can pay
-      if (city.ai || from.ai) {
+      if (city.ai && from.ai) {
         const seller = city, buyer = from;
         for (const g of GOODS) {
           if (deals.length >= 3) break;
@@ -1797,6 +1826,8 @@ export class Game implements ToolHost {
     if (winter && city.wood < 10) return ['🥶', 'Our home is cold — the town has no firewood'];
     if (home && (home.trash ?? 0) >= TRASH.full) return ['🗑️', 'Our bin is overflowing — where is the garbage truck?'];
     if (this.pop.canWork(c) && c.job < 0) return ['💼', 'I need a job'];
+    if (f?.car && c.age >= 18 && (c.noParking ?? -9) >= this.eco.day - 1) return ['🅿️', 'I could not find a parking space'];
+    if (f?.car && c.age >= 18 && f.car.fuel < 30 && !this.buildings.list.some((b) => b.kind === 'gasstation' && b.city === city.id && b.built >= 1)) return ['⛽', 'There is no gas station in town — the tank is almost empty'];
     if (f && f.money < 0) return ['💸', 'We are in debt'];
     if (city.taxRate > 0.32) return ['😠', 'Taxes are too high'];
     if (c.activity === 'Riding the bus') return ['🚌', 'Nice to ride the bus'];
@@ -2258,6 +2289,7 @@ export class Game implements ToolHost {
         [t('Profession'), this.professionOf(c)],
         ...(c.night ? [[t('Shift'), t('Night shift (+50% pay)')] as [string, string]] : []),
         [t('Home'), f ? t('{name} family', { name: f.surname }) : '—'],
+        ...(f ? this.buildings.list.filter((x) => x.owner === f.id && !x.removed).map((x) => [t('Family business'), `${t(BUILDINGS[x.kind].name)} · ${this.cityOf(x).name}${x.sales ? ` · $${Math.round(x.sales)}` : ''}`, 'good'] as [string, string, ('good' | 'bad')?]) : []),
         [t('City'), home ? this.cityOf(home).name : '—'],
         [c.school >= 0 ? t('School') : t('Workplace'), job ? t(BUILDINGS[job.kind].name) : '—'],
         [t('Family savings'), f ? `$${Math.floor(f.money).toLocaleString('en-US')}` : '—', f && f.money < 0 ? 'bad' : undefined],
@@ -2622,6 +2654,8 @@ export class Game implements ToolHost {
       money: e.money, iron: e.iron, daily: e.city.balance.net, stone: e.stone, wood: e.wood, food: e.food,
       foodDaily: this.foodBalance(), powered: e.powered, water: e.city.water,
       population: this.life.populationByCity().get(e.active) ?? 0, workers: counts.workers, workforce: counts.workforce,
+      households: [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === e.active).length,
+      homeUnits: this.buildings.list.reduce((a, b) => a + (b.city === e.active && b.built >= 1 && !b.removed ? BUILDINGS[b.kind].units : 0), 0),
       dateText: this.dateText(), seasonIcon: SEASON_ICON[seasonOf(monthOf(e.day))], timeOfDay: e.timeOfDay, broke: e.money < 0,
     });
     for (const g of this.goals.check(this.goalContext())) {
@@ -3065,7 +3099,9 @@ export class Game implements ToolHost {
     const skill = [0, 1, 2].map((s) => people.filter((c) => c.age >= 18 && c.skill === s).length);
     const wealth: [string, number][] = [['Below $500', fams.filter((f) => f.money < 500).length], ['$500 – 2,000', fams.filter((f) => f.money >= 500 && f.money < 2000).length],
       ['$2,000 – 10,000', fams.filter((f) => f.money >= 2000 && f.money < 10000).length], ['Millionaires ($10,000+)', fams.filter((f) => f.money >= 10000).length]];
-    const richest = [...fams].sort((a, b) => b.money - a.money).slice(0, 6);
+    const worthOf = (f: (typeof fams)[number]) => f.money + this.buildings.list.reduce((a, b) => a + (b.owner === f.id && !b.removed ? BUILDINGS[b.kind].money : 0), 0);
+    const richest = [...fams].sort((a, b) => worthOf(b) - worthOf(a)).slice(0, 8);
+    const avgPay = staff ? built.reduce((a, b) => a + BUILDINGS[b.kind].salary * (city.wages[b.kind] ?? 1) * b.workers, 0) / staff : 0;
     // ---- buildings ----
     const byCat = new Map<string, number>();
     for (const b of own) byCat.set(catOf(b), (byCat.get(catOf(b)) ?? 0) + 1);
@@ -3084,6 +3120,7 @@ export class Game implements ToolHost {
         [t('Jobs'), `${staff}/${jobs}`, t('{n} open jobs', { n: Math.max(0, jobs - staff) }), staff >= jobs],
         [t('Unemployed'), n(Math.max(0, counts.workforce - counts.workers)), t('of {n} able to work', { n: counts.workforce }), counts.workforce <= counts.workers],
         [t('Workers from other towns'), n(this.commuters(id, true)), t('{n} of ours work in other towns', { n: this.commuters(id, false) })],
+        [t('Average wage'), `$${avgPay.toFixed(1)}/${t('day')}`, t('{n} people at work', { n: staff })],
         [t('Pupils'), n(counts.students), ''],
         [t('Treasury'), money(city.money), `${t('yesterday')} ${bal.net >= 0 ? '+' : ''}${money(bal.net)}`, bal.net >= 0],
         [t('Happiness'), `${Math.round(city.happiness)}%`, city.happiness >= 60 ? t('people are content') : t('could be better'), city.happiness >= 55],
@@ -3153,7 +3190,12 @@ export class Game implements ToolHost {
       { title: t('Ages'), bars: ([['0–5', 0, 6], ['6–17', 6, 18], ['18–29', 18, 30], ['30–44', 30, 45], ['45–64', 45, 65], ['65+', 65, 200]] as const).map(([k, a, b], i) => [k, age(a, b), C[i], `${age(a, b)}`] as [string, number, string, string]) },
       { title: t('Education of adults'), bars: [[t('No trade'), skill[0], '#aab4be', `${skill[0]}`], [t('Learnt a trade'), skill[1], '#6fb6ff', `${skill[1]}`], [t('University degree'), skill[2], '#7be08f', `${skill[2]}`]] },
       { title: t('Family savings'), bars: wealth.map(([k, v], i) => [t(k), v, ['#ff7a6e', '#f2b33d', '#6fb6ff', '#7be08f'][i], `${v}`] as [string, number, string, string]) },
-      { title: t('Richest families'), rows: richest.map((f) => [t('{family} family', { family: f.surname }), money(f.money), f.money >= 10000 ? 'good' : undefined] as [string, string, ('good' | 'bad')?]) },
+      { title: t('Richest families'), rows: richest.map((f) => {
+        const biz = this.buildings.list.filter((b) => b.owner === f.id && !b.removed);
+        const worth = f.money + biz.reduce((a, b) => a + BUILDINGS[b.kind].money, 0);
+        return [`${t('{family} family', { family: f.surname })}${biz.length ? ` · ${biz.map((b) => t(BUILDINGS[b.kind].name)).join(', ')}` : ''}`,
+          `${money(f.money)}${biz.length ? ` · ${t('worth {n}', { n: money(worth) })}` : ''}`, worth >= 10000 ? 'good' : undefined, () => this.showFamily(f)] as [string, string, ('good' | 'bad' | undefined), () => void];
+      }), note: t('Cash in hand; "worth" adds the value of the businesses and blocks of flats the family owns.') },
       { title: t('Health'), rows: [[t('Hungry'), `${counts.hungry}`, counts.hungry ? 'bad' : 'good'], [t('Sick'), `${counts.sick}`, counts.sick ? 'bad' : 'good'], [t('Died yesterday'), `${city.deaths}`, city.deaths ? 'bad' : undefined]] },
     ] });
     tabs.push({ id: 'buildings', label: t('Buildings'), sections: [
@@ -3178,7 +3220,7 @@ export class Game implements ToolHost {
     const hallB = this.buildings.townHall(id);
     if (hallB) {
       const hv = this.cityView(hallB);
-      if (!city.ai) hv.rows = [...(hv.rows ?? []), [t('Come from other towns to work here'), `${this.commuters(id, true)}`], [t('Work in other towns'), `${this.commuters(id, false)}`]];
+      if (!city.ai) hv.rows = [...(hv.rows ?? []), [t('Average wage'), `$${avgPay.toFixed(1)}/${t('day')}`], [t('Come from other towns to work here'), `${this.commuters(id, true)}`], [t('Work in other towns'), `${this.commuters(id, false)}`]];
       if (city.ai) hv.actions = (hv.actions ?? []).filter((a) => a.icon === 'people');
       else hv.actions = (hv.actions ?? []).filter((a) => a.icon !== 'info' && a.icon !== 'buildings');
       tabs.unshift({ id: 'hall', label: t('Town hall'), hall: hv });
@@ -3186,7 +3228,24 @@ export class Game implements ToolHost {
     // ---- relations with the neighbour towns ----
     const towns = [...this.eco.cities.values()].filter((c) => c.ai && c.id !== id);
     if (!city.ai) {
+      const incoming = [...this.pop.citizens.values()].filter((c) => {
+        const job = c.job >= 0 ? this.buildings.get(c.job) : undefined, home = this.buildings.get(this.pop.families.get(c.family)?.home ?? -1);
+        return job && home && job.city === id && home.city !== id;
+      });
+      const outgoing = [...this.pop.citizens.values()].filter((c) => {
+        const job = c.job >= 0 ? this.buildings.get(c.job) : undefined, home = this.buildings.get(this.pop.families.get(c.family)?.home ?? -1);
+        return job && home && home.city === id && job.city !== id;
+      });
+      const who = (c: Citizen, other: 'home' | 'job') => {
+        const f = this.pop.families.get(c.family), job = this.buildings.get(c.job)!, home = this.buildings.get(f?.home ?? -1);
+        const town = this.eco.cities.get(other === 'home' ? home?.city ?? -1 : job.city)?.name ?? '—';
+        const pay = BUILDINGS[job.kind].salary * (this.eco.cities.get(job.city)?.wages[job.kind] ?? 1);
+        return [`${c.name} ${f?.surname ?? ''} · ${other === 'home' ? t('from {city}', { city: town }) : t('in {city}', { city: town })}`, `${t(BUILDINGS[job.kind].name)} · $${pay.toFixed(1)}`, undefined, () => this.showPerson(c)] as [string, string, ('good' | 'bad' | undefined), () => void];
+      };
       tabs.push({ id: 'relations', label: t('Relations'), sections: [
+        { title: t('Come from other towns to work here ({n})', { n: incoming.length }), wide: true, rows: incoming.length ? incoming.slice(0, 40).map((c) => who(c, 'home')) : [[t('Nobody yet — they come when your town has open jobs or pays at least 25% more'), '—']],
+          note: t('They live in their own town and come by road, footpath or train; your town pays their wage.') },
+        { title: t('Our people working in other towns ({n})', { n: outgoing.length }), rows: outgoing.length ? outgoing.slice(0, 30).map((c) => who(c, 'job')) : [[t('Nobody'), '—']] },
         { title: t('Friendship with neighbour towns'), bars: towns.map((c) => [c.name, Math.max(1, c.relation ?? 40), c.tint ?? '#aab4be', `${Math.round(c.relation ?? 40)}/100 · ${t(this.friendship(c.relation ?? 40))}`] as [string, number, string, string]),
           note: t('0–24 cold · 25–49 neutral · 50–74 friends · 75–100 close allies. Trade, gifts and help raise it; refusing a request lowers it.') },
         ...towns.map((c) => {

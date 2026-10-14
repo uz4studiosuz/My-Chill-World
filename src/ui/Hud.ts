@@ -144,6 +144,8 @@ const BASE_HINTS: Partial<Record<ToolId, string>> = {
 export interface HudStats {
   money: number; iron: number; daily: number; stone: number; wood: number; food: number; foodDaily: number;
   powered: number; water: number; population: number; workers: number; workforce: number;
+  /** Families living in town, and how many families all its homes can take. */
+  households: number; homeUnits: number;
   dateText: string; seasonIcon: string; timeOfDay: number; broke: boolean;
   cityName: string; cities: number; happiness: number;
 }
@@ -274,7 +276,7 @@ export class Hud {
       [['money', 'r_money', 'Town money (balance per day)'], ['stone', 'r_stone', 'Stone'], ['wood', 'r_wood', 'Wood (building material and fuel)'],
         ['iron', 'r_iron', 'Iron (for industry and big buildings)'], ['food', 'r_food', 'Food (everyone eats 1 per day)'], ['allres', 'list', 'All resources and the stores']],
       [['energy', 'r_energy', 'Energy supplied'], ['water', 'r_water', 'Drinking water supplied']],
-      [['pop', 'r_people', 'Population'], ['happy', 'r_happy', 'Happiness'], ['jobs', 'r_jobs', 'Employed / workforce']],
+      [['pop', 'r_people', 'Population'], ['homes', 'house', 'Households / families the homes can take'], ['happy', 'r_happy', 'Happiness'], ['jobs', 'r_jobs', 'Employed / workforce']],
       [['day', 'calendar', 'Date and time']],
     ];
     for (const group of GROUPS) {
@@ -285,7 +287,7 @@ export class Hud {
       chip.dataset.k = key;
       chip.title = t(title);
       chip.innerHTML = icon(ic);
-      chip.addEventListener('click', key === 'city' ? h.cycleCity : key === 'day' ? h.openStats : () => h.openResource(key));
+      chip.addEventListener('click', key === 'city' ? h.cycleCity : key === 'day' ? h.openStats : () => h.openResource(key === 'homes' ? 'pop' : key));
       if (key === 'city') chip.classList.add('city');
       if (SECONDARY.has(key)) chip.classList.add('sec');
       const v = el('span', 'v');
@@ -605,6 +607,8 @@ export class Hud {
     this.chip.food.classList.toggle('warn', s.food < s.population * 2);
     this.chip.wood.classList.toggle('warn', s.wood < 15);
     this.stat.pop.textContent = fmt(s.population);
+    this.stat.homes.textContent = `${fmt(s.households)}/${fmt(s.homeUnits)}`;
+    this.chip.homes.classList.toggle('warn', s.households >= s.homeUnits);
     this.stat.happy.textContent = `${Math.round(s.happiness)}%`;
     this.chip.happy.classList.toggle('warn', s.happiness < 45);
     this.stat.jobs.textContent = `${s.workers}/${s.workforce}`;

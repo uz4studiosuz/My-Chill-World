@@ -10,6 +10,8 @@ export type DeathCause = 'old age' | 'starvation' | 'thirst' | 'lightning' | 'ac
 
 export interface Citizen {
   id: number;
+  /** Day this person last found no parking space (they complain). */
+  noParking?: number;
   name: string;
   sex: Sex;
   /** Age in years (fractional — one day is one month). */

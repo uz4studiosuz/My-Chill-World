@@ -138,6 +138,9 @@ export class Life {
   batteryCap = 0;
   /** Food portions eaten per day, per city (by age). */
   private mouths = new Map<number, number>();
+  /** Drivers who found no parking space today, per town (they complain). */
+  private parkFails = new Map<number, number>();
+  private energyAcc = 0;
   /** News of a neighbour town goes into that town's own chronicle (set by the game). */
   onForeign?: (cityId: number, msg: string) => void;
   /** May a private builder put a building here (neighbour towns keep room for their future streets)? */
@@ -220,7 +223,9 @@ export class Life {
     if (eco.tick(dt)) this.newDay();
     pop.tickNeeds(dt / DAY_SECONDS);
     this.eat(dt);
-    this.updateEnergy(dt);
+    // power is shared out about once a game second (the same amounts, much less work at high speed)
+    this.energyAcc += dt;
+    if (this.energyAcc >= 1) { this.updateEnergy(this.energyAcc); this.energyAcc = 0; }
     this.presentT -= dt;
     this.serviceT -= dt;
     if (this.serviceT <= 0) { this.serviceT = 3; this.dispatchServices(); this.deliverPlanks(); }
@@ -811,8 +816,10 @@ export class Life {
     const families = [...pop.families.values()].filter((f) => buildings.get(f.home)?.city === cityId && this.purse(f, cityId) > 900)
       .sort((a, b) => b.money - a.money);
     if (!families.length) return;
-    const owners = new Set(buildings.list.map((b) => b.owner));
-    const rich = families.filter((f) => !owners.has(f.id));
+    // a family with businesses invests again when it has saved enough for the next one
+    const owned = new Map<number, number>();
+    for (const b of buildings.list) if (b.owner >= 0) owned.set(b.owner, (owned.get(b.owner) ?? 0) + 1);
+    const rich = families.filter((f) => !owned.has(f.id) || f.money > 3000 * ((owned.get(f.id) ?? 0) + 1));
     if (!rich.length) return;
     // nobody can build without a working construction company
     const canBuild = buildings.list.some((b) => b.kind === 'construction' && b.city === cityId && b.built >= 1 && b.workers > 0);
@@ -1887,6 +1894,11 @@ export class Life {
     add('Water', -(1 - city.water) * 20);
     add('Electricity', -(1 - city.powered) * 10);
     add('Taxes', -(city.taxRate - 0.25) * 80);
+    // drivers grumble when they find nowhere to park, and when there is no gas station
+    const cars = [...pop.families.values()].filter((f) => f.car && belongs(f)).length;
+    add('No parking spaces', -Math.min(6, (this.parkFails.get(city.id) ?? 0) * 0.25));
+    this.parkFails.set(city.id, 0);
+    if (cars >= 3 && !own.some((b) => b.kind === 'gasstation')) add('No gas station', -Math.min(5, cars * 0.15));
     add('Crime', -(r.incidents.filter((i) => i.kind === 'murder').length * 6 + r.incidents.filter((i) => i.kind === 'fight').length * 2));
     city.mood = mood;
     let target = mood.reduce((a, [, v]) => a + v, 0);
@@ -2247,6 +2259,7 @@ export class Life {
 
     if (f.car?.at === 'home' && c.age >= 18 && home.access >= 0 && f.car.fuel > FUEL.empty) {
       const spot = this.findSpot(dest);
+      if (!spot) { c.noParking = this.c.eco.day; this.parkFails.set(home.city, (this.parkFails.get(home.city) ?? 0) + 1); }
       if (spot && traffic.canRoute(home.access, spot.lot.access)) {
         const key = `${spot.lot.id}:${spot.slot}`;
         this.spots.set(key, f.id);

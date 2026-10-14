@@ -16,7 +16,8 @@ export interface ReportSection {
   donut?: [string, number, string][];
   /** Lines over time. */
   chart?: { series: Series[]; format?: 'money' | 'pct' | 'num' | 'kw' };
-  rows?: [string, string, ('good' | 'bad')?][];
+  /** label, value, tone, and an optional 'Show' action (a family or a person on the map). */
+  rows?: [string, string, ('good' | 'bad')?, (() => void)?][];
   /** Buttons (for example raising or lowering the tax). */
   actions?: { label: string; onClick: () => void; off?: boolean }[];
   note?: string;
@@ -229,12 +230,20 @@ export class CityReport {
           const ch = sec.chart;
           later.push(() => drawChart(c, ch.series, fmtOf(ch.format)));
         }
-        for (const [k, val, tone] of sec.rows ?? []) {
+        for (const [k, val, tone, show] of sec.rows ?? []) {
           const r = el('div', 'info-row');
           r.innerHTML = '<span></span><span></span>';
           (r.children[0] as HTMLElement).textContent = k;
           (r.children[1] as HTMLElement).textContent = val;
           if (tone) (r.children[1] as HTMLElement).className = tone === 'good' ? 'pos' : 'neg';
+          if (show) {
+            const b = el('button', 'btn-mini ghost cr-show');
+            b.innerHTML = icon('eye');
+            b.title = t('Show');
+            b.setAttribute('aria-label', t('Show'));
+            b.addEventListener('click', (e) => { e.stopPropagation(); show(); });
+            r.appendChild(b);
+          }
           box.appendChild(r);
         }
         if (sec.actions?.length) {

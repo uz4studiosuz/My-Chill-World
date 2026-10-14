@@ -200,7 +200,7 @@ export class AutoCity {
 
   update(dt: number) {
     this.t += dt;
-    if (this.t < 30) return;
+    if (this.t < 12) return;
     this.t = 0;
     const day = this.h.eco.day;
     const newDay = day !== this.lastDay;
@@ -218,8 +218,9 @@ export class AutoCity {
     const hall = buildings.townHall(city.id);
     if (!hall || hall.built < 1) return;
     const own = buildings.list.filter((b) => b.city === city.id && !b.removed);
-    // one building site at a time: builders are few
-    if (own.some((b) => b.built < 1)) return;
+    // one building site at a time (two when the town is rich): builders are few
+    const sites = own.filter((b) => b.built < 1).length;
+    if (sites >= (city.money > 8000 ? 2 : 1)) return;
     const want = this.need(city, own);
     // nothing to build: a rich town lays new streets for the future
     if (!want) { if (city.money > 2500 && Math.random() < 0.3) this.growStreets(city, hall, own); return; }
