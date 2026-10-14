@@ -1360,3 +1360,27 @@ button.chip:hover { background: var(--raised); }
   .cr-donut canvas { width: 104px; height: 104px; }
   .navgroup .rbtn { width: 34px; height: 32px; }
 }
+
+/* ---------- phones: World window, city report and statistics fit the screen ---------- */
+.wt-dot, .nb-dot { flex: none; }
+@media (max-width: 640px) {
+  .stats, .world-panel, .city-report {
+    top: calc(var(--safe-top) + 84px) !important; bottom: calc(var(--safe-bottom) + 64px) !important; height: auto !important;
+    left: 6px !important; right: 6px !important; width: auto !important; max-width: none !important; transform: none !important; border-radius: 14px;
+  }
+  .stats-head { padding: 10px 10px 4px 14px !important; gap: 8px; }
+  .stats-head b { font-size: 16px !important; line-height: 1.25; }
+  .stats-tabs { flex-wrap: nowrap !important; overflow-x: auto; padding: 4px 10px !important; scrollbar-width: none; }
+  .stats-tabs::-webkit-scrollbar { display: none; }
+  .stab { flex: none; padding: 6px 10px; font-size: 12px; }
+  .stats-body { grid-template-columns: 1fr !important; padding: 6px 10px 20px !important; gap: 8px !important; }
+  .stats-body .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 6px; }
+  .stats-body .kpi { padding: 7px 9px; }
+  .stats-body .kpi b { font-size: 16px; }
+  .stats-body .kpi span { font-size: 10.5px; }
+  .wt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .wt-table { font-size: 11.5px; }
+  .wt-bar { grid-template-columns: minmax(70px, 30%) 1fr auto; }
+  .snote { font-size: 12px; }
+  .stats-body .chart canvas, .cr-chart, .world-panel .chart canvas { height: 130px !important; }
+}
