@@ -5,6 +5,7 @@ import { WorldMap } from '../world/WorldMap';
 import { generateWorld } from '../world/WorldGen';
 import { Terrain } from '../world/Terrain';
 import { walkPath } from '../people/WalkPath';
+import { Platform } from '../platform/Platform';
 import { BRIDGE_COST, ROAD_COST, ROAD_TWO_LANE, ROUNDABOUT_COST, RoadNetwork, isRingMid } from '../roads/RoadNetwork';
 import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
@@ -238,6 +239,9 @@ export class Game implements ToolHost {
   private speed = 1;
   private lastSpeed = 1;
   private menuPaused = false;
+  private adPaused = false;
+  /** Game day of the last investors' grant (one a day). */
+  private grantDay = -1;
   private time = 0;
   private hudT = 0;
   private statsTick = 0;
@@ -742,7 +746,7 @@ export class Game implements ToolHost {
 
   update(dt: number) {
     // fast speeds are split into small steps so cars, walkers and the economy stay stable
-    const total = this.menuPaused ? 0 : dt * this.speed;
+    const total = this.menuPaused || this.adPaused ? 0 : dt * this.speed;
     const stepLen = this.speed >= 100 ? 0.4 : this.speed >= 20 ? 0.3 : 0.2;
     const steps = total > 0 ? Math.min(40, Math.ceil(total / stepLen)) : 1;
     const sdt = total / steps;
@@ -813,6 +817,26 @@ export class Game implements ToolHost {
       this.saveT += dt;
       if (this.saveT > AUTOSAVE_SECONDS) this.save();
     }
+  }
+
+  /** An ad is playing: everything stands still. */
+  setAdPaused(p: boolean) {
+    this.adPaused = p;
+    if (this.input) this.input.enabled = !p && !this.menuPaused;
+  }
+
+  /** A grant from investors for watching an ad (once a game day). */
+  private async rewardGrant(city: City) {
+    if (this.grantDay === this.eco.day) return this.hud?.toast(t('The investors come again tomorrow'));
+    const ok = await Platform.rewardedAd();
+    if (!ok) return this.hud?.toast(t('The ad was not watched to the end — no grant'));
+    this.grantDay = this.eco.day;
+    const sum = Math.max(1000, Math.round(this.life.populationByCity().get(city.id)! * 8 / 100) * 100);
+    this.eco.add(city, 'money', sum, 'Grant from investors');
+    sound.play('coin');
+    this.hud?.toast(t('Investors gave the town ${n}', { n: sum }));
+    this.refreshInspector();
+    this.refreshHud();
   }
 
   setMenuPaused(p: boolean) {
@@ -3992,6 +4016,7 @@ export class Game implements ToolHost {
         ...(city.taxRate > 0.1 ? [{ label: t('Tax −5%'), onClick: () => { city.taxRate = Math.round((city.taxRate - 0.05) * 100) / 100; this.refreshInspector(); } }] : []),
         ...(city.taxRate < 0.4 ? [{ label: t('Tax +5%'), onClick: () => { city.taxRate = Math.round((city.taxRate + 0.05) * 100) / 100; this.refreshInspector(); } }] : []),
         ...this.tradeActions(city),
+        ...(Platform.adsAvailable ? [{ label: this.grantDay === this.eco.day ? t('Investors: come again tomorrow') : `▶ ${t('Grant from investors (watch an ad)')}`, icon: 'coin' as const, onClick: () => { void this.rewardGrant(city); } }] : []),
         ...(hasBank && city.loan + LOAN.step <= LOAN.max ? [{
           label: `${t('Take loan')} $${LOAN.step}`, icon: 'coin' as const,
           onClick: () => { city.loan += LOAN.step; this.eco.add(city, 'money', LOAN.step, 'Bank loan'); this.refreshInspector(); this.refreshHud(); },

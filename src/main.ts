@@ -24,6 +24,13 @@ async function boot() {
     return;
   }
   await Platform.init();
+  // on CrazyGames the language comes from the player's settings (unless they picked one in the game)
+  const loc = Platform.locale;
+  let chosen = false;
+  try { chosen = !!localStorage.getItem('mcw_lang'); } catch { /* storage blocked */ }
+  if (loc && !chosen) { const l = loc.toLowerCase().startsWith('uz') ? 'uz' : 'en'; if (l !== getLang()) setLang(l); }
+  // while an ad plays: the game stops and the sound is off
+  Platform.onAd = (on) => { sound.suspend(on || document.hidden); game?.setAdPaused(on); };
   Platform.loadingStart();
 
   const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -65,9 +72,14 @@ async function boot() {
     setGame(new Game(canvas, { demo: true }));
     menu.showMain();
   };
+  /** A world was already played this session (a short ad may come when the next one opens). */
+  let playedBefore = false;
 
-  const start = (opts: GameOptions) => {
+  const start = async (opts: GameOptions) => {
     menu.showLoading(t('Generating world…'));
+    // opening another world is a natural break for a short ad (never before the first world; the screen waits)
+    if (playedBefore) await Platform.midgameAd();
+    playedBefore = true;
     // let the loading text paint before the (synchronous) world generation
     setTimeout(() => {
       let g: Game;
@@ -128,7 +140,10 @@ async function boot() {
     },
   });
 
-  openMainMenu();
+  if (Platform.environment !== 'disabled' && !SaveStore.list().length) {
+    openMainMenu();
+    void start({ create: { name: t('My World {n}', { n: 1 }), seed: Math.floor(Math.random() * 1e9), calm: false, towns: 3 } });
+  } else openMainMenu();
 
   const clock = new THREE.Clock();
   // automatic quality: if the device can't keep ~40 fps, drop shadows and render resolution

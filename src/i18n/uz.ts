@@ -2510,4 +2510,10 @@ export const UZ: Record<string, string> = {
   "Good · in your stores": "Tovar · omboringizda",
   "Sell price — you get · Buy price — you pay": "Sotish narxi — siz olasiz · Sotib olish narxi — siz to'laysiz",
   "− sell · + buy": "− sotish · + sotib olish",
+  "The investors come again tomorrow": "Investorlar ertaga yana keladi",
+  "The ad was not watched to the end — no grant": "Reklama oxirigacha ko'rilmadi — grant yo'q",
+  "Investors gave the town ${n}": "Investorlar shaharga ${n} berdi",
+  "Grant from investors": "Investorlar granti",
+  "Investors: come again tomorrow": "Investorlar: ertaga keling",
+  "Grant from investors (watch an ad)": "Investorlar granti (reklama ko'rish)",
 };
