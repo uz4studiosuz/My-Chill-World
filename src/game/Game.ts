@@ -42,6 +42,9 @@ import { Overlays, Problem } from '../fx/Overlays';
 import { WaterLife } from '../fx/WaterLife';
 import { Trade, Good, GOOD_NAME, GOODS } from './Trade';
 import { AutoCity, findTownSite, TOWN_TINTS, TOWN_STYLES, STYLE_NAME } from './AutoCity';
+
+/** A millionaire may found a town: the money needed, what the town hall and first streets cost, what the family keeps. */
+const FOUND = { money: 25000, cost: 12000, keep: 2000 };
 import { WorldPanel, WorldTown } from '../ui/WorldPanel';
 import { CityReport, CityReportView, ReportSection } from '../ui/CityReport';
 import { mulberry32 } from '../utils/rng';
@@ -359,13 +362,15 @@ export class Game implements ToolHost {
       say: () => { /* big neighbour news stay in the neighbours' chronicle */ },
       happiness: (id) => this.eco.cities.get(id)?.happiness ?? 50,
       linkRoad: (c) => this.linkTown(c),
+      buyGoods: (c, g, n) => this.buyFromTowns(c, g, n).n,
+      sellGoods: (c, g, n) => this.sellToTowns(c, g, n),
       richest: (id) => [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === id)
         .sort((a, b) => b.money - a.money).slice(0, 3).map((f) => ({ name: f.surname, money: f.money })),
     });
     this.railway.onArrive = (from, to) => this.trainArrived(from, to);
     this.railway.canRun = (s) => { for (const c of this.pop.citizens.values()) if (c.job === s.id && c.state === 'away' && c.at === s.id) return true; return false; };
     this.airports = new Airports(this.buildings);
-    this.airports.onLanded = (b) => this.planeLanded(b);
+    this.airports.onLanded = (b, from) => this.planeLanded(b, from);
     this.drive = new DriveMode({ map: this.map, net: this.net, buildings: this.buildings, traffic: this.traffic });
     this.drive.onExit = () => {
       if (this.input) this.input.enabled = true;
@@ -833,8 +838,10 @@ export class Game implements ToolHost {
   // ---------- ToolHost ----------
 
   checkLine(kind: LineKind, path: Tile[]): CheckResult {
+    // a road, a footpath or a railway may cross a neighbour's land to join the towns; canals and pipes may not
+    const joins = kind === 'road' || kind === 'litroad' || kind === 'path' || kind === 'rail';
     for (const tl of path) {
-      const town = this.foreignTown(tl.x, tl.z);
+      const town = joins ? undefined : this.foreignTown(tl.x, tl.z);
       if (town) return { ok: false, reason: t('This land belongs to the neighbour town {city}', { city: town.name }) };
     }
     if (kind === 'rail') {
@@ -1229,6 +1236,7 @@ export class Game implements ToolHost {
     this.recordTowns();
     this.maybeDecide();
     this.trade.newDay(this.eco.day);
+    this.maybeFoundTown();
     // stores are not endless: what lies beyond the room of the town hall and the warehouses slowly spoils
     for (const c of this.eco.cities.values()) for (const r of GOODS) {
       const extra = c[r] - this.eco.capacity(c, r);
@@ -1599,7 +1607,8 @@ export class Game implements ToolHost {
     }
     // buy the stone it lacks, then pay for the road
     const short = Math.max(0, stone - c.stone);
-    if (short) { this.eco.add(c, 'money', -short * TRADE_PRICE.stone * 1.25, 'Trade: goods bought'); this.eco.add(c, 'stone', short, 'Bought from traders'); }
+    if (short) this.buyFromTowns(c, 'stone', short);
+    if (c.stone < stone) return null;
     this.eco.add(c, 'money', -money, 'Roads');
     this.eco.add(c, 'stone', -stone, 'Roads');
     // keep the kind of the roads it runs along; only the new tiles become a two-lane road
@@ -1615,6 +1624,87 @@ export class Game implements ToolHost {
     if (!target.o.ai) this.life.events.push(t('{city} built a road to your town — people can now come to work and trade', { city: c.name }));
     else this.autoCity.note(target.o, t('{city} built a road to us', { city: c.name }));
     return target.o.name;
+  }
+
+  /**
+   * Buy a good from the other towns that have plenty of it (the cheapest first), at their own price.
+   * The player's town sells only when the player trades (never by itself).
+   */
+  private buyFromTowns(city: City, g: Good, want: number, withPlayer = false) {
+    const pops = this.life.populationByCity();
+    const sellers = [...this.eco.cities.values()]
+      .filter((c) => c.id !== city.id && (c.ai || withPlayer))
+      .map((c) => ({ c, extra: Math.floor(c[g] - this.stockTarget(g, pops.get(c.id) ?? 0) * 1.2), price: this.midPrice(c, g, pops.get(c.id) ?? 0) * 1.1 }))
+      .filter((x) => x.extra > 0)
+      .sort((a, b) => a.price - b.price);
+    let got = 0, paid = 0;
+    for (const s of sellers) {
+      const room = Math.floor(this.eco.capacity(city, g) - city[g]);
+      const n = Math.min(want - got, s.extra, room, Math.floor(Math.max(0, city.money) / s.price));
+      if (n <= 0) continue;
+      const m = Math.round(n * s.price);
+      this.eco.add(s.c, g, -n, 'Sold to a neighbour town'); this.eco.add(city, g, n, 'Bought from a neighbour town');
+      this.eco.add(city, 'money', -m, 'Trade with neighbour towns'); this.eco.add(s.c, 'money', m, 'Trade with neighbour towns');
+      if (!city.ai) { this.trade.today.bought += m; this.deal(s.c.id, t('Bought {n} {good}', { n, good: t(GOOD_NAME[g]).toLowerCase() }), -m); }
+      if (!s.c.ai) { this.trade.today.sold += m; this.deal(city.id, t('Sold {n} {good}', { n, good: t(GOOD_NAME[g]).toLowerCase() }), m); }
+      got += n; paid += m;
+      if (got >= want) break;
+    }
+    return { n: got, money: paid };
+  }
+
+  /** Sell a good to the other towns that lack it (the best price first). The player's town buys only by itself. */
+  private sellToTowns(city: City, g: Good, have: number) {
+    const pops = this.life.populationByCity();
+    const buyers = [...this.eco.cities.values()]
+      .filter((c) => c.id !== city.id && c.ai)
+      .map((c) => ({ c, need: Math.floor(this.stockTarget(g, pops.get(c.id) ?? 0) - c[g]), price: this.midPrice(c, g, pops.get(c.id) ?? 0) }))
+      .filter((x) => x.need > 0)
+      .sort((a, b) => b.price - a.price);
+    let sold = 0;
+    for (const b of buyers) {
+      const room = Math.floor(this.eco.capacity(b.c, g) - b.c[g]);
+      const n = Math.min(have - sold, b.need, room, Math.floor(Math.max(0, b.c.money - 300) / b.price));
+      if (n <= 0) continue;
+      const m = Math.round(n * b.price);
+      this.eco.add(city, g, -n, 'Sold to a neighbour town'); this.eco.add(b.c, g, n, 'Bought from a neighbour town');
+      this.eco.add(b.c, 'money', -m, 'Trade with neighbour towns'); this.eco.add(city, 'money', m, 'Trade with neighbour towns');
+      sold += n;
+      if (sold >= have) break;
+    }
+    return sold;
+  }
+
+  /** Now and then a millionaire leaves to found a town of their own: their money builds it and runs it at first. */
+  private maybeFoundTown() {
+    if (this.eco.cities.size >= 10 || Math.random() > 0.05) return;
+    const rich = [...this.pop.families.values()]
+      .filter((f) => f.money >= FOUND.money && this.pop.members(f).some((m) => m.age >= 25 && m.age < 65))
+      .sort((a, b) => b.money - a.money)[0];
+    const home = rich && this.buildings.get(rich.home);
+    if (!rich || !home) return;
+    const from = this.cityOf(home);
+    const site = findTownSite(this.map, this.buildings.halls().map((h) => ({ x: h.x, z: h.z })), 40, Math.random);
+    if (!site) return;
+    // the town hall and the first streets are dear: the founder pays, the rest becomes the new town's treasury
+    const treasury = Math.round(rich.money - FOUND.cost - FOUND.keep);
+    rich.money = FOUND.keep;
+    const town = this.eco.found(townName(), { ...START_GRANT, money: treasury });
+    town.ai = true;
+    town.tint = TOWN_TINTS[(this.eco.cities.size - 1) % TOWN_TINTS.length];
+    town.relation = 40;
+    town.style = TOWN_STYLES[Math.floor(Math.random() * TOWN_STYLES.length)];
+    town.taxRate = 0.25;
+    this.layVillage(site.x, site.z, town.id, 14);
+    const free = this.life.freeHomes(town.id)[0];
+    if (free) this.life.moveInto(rich, free, 'Moved to found the town of {city}');
+    const founder = this.pop.members(rich).filter((m) => m.age >= 25).sort((a, b) => b.skill - a.skill || b.age - a.age)[0];
+    if (founder) { town.mayor = founder.id; this.pop.note(founder, 'Founded the town of {city} and became its first mayor', { city: town.name }); }
+    this.networkChanged();
+    this.pop.assign(this.buildings);
+    this.waterLife.rebuild();
+    this.autoCity.note(town, t('The {family} family founded the town with ${n}', { family: rich.surname, n: treasury }), false);
+    this.life.events.push(t('The millionaire {family} family of {from} founded a new town: {city}', { family: rich.surname, from: from.name, city: town.name }));
   }
 
   /** People who live in one town and work in another: coming in (`into`) or going out. */
@@ -1633,14 +1723,12 @@ export class Game implements ToolHost {
    * A plane lands: it comes from one of the other towns on the map (visitors from there, and its goods: the town
    * sells what it has a lot of and buys what it lacks, at its own prices). With no other town the plane comes from abroad.
    */
-  private planeLanded(b: Building) {
+  private planeLanded(b: Building, fromAirport?: Building) {
     const city = this.cityOf(b);
-    const others = [...this.eco.cities.values()].filter((c) => c.id !== city.id);
-    if (others.length) {
-      // towns with an airport fly more often; any town sends a few visitors
-      const withAir = others.filter((c) => this.buildings.list.some((x) => x.kind === 'airport' && x.city === c.id && x.built >= 1));
-      const pool = withAir.length && Math.random() < 0.7 ? withAir : others;
-      const from = pool[Math.floor(Math.random() * pool.length)];
+    const origin = fromAirport && !fromAirport.removed ? this.eco.cities.get(fromAirport.city) : undefined;
+    if (origin && origin.id !== city.id) {
+      // the plane flew here from that town's airport
+      const from = origin;
       const pops = this.life.populationByCity();
       const visitors = Math.max(2, Math.min(20, Math.round((pops.get(from.id) ?? 0) * 0.08 + Math.random() * 4)));
       city.tourists += visitors;
@@ -1799,7 +1887,7 @@ export class Game implements ToolHost {
     };
     // the made-up 'neighbouring town' letter only when there are no real neighbour towns on the map
     const realNeighbours = [...this.eco.cities.values()].some((c) => c.ai);
-    const options = DECISIONS.filter((d) => (!d.when || d.when(ctx)) && !(d.id === 'neighbour' && realNeighbours));
+    const options = DECISIONS.filter((d) => (!d.when || d.when(ctx)) && !(d.id === 'neighbour' && realNeighbours) && d.id !== 'iron');
     // now and then a neighbour town writes to the town hall
     const towns = [...this.eco.cities.values()].filter((c) => c.ai);
     const town = towns[Math.floor(Math.random() * towns.length)];
@@ -2694,8 +2782,8 @@ export class Game implements ToolHost {
           [t('Town hall loan'), `$${n(city.loan)}`, t('1% interest per day'), city.loan === 0],
         ], note: count('bank') ? undefined : t('No bank yet: families cannot save or borrow to build.') },
         { title: t('Trade'), kpis: [
-          [t('Sold today'), `$${n(this.trade.today.sold)}`, t('to other regions')],
-          [t('Bought today'), `$${n(this.trade.today.bought)}`, t('from traders')],
+          [t('Sold today'), `$${n(this.trade.today.sold)}`, t('to other towns')],
+          [t('Bought today'), `$${n(this.trade.today.bought)}`, t('from other towns')],
           [t('Transport'), linked ? t('Railway / airport') : t('Caravans'), linked ? t('better prices') : t('10% worse prices'), linked],
         ] },
         { title: t('Relations with neighbour towns'), bars: [...this.eco.cities.values()].filter((c) => c.ai).map((c) => [c.name, Math.max(1, Math.round(c.relation ?? 40)), c.tint ?? '#aab4be'] as [string, number, string]) },
@@ -3076,7 +3164,7 @@ export class Game implements ToolHost {
     if (!city.ai) {
       const towns = [...this.eco.cities.values()].filter((c) => c.ai);
       tabs.push({ id: 'trade', label: t('Trade'), sections: [
-        { title: t('Today'), kpis: [[t('Sold today'), money(this.trade.today.sold), t('to other regions')], [t('Bought today'), money(this.trade.today.bought), t('from traders')]] },
+        { title: t('Today'), kpis: [[t('Sold today'), money(this.trade.today.sold), t('to other towns')], [t('Bought today'), money(this.trade.today.bought), t('from other towns')]] },
         { title: t('Relations with neighbour towns'), bars: towns.map((c) => [c.name, c.relation ?? 40, c.tint ?? '#aab4be', `${Math.round(c.relation ?? 40)}/100`] as [string, number, string, string]) },
         { title: t('Goods per day (made − used)'), chart: { series: [series(t('Food'), '#7be08f', net('food')), series(t('Wood'), '#c98a5a', net('wood')), series(t('Stone'), '#aab4be', net('stone')), series(t('Iron'), '#6fb6ff', net('iron'))] } },
       ] });
@@ -3109,11 +3197,14 @@ export class Game implements ToolHost {
       ] });
     }
     // ---- every price in the town ----
-    const linked = built.some((b) => (b.kind === 'trainstation' || b.kind === 'airport') && b.workers > 0);
     const goods = GOODS;
     const avgWage = staff ? built.reduce((a, b) => a + BUILDINGS[b.kind].salary * (city.wages[b.kind] ?? 1) * b.workers, 0) / staff : 0;
     tabs.push({ id: 'prices', label: t('Prices'), sections: [
-      { title: t('Goods (today, from the traders)'), rows: goods.map((g) => [t(GOOD_NAME[g]), `${t('Sell')} $${this.trade.bestSell(g, linked).price.toFixed(1)} · ${t('Buy')} $${this.trade.buyPrice(g, linked).toFixed(1)}`] as [string, string]) },
+      { title: t('Goods (today, in the other towns)'), rows: goods.map((g) => {
+        const pops = this.life.populationByCity();
+        const ps = [...this.eco.cities.values()].filter((c) => c.id !== id).map((c) => this.midPrice(c, g, pops.get(c.id) ?? 0));
+        return [t(GOOD_NAME[g]), ps.length ? `${t('Sell')} $${Math.max(...ps).toFixed(1)} · ${t('Buy')} $${(Math.min(...ps) * 1.1).toFixed(1)}` : '—'] as [string, string];
+      }) },
       { title: t('Cars and homes'), rows: [
         [t('A new car at the car market'), `$${CAR_PRICE}`], [t('A bicycle from the factory'), `$${BIKE.price}`], [t('An old bicycle bought back'), `$${BIKE.buyBack}`], [t('A car sold to another region'), `$${Math.round(CAR_PRICE * 0.75)}`], [t('A car imported'), `$${Math.round(CAR_PRICE * 1.1)}`],
         [t('A house (to build)'), `$${BUILDINGS.house.money}`], [t('Rent of a flat'), `$${RENT}/${t('day')}`], [t('Grave plot'), `$${GRAVE_COST}`],
@@ -3687,12 +3778,11 @@ export class Game implements ToolHost {
     this.sun.castShadow = false;
   }
 
-  /** Travelling merchants sell stone and wood for money — a way out when materials run out. */
+  /** Buy 10 stone, wood or iron from the neighbour towns that have plenty — a way out when materials run out. */
   private buyMaterial(city: City, what: 'stone' | 'wood' | 'iron') {
-    const m = MERCHANT[what];
-    if (city.money < m.price) return this.hud?.toast(t('Not enough money — needs ${n}', { n: m.price }));
-    this.eco.add(city, 'money', -m.price, 'Bought from merchants');
-    this.eco.add(city, what, m.amount, 'Bought from merchants');
+    const r = this.buyFromTowns(city, what, MERCHANT[what].amount, false);
+    if (!r.n) { sound.play('error'); return this.hud?.toast(t('No neighbour town has {good} to sell right now', { good: t(GOOD_NAME[what]).toLowerCase() })); }
+    this.hud?.toast(t('Bought {n} {good} from neighbour towns for ${m}', { n: r.n, good: t(GOOD_NAME[what]).toLowerCase(), m: r.money }));
     sound.play('coin');
     this.refreshInspector();
     this.refreshHud();

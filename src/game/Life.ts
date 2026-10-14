@@ -1172,6 +1172,26 @@ export class Life {
    * A family moves to another town on the map where life is better (happier, with a free home) — or, after losing
    * its home, to any town with a free home. Both towns hear about it. Returns false when there is nowhere to go.
    */
+  /** A family moves into this home (another town too): jobs and schools are found again there. */
+  moveInto(f: Family, home: Building, note = 'The family moved to {city}') {
+    const { eco, buildings, pop } = this.c;
+    const to = eco.cities.get(home.city);
+    for (const m of pop.members(f)) {
+      if (m.walker) { this.c.walkers.dismiss(m.walker); m.walker = undefined; }
+      m.job = -1;
+      m.school = -1;
+      m.state = 'home';
+      m.at = home.id;
+      m.activity = 'At home';
+      m.outing = undefined;
+      pop.note(m, note, { city: to?.name ?? '' });
+    }
+    if (f.car) f.car.at = 'home';
+    f.home = home.id;
+    pop.assign(buildings);
+    pop.planDay(pop.members(f));
+  }
+
   relocate(f: Family, fromCity: number, homeless: boolean): boolean {
     const { eco, buildings, pop } = this.c;
     const from = eco.cities.get(fromCity);

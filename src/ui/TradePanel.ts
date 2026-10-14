@@ -124,18 +124,17 @@ export class TradePanel {
     for (const g of GOODS) {
       const have = Math.floor(city[g]);
       const lot = g === 'food' ? 50 : 10;
-      // the best buyer and seller: a real neighbour town when it pays more (or sells cheaper), otherwise the merchants
-      const merchant = this.trade.bestSell(g, linked).price;
+      // the best buyer and seller among the towns (there are no merchants: towns trade with each other)
       let seller: { id: number; name: string; price: number } | undefined;
       let buyer: { id: number; name: string; price: number } | undefined;
       for (const n of towns) {
         const w = n.buys.find((x) => x.g === g && x.room >= lot);
-        if (w && w.price > (buyer?.price ?? merchant) && n.money >= w.price * lot) buyer = { id: n.id, name: n.name, price: w.price };
+        if (w && w.price > (buyer?.price ?? 0) && n.money >= w.price * lot) buyer = { id: n.id, name: n.name, price: w.price };
         const o = n.sells.find((x) => x.g === g);
-        if (o && o.have >= lot && o.price < (seller?.price ?? this.trade.buyPrice(g, linked))) seller = { id: n.id, name: n.name, price: o.price };
+        if (o && o.have >= lot && o.price < (seller?.price ?? Infinity)) seller = { id: n.id, name: n.name, price: o.price };
       }
-      const best = { price: buyer?.price ?? merchant, partner: { name: buyer?.name ?? t('Travelling merchants') } };
-      const buy = seller?.price ?? this.trade.buyPrice(g, linked);
+      const best = { price: buyer?.price ?? 0, partner: { name: buyer?.name ?? t('No town needs it') } };
+      const buy = seller?.price ?? 0;
       const row = el('div', 'trade-row');
       const name = el('div', 'trade-name');
       name.innerHTML = `<b></b><small></small>`;
@@ -151,9 +150,9 @@ export class TradePanel {
       });
       const offer = el('div', 'trade-offer');
       offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
-      (offer.querySelector('.pos') as HTMLElement).textContent = `${t('Sell')} $${best.price.toFixed(1)}`;
+      (offer.querySelector('.pos') as HTMLElement).textContent = buyer ? `${t('Sell')} $${best.price.toFixed(1)}` : t('Nobody buys');
       (offer.querySelector('small') as HTMLElement).textContent = seller && seller.name !== best.partner.name ? `${best.partner.name} / ${seller.name}` : best.partner.name;
-      (offer.querySelector('.neg') as HTMLElement).textContent = `${t('Buy')} $${buy.toFixed(1)}`;
+      (offer.querySelector('.neg') as HTMLElement).textContent = seller ? `${t('Buy')} $${buy.toFixed(1)}` : t('Nobody sells');
       const btns = el('div', 'trade-btns');
       const mk = (label: string, cls: string, on: boolean, fn: () => void) => {
         const b = el('button', `btn-mini ${cls}`);
@@ -162,11 +161,10 @@ export class TradePanel {
         b.addEventListener('click', () => { fn(); this.render(); });
         return b;
       };
-      const sell = (n: number) => (buyer ? this.host.deal(buyer.id, g, n, true) : this.host.sell(g, n));
       btns.append(
-        mk(`−${lot}`, 'sell', have >= lot, () => sell(lot)),
-        mk(`−${lot * 5}`, 'sell', have >= lot * 5, () => sell(lot * 5)),
-        mk(`+${lot}`, 'buy', city.money >= buy * lot, () => (seller ? this.host.deal(seller.id, g, lot, false) : this.host.buy(g, lot))),
+        mk(`−${lot}`, 'sell', !!buyer && have >= lot, () => this.host.deal(buyer!.id, g, lot, true)),
+        mk(`−${lot * 5}`, 'sell', !!buyer && have >= lot * 5, () => this.host.deal(buyer!.id, g, lot * 5, true)),
+        mk(`+${lot}`, 'buy', !!seller && city.money >= buy * lot, () => this.host.deal(seller!.id, g, lot, false)),
       );
       row.append(name, offer, btns);
       table.appendChild(row);
@@ -241,7 +239,7 @@ export class TradePanel {
       }
     }
     const note = el('div', 'rp-note');
-    note.textContent = t('You trade with the real neighbour towns on the map: they pay more for what they lack and sell what they have too much of. When no town needs a good, travelling merchants buy it at plain prices.') + ' ' + t('Today: sold ${a}, bought ${b}', { a: Math.round(this.trade.today.sold), b: Math.round(this.trade.today.bought) });
+    note.textContent = t('You trade with the other towns on the map: they pay more for what they lack and sell what they have too much of. There are no merchants — when no town needs a good, nobody buys it.') + ' ' + t('Today: sold ${a}, bought ${b}', { a: Math.round(this.trade.today.sold), b: Math.round(this.trade.today.bought) });
     body.appendChild(note);
     this.finish(head, body, scroll, lines);
   }

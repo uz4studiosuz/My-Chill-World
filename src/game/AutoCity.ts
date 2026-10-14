@@ -31,6 +31,10 @@ export interface AutoHost {
   richest(cityId: number): { name: string; money: number }[];
   /** Build a road to the nearest town it is not joined with yet (when it can pay); returns the town's name. */
   linkRoad(city: City): string | null;
+  /** Buy a good from the other towns that have plenty (returns how much came). */
+  buyGoods(city: City, g: 'food' | 'wood' | 'stone' | 'iron', n: number): number;
+  /** Sell a good to the other towns that lack it (returns how much went). */
+  sellGoods(city: City, g: 'food' | 'wood' | 'stone' | 'iron', n: number): number;
 }
 
 /** The character of a town's mayor: what the town likes to build and how it spends its money. */
@@ -44,7 +48,7 @@ export const STYLE_NAME: Record<TownStyle, string> = {
 /** Extra things each kind of mayor wants once the basics are done. */
 const STYLE_WISH: Record<TownStyle, BuildingKind[]> = {
   builder: ['apartment', 'house', 'construction', 'sawmill', 'brickworks'],
-  trader: ['market', 'supermarket', 'hotel', 'bank', 'kiosk', 'teahouse', 'trainstation'],
+  trader: ['market', 'supermarket', 'hotel', 'bank', 'kiosk', 'teahouse', 'trainstation', 'airport'],
   industrial: ['factory', 'ironmine', 'sawmill', 'brickworks', 'steelmill', 'carfactory', 'coalmine', 'bikefactory'],
   green: ['park', 'bigpark', 'fountain', 'windturbine', 'solarfarm', 'playground', 'recycling', 'bikefactory'],
   thrifty: ['bank', 'orchard', 'fishery', 'grocery'],
@@ -59,7 +63,7 @@ const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const ESSENTIAL = new Set<string>(['construction', 'watertower', 'powerplant', 'windturbine', 'farm', 'orchard', 'woodcutter', 'quarry']);
 
 /** Colours that tell the towns apart (a soft tint over the buildings, and the dot in the panels). */
-export const TOWN_TINTS = ['#ffc6a3', '#b9d0ff', '#cdf2b4', '#f2c2ee'];
+export const TOWN_TINTS = ['#ffc6a3', '#b9d0ff', '#cdf2b4', '#f2c2ee', '#f6e39a', '#a8e6e0', '#d7c4f2', '#f2b8a8'];
 
 /**
  * A town that runs itself: its own mayor looks at what the people lack and builds it with the town's own money —
@@ -92,18 +96,13 @@ export class AutoCity {
    */
   private daily(city: City) {
     const { eco, buildings } = this.h;
-    // food security: with little food left the mayor buys from the traders (the treasury pays)
+    // food security: with little food left the mayor buys from the other towns (the treasury pays)
     {
       const ppl = this.h.people(city.id);
       const want = ppl * 5 - city.food;
       if (ppl > 0 && city.food < ppl * 3 && want > 0) {
-        const price = TRADE_PRICE.food * 1.25;
-        const n = Math.floor(Math.min(want, Math.max(0, city.money - 300) / price));
-        if (n > 0) {
-          eco.add(city, 'money', -n * price, 'Trade: goods bought');
-          eco.add(city, 'food', n, 'Bought from traders');
-          this.note(city, t('Food was running out: the mayor bought {n} food', { n }), n > ppl * 2);
-        }
+        const n = Math.floor(this.h.buyGoods(city, 'food', Math.floor(want)));
+        if (n > 0) this.note(city, t('Food was running out: the mayor bought {n} food from other towns', { n }), n > ppl * 2);
       }
     }
     // a building in the wrong place is pulled down (and built again where it works)
@@ -149,9 +148,7 @@ export class AutoCity {
     for (const [g, need] of [['food', people * 4], ['wood', 80], ['stone', 80], ['iron', 30]] as const) {
       const extra = city[g] - need * keep - 40;
       if (extra <= 20) continue;
-      const n = Math.floor(extra * (style === 'trader' ? 0.5 : 0.25));
-      eco.add(city, g, -n, 'Sold to other regions');
-      eco.add(city, 'money', n * TRADE_PRICE[g] * (style === 'trader' ? 0.9 : 0.75), 'Trade: goods sold');
+      this.h.sellGoods(city, g, Math.floor(extra * (style === 'trader' ? 0.5 : 0.25)));
     }
     // how the town is doing
     const before = this.mood.get(city.id);
@@ -192,8 +189,7 @@ export class AutoCity {
     if (!hall) return false;
     const own = buildings.list.filter((b) => b.city === city.id && !b.removed);
     const spot = this.findSpot(kind, hall, own);
-    if (!spot || !this.afford(city, kind, 0)) return false;
-    this.pay(city, kind);
+    if (!spot || !this.afford(city, kind, 0) || !this.pay(city, kind)) return false;
     const b = buildings.place(kind, spot.x, spot.z, { city: city.id });
     if (kind === 'farm') this.h.digCanal(b);
     this.h.clearTiles(buildings.footprint(kind, spot.x, spot.z).map((f) => idx(f.x, f.z)));
@@ -232,7 +228,7 @@ export class AutoCity {
     if (!this.afford(city, want, ESSENTIAL.has(want) ? 300 : 1500)) return;
     const spot = this.findSpot(want, hall, own);
     if (!spot) { this.growStreets(city, hall, own); return; }
-    this.pay(city, want);
+    if (!this.pay(city, want)) return;
     const b = buildings.place(want, spot.x, spot.z, { city: city.id });
     if (want === 'farm') this.h.digCanal(b);
     this.h.clearTiles(buildings.footprint(want, spot.x, spot.z).map((f) => idx(f.x, f.z)));
@@ -294,7 +290,7 @@ export class AutoCity {
       const wish = STYLE_WISH[style].filter((k) => count(k) < (k === 'house' || k === 'apartment' ? 99 : k === 'park' || k === 'fountain' || k === 'playground' ? 3 : 1));
       if (wish.length) {
         const k = wish[Math.floor(Math.random() * wish.length)];
-        if (k !== 'ironmine' && k !== 'coalmine' && k !== 'trainstation' || people >= 90) return k;
+        if (k === 'airport' ? people >= 160 : k !== 'ironmine' && k !== 'coalmine' && k !== 'trainstation' || people >= 90) return k;
       }
     }
     // enough jobs for everyone, a few more homes to grow
@@ -317,15 +313,18 @@ export class AutoCity {
     return money;
   }
 
+  /** Pay for a building: missing stone, wood and iron are bought from the other towns first (false: nobody sells). */
   private pay(city: City, kind: BuildingKind) {
     const { eco } = this.h;
     const d = BUILDINGS[kind];
     for (const r of ['stone', 'wood', 'iron'] as const) {
-      const short = Math.max(0, d[r] - city[r]);
-      if (short > 0) { eco.add(city, 'money', -short * TRADE_PRICE[r] * 1.25, 'Trade: goods bought'); eco.add(city, r, short, 'Bought from traders'); }
-      if (d[r]) eco.add(city, r, -d[r], 'Construction');
+      const short = Math.ceil(Math.max(0, d[r] - city[r]));
+      if (short > 0) this.h.buyGoods(city, r, short);
+      if (city[r] < d[r]) return false;
     }
+    for (const r of ['stone', 'wood', 'iron'] as const) if (d[r]) eco.add(city, r, -d[r], 'Construction');
     eco.add(city, 'money', -d.money, 'Construction');
+    return true;
   }
 
   /** The closest free place for a building: farms and industry a little out of town, the rest near the centre. */
@@ -467,9 +466,8 @@ export class AutoCity {
     const cost = pick.filter((tl) => !net.type[idx(tl.x, tl.z)]).length;
     if (city.money < cost * ROAD_COST[2].money + 500 || city.stone < cost * ROAD_COST[2].stone) {
       if (city.stone < cost * ROAD_COST[2].stone && city.money > cost * 12 + 800) {
-        const n = cost * ROAD_COST[2].stone;
-        eco.add(city, 'money', -n * TRADE_PRICE.stone * 1.25, 'Trade: goods bought');
-        eco.add(city, 'stone', n, 'Bought from traders');
+        this.h.buyGoods(city, 'stone', Math.ceil(cost * ROAD_COST[2].stone - city.stone));
+        if (city.stone < cost * ROAD_COST[2].stone) return;
       } else return;
     }
     net.buildPath(pick, ROAD_TWO_LANE);
@@ -483,8 +481,9 @@ export class AutoCity {
 
 /** Find flat dry land for a new town far from the others (a rectangle of free land around the centre). */
 export function findTownSite(map: WorldMap, taken: Tile[], minDist: number, rnd: () => number): Tile | null {
-  for (let tries = 0; tries < 400; tries++) {
-    const a = rnd() * Math.PI * 2, d = minDist + rnd() * 30;
+  // anywhere on the map away from the other towns (the bigger the map, the further out a town may lie)
+  for (let tries = 0; tries < 900; tries++) {
+    const a = rnd() * Math.PI * 2, d = minDist + rnd() * Math.max(30, N / 2 - minDist - 26);
     const x = Math.round(N / 2 + Math.cos(a) * d), z = Math.round(N / 2 + Math.sin(a) * d);
     if (x < 22 || z < 22 || x > N - 22 || z > N - 22) continue;
     if (taken.some((p) => Math.hypot(p.x - x, p.z - z) < minDist)) continue;

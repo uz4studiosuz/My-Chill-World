@@ -153,14 +153,14 @@ export class Menu {
     calmBtn.addEventListener('click', () => { calm = !calm; paintCalm(); });
     const calmNote = el('small', 'calm-note');
     calmNote.textContent = t('No disasters, crime or bankruptcy — just build and watch.');
-    // neighbour towns that run themselves: none, or a few (the map must not fill up at once)
-    let towns = 2;
+    // neighbour towns that run themselves: the world always has some (towns trade with each other)
+    let towns = 3;
     const townRow = el('div', 'town-pick');
     const townLabel = el('span', '');
     townLabel.textContent = t('Neighbour towns (run themselves)');
     const seg = el('div', 'seg');
     const paintTowns = () => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('active', +(b as HTMLButtonElement).value === towns));
-    for (const v of [0, 1, 2, 3, 4]) {
+    for (const v of [1, 2, 3, 4, 5]) {
       const b = el('button', 'segbtn') as HTMLButtonElement;
       b.value = `${v}`;
       b.textContent = v ? `${v}` : t('None');
