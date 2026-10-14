@@ -88,6 +88,9 @@ export interface Family {
   pantry?: number;
   /** The family owns bicycles (cheaper than a car; they ride to work). */
   bike?: boolean;
+  /** Money earned today and yesterday, by source (wages, business profit, rent, bank interest). */
+  earn?: Record<string, number>;
+  earnY?: Record<string, number>;
 }
 
 export interface DeathReport {

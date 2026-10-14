@@ -5,7 +5,7 @@ export type BuildingKind =
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
   | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
-  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory';
+  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration';
 
 
 /** How a building's workers behave while at work. */
@@ -137,6 +137,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
     slots: [[-0.75, 0.75, 0], [-0.45, 0.75, 0], [-0.15, 0.75, 0], [0.15, 0.75, 0], [0.45, 0.75, 0], [0.75, 0.75, 0]] }),
   tower50: def({ kind: 'tower50', name: 'Block of 50 Flats', size: 3, money: 14000, stone: 220, wood: 40, iron: 90, housing: 10, units: 50, upkeep: 12, energy: 56,
     slots: [[-1.2, 1.2, 0], [-0.9, 1.2, 0], [-0.6, 1.2, 0], [-0.3, 1.2, 0], [0.3, 1.2, 0], [0.6, 1.2, 0], [0.9, 1.2, 0], [1.2, 1.2, 0]] }),
+  migration: def({ kind: 'migration', name: 'Migration Company', size: 2, money: 1400, stone: 30, wood: 15, iron: 5, jobs: 4, salary: 15, publicJob: true, upkeep: 3, energy: 2 }),
   bikefactory: def({ kind: 'bikefactory', name: 'Bicycle Factory', size: 2, money: 1800, stone: 30, wood: 15, iron: 15, jobs: 6, salary: 13, publicJob: true, upkeep: 3, energy: 4 }),
   warehouse: def({ kind: 'warehouse', name: 'Warehouse', size: 2, money: 900, stone: 20, wood: 30, jobs: 2, salary: 11, publicJob: true, upkeep: 2, energy: 1 }),
   concerthall: def({ kind: 'concerthall', name: 'Concert Hall', size: 2, money: 2800, stone: 50, wood: 25, iron: 10, jobs: 5, salary: 15, publicJob: true, upkeep: 6, energy: 5 }),
@@ -282,7 +283,8 @@ export type ShopKind = keyof typeof SHOP_SPEND;
 /** Businesses a family can own: they collect a share of the turnover as profit. */
 export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office', 'casino', 'teahouse', 'barber', 'gym', 'themepark'];
 /** Owner's share of the turnover (after the 20% business tax). */
-export const OWNER_SHARE = 0.25;
+/** Share of a business's profit (after tax and the staff's wages) that the owning family keeps. */
+export const OWNER_SHARE = 0.5;
 /** Bank loans: size of one loan, the most a city may owe, and the daily interest. */
 export const LOAN = { step: 2000, max: 10000, interest: 0.01 };
 

@@ -89,6 +89,7 @@ export const ITEMS: ToolItem[] = [
   b('airport', 'production', 'Flights', 'Planes fly in from the other towns on the map: visitors arrive, and the plane carries goods between the towns at their own prices.', 'globe'),
   b('trainstation', 'production', 'Railway', 'Connect two stations with a railway: trains share goods between cities and bring visitors.', 'rail'),
   b('factory', 'production', 'Clothes and furniture', 'Sews clothes from cotton for the clothing stores and makes furniture from planks for the markets. Many jobs, a big business tax payer. Needs lots of power.', 'production'),
+  b('migration', 'services', 'Newcomers', 'Registers the families who move to town, finds them jobs and homes faster: one more family a day can move in, and they come even when people are a little less happy. Shows who came, from where and what they do.', 'people'),
   b('bikefactory', 'production', 'Bicycles', 'Makes bicycles from iron and sells them to families who cannot afford a car ($60). Cyclists ride twice as fast as walkers. When a family buys a car, the factory takes the old bike back for $20.', 'car'),
   b('carfactory', 'production', 'Cars', 'Assembles cars: the best-paying workplace and the largest business tax payer.', 'car'),
   b('ironmine', 'production', 'Iron', 'Must touch mountains. Miners dig iron ore — factories, hospitals and big buildings need iron.', 'iron'),

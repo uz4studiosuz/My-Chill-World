@@ -15,6 +15,8 @@ export class CameraRig {
   aspect = 1;
 
   private yawGoal = this.yaw;
+  /** A smooth flight to a place (cancelled when the player moves the camera). */
+  private fly: { x0: number; z0: number; v0: number; x1: number; z1: number; v1: number; t: number; d: number } | null = null;
   private rect: DOMRect;
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -59,6 +61,7 @@ export class CameraRig {
 
   /** Drag the ground so the point under `from` ends up under `to`. */
   pan(fromX: number, fromY: number, toX: number, toY: number) {
+    this.fly = null;
     if (this.groundAt(fromX, fromY, this.a) && this.groundAt(toX, toY, this.b)) {
       this.target.add(this.a.sub(this.b));
       this.clamp();
@@ -68,6 +71,7 @@ export class CameraRig {
 
   /** Zoom keeping the ground point under the cursor fixed. */
   zoomAt(factor: number, clientX: number, clientY: number) {
+    this.fly = null;
     const ok = this.groundAt(clientX, clientY, this.a);
     this.viewHalf = THREE.MathUtils.clamp(this.viewHalf * factor, this.minView, this.maxView);
     this.apply();
@@ -88,6 +92,7 @@ export class CameraRig {
 
   /** Screen-relative movement (keyboard). dx = right, dz = up/forward. */
   move(dx: number, dz: number) {
+    this.fly = null;
     const s = this.viewHalf * 1.4;
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     this.target.x += (cy * dx - sy * dz) * s;
@@ -96,7 +101,24 @@ export class CameraRig {
     this.apply();
   }
 
+  /** Fly smoothly to a place on the map, ending at zoom `view`. */
+  flyTo(x: number, z: number, view = this.viewHalf, seconds = 1.2) {
+    this.fly = { x0: this.target.x, z0: this.target.z, v0: this.viewHalf, x1: x, z1: z, v1: THREE.MathUtils.clamp(view, this.minView, this.maxView), t: 0, d: seconds };
+  }
+
   update(dt: number) {
+    if (this.fly) {
+      const f = this.fly;
+      f.t = Math.min(f.d, f.t + dt);
+      const k = f.t / f.d, e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      // zoom out a little half way for a pleasant swoop
+      const lift = Math.sin(Math.PI * k) * Math.min(8, Math.hypot(f.x1 - f.x0, f.z1 - f.z0) * 0.12);
+      this.target.set(f.x0 + (f.x1 - f.x0) * e, 0, f.z0 + (f.z1 - f.z0) * e);
+      this.viewHalf = THREE.MathUtils.clamp(f.v0 + (f.v1 - f.v0) * e + lift, this.minView, this.maxView);
+      this.clamp();
+      this.apply();
+      if (f.t >= f.d) this.fly = null;
+    }
     const diff = this.yawGoal - this.yaw;
     if (Math.abs(diff) > 1e-4) {
       this.yaw += diff * Math.min(1, dt * 10);
@@ -105,6 +127,7 @@ export class CameraRig {
   }
 
   setState(x: number, z: number, yaw: number, view: number) {
+    this.fly = null;
     this.target.set(x, 0, z);
     this.yaw = this.yawGoal = yaw;
     this.viewHalf = THREE.MathUtils.clamp(view, this.minView, this.maxView);

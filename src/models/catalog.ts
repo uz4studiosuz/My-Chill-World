@@ -165,6 +165,7 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'bank', name: 'Bank', group: 'Buildings', desc: 'Finance — pays business tax.', make: () => mesh(buildingGeometry('bank')) },
   { id: 'gasstation', name: 'Gas Station', group: 'Buildings', desc: 'Fuel for the cars of the town.', make: () => mesh(buildingGeometry('gasstation')) },
   { id: 'factory', name: 'Factory', group: 'Buildings', desc: 'Heavy industry with chimneys and many jobs.', make: () => mesh(buildingGeometry('factory')) },
+  { id: 'migration', name: 'Migration Company', group: 'Buildings', desc: 'An office with a globe on the roof and a queue of newcomers.', make: () => mesh(buildingGeometry('migration')) },
   { id: 'bikefactory', name: 'Bicycle Factory', group: 'Buildings', desc: 'A saw-tooth workshop, a wheel sign and new bikes in a row.', make: () => mesh(buildingGeometry('bikefactory')) },
   { id: 'carfactory', name: 'Car Factory', group: 'Buildings', desc: 'Assembly halls and a showroom.', make: () => mesh(buildingGeometry('carfactory')) },
   { id: 'construction', name: 'Construction Company', group: 'Buildings', desc: 'Builders and a crane: faster construction.', make: () => mesh(buildingGeometry('construction')) },

@@ -282,6 +282,7 @@ export class AutoCity {
     if (!count('market') && people >= 120) return 'market';
     if (!count('firestation') && people >= 120) return 'firestation';
     if (!count('gym') && people >= 130) return 'gym';
+    if (!count('migration') && people >= 110) return 'migration';
     // buses: a depot and stops spread over the town
     if (!count('busdepot') && people >= 150) return 'busdepot';
     if (count('busdepot') && count('busstop') < Math.min(6, 2 + Math.floor(people / 80))) return 'busstop';

@@ -16,7 +16,7 @@ import {
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
 import { siteTapeGeometry } from '../models/sitetape';
-import { warehouseGeometry, bikeFactoryGeometry } from '../models/chains2';
+import { warehouseGeometry, bikeFactoryGeometry, migrationOfficeGeometry } from '../models/chains2';
 import { tower15Geometry, tower30Geometry, tower50Geometry } from '../models/buildings';
 import { concertHallGeometry, barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
 import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
@@ -86,6 +86,9 @@ export interface Building {
   ext?: number[];
   /** Money taken at the till today (shops, gas stations). */
   sales?: number;
+  /** Wages paid to the staff today, and yesterday's accounts of a business (revenue, wages, tax, the owner's profit). */
+  wagesToday?: number;
+  books?: { revenue: number; wages: number; tax: number; profit: number };
   /** A fire truck is already on its way. */
   fireCrew?: boolean;
   /** Cemetery: buried records. */
@@ -187,6 +190,7 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'concerthall': return concertHallGeometry();
     case 'warehouse': return warehouseGeometry();
     case 'bikefactory': return bikeFactoryGeometry();
+    case 'migration': return migrationOfficeGeometry();
     case 'tower15': return tower15Geometry();
     case 'tower30': return tower30Geometry();
     case 'tower50': return tower50Geometry();

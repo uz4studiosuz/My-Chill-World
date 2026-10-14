@@ -104,7 +104,7 @@ export class CityReport {
     parent.appendChild(this.root);
   }
 
-  open(cityId: number) { this.id = cityId; this.visible = true; this.root.classList.add('show'); this.render(); }
+  open(cityId: number, tab?: string) { if (tab) { this.tab = tab; this.last = ''; } this.id = cityId; this.visible = true; this.root.classList.add('show'); this.render(); }
   hide() { this.release(); this.visible = false; this.root.classList.remove('show'); }
 
   /** Give an embedded window back to its place. */
