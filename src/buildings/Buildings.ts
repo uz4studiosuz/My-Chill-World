@@ -16,7 +16,7 @@ import {
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
 import { siteTapeGeometry } from '../models/sitetape';
-import { warehouseGeometry } from '../models/chains2';
+import { warehouseGeometry, bikeFactoryGeometry } from '../models/chains2';
 import { tower15Geometry, tower30Geometry, tower50Geometry } from '../models/buildings';
 import { concertHallGeometry, barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
 import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
@@ -186,6 +186,7 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'casino': return casinoGeometry();
     case 'concerthall': return concertHallGeometry();
     case 'warehouse': return warehouseGeometry();
+    case 'bikefactory': return bikeFactoryGeometry();
     case 'tower15': return tower15Geometry();
     case 'tower30': return tower30Geometry();
     case 'tower50': return tower50Geometry();

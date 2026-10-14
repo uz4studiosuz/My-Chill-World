@@ -1,6 +1,6 @@
 import { ToolId } from '../build/BuildTool';
 import { IS_TOUCH } from '../config';
-import { BUILDINGS, BuildingKind, PIPE_COST } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, PIPE_COST, PATH_COST } from '../buildings/BuildingTypes';
 import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
@@ -33,7 +33,7 @@ export const ITEMS: ToolItem[] = [
   { tool: 'litroad', cat: 'roads', name: 'Lit Street', desc: 'Road with street lamps that shine at night. Lamps use a little electricity. Drag over an existing road to add lamps.', money: ROAD_COST[2].money + 10, stone: ROAD_COST[2].stone, wood: 0, perTile: true, tag: 'Lamps at night', icon: 'energy' },
   { tool: 'roundabout', cat: 'roads', name: 'Roundabout', desc: 'Place it on a junction — roads connect to the middle of each side.', ...ROUNDABOUT_COST, wood: 0, tag: '3×3 · no lights', icon: 'roundabout' },
   { tool: 'rail', cat: 'roads', name: 'Railway', desc: 'Lay tracks between two Train Stations: a train then carries goods and passengers between the cities.', money: 14, stone: 0, wood: 0, iron: 1, perTile: true, tag: 'Trains', icon: 'rail' },
-  { tool: 'path', cat: 'roads', name: 'Footpath', desc: 'Free walking path. People walk faster on paths than on grass.', money: 0, stone: 0, wood: 0, perTile: true, tag: 'Free · pedestrians', icon: 'path' },
+  { tool: 'path', cat: 'roads', name: 'Footpath', desc: 'Paved walking path. People walk and cycle faster on paths than on grass; a path to a neighbour town lets people come to work on foot or by bike.', money: PATH_COST, stone: 0, wood: 0, perTile: true, tag: 'Pedestrians and bikes', icon: 'path' },
   { tool: 'pipe', cat: 'roads', name: 'Water Pipe', desc: 'Underground pipe. Water runs under roads anyway; pipes bring it to homes and towers that are not on a road.', money: PIPE_COST.money, stone: 0, wood: 0, iron: PIPE_COST.iron, perTile: true, tag: 'Water to homes', icon: 'water' },
   { tool: 'canal', cat: 'roads', name: 'Irrigation Canal', desc: 'Dig from a river or lake to a crop farm — farms need water to grow.', money: 8, stone: 0, wood: 0, perTile: true, tag: 'Water for farms', icon: 'canal' },
   b('apartment', 'buildings', '6 families', 'Five floors, six flats. Families pay rent to the owner — the city or a businessman who built it.', 'office'),
@@ -89,6 +89,7 @@ export const ITEMS: ToolItem[] = [
   b('airport', 'production', 'Flights', 'Planes fly in from the other towns on the map: visitors arrive, and the plane carries goods between the towns at their own prices.', 'globe'),
   b('trainstation', 'production', 'Railway', 'Connect two stations with a railway: trains share goods between cities and bring visitors.', 'rail'),
   b('factory', 'production', 'Clothes and furniture', 'Sews clothes from cotton for the clothing stores and makes furniture from planks for the markets. Many jobs, a big business tax payer. Needs lots of power.', 'production'),
+  b('bikefactory', 'production', 'Bicycles', 'Makes bicycles from iron and sells them to families who cannot afford a car ($60). Cyclists ride twice as fast as walkers. When a family buys a car, the factory takes the old bike back for $20.', 'car'),
   b('carfactory', 'production', 'Cars', 'Assembles cars: the best-paying workplace and the largest business tax payer.', 'car'),
   b('ironmine', 'production', 'Iron', 'Must touch mountains. Miners dig iron ore — factories, hospitals and big buildings need iron.', 'iron'),
   b('fishery', 'production', '+25 food/day', 'On the shore of a river or lake. Fishermen catch fish all year (less in winter).', 'food'),

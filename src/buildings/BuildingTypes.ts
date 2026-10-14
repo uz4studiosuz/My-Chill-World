@@ -5,7 +5,7 @@ export type BuildingKind =
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
   | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
-  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber';
+  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory';
 
 
 /** How a building's workers behave while at work. */
@@ -137,6 +137,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
     slots: [[-0.75, 0.75, 0], [-0.45, 0.75, 0], [-0.15, 0.75, 0], [0.15, 0.75, 0], [0.45, 0.75, 0], [0.75, 0.75, 0]] }),
   tower50: def({ kind: 'tower50', name: 'Block of 50 Flats', size: 3, money: 14000, stone: 220, wood: 40, iron: 90, housing: 10, units: 50, upkeep: 12, energy: 56,
     slots: [[-1.2, 1.2, 0], [-0.9, 1.2, 0], [-0.6, 1.2, 0], [-0.3, 1.2, 0], [0.3, 1.2, 0], [0.6, 1.2, 0], [0.9, 1.2, 0], [1.2, 1.2, 0]] }),
+  bikefactory: def({ kind: 'bikefactory', name: 'Bicycle Factory', size: 2, money: 1800, stone: 30, wood: 15, iron: 15, jobs: 6, salary: 13, publicJob: true, upkeep: 3, energy: 4 }),
   warehouse: def({ kind: 'warehouse', name: 'Warehouse', size: 2, money: 900, stone: 20, wood: 30, jobs: 2, salary: 11, publicJob: true, upkeep: 2, energy: 1 }),
   concerthall: def({ kind: 'concerthall', name: 'Concert Hall', size: 2, money: 2800, stone: 50, wood: 25, iron: 10, jobs: 5, salary: 15, publicJob: true, upkeep: 6, energy: 5 }),
   casino: def({ kind: 'casino', name: 'Casino', size: 2, money: 4000, stone: 50, wood: 10, iron: 15, jobs: 6, salary: 18, energy: 6 }),
@@ -155,6 +156,10 @@ export const BUILD_DAYS: Record<1 | 2 | 3 | 4, number> = { 1: 0.06, 2: 0.1, 3: 0
 export const BUSINESS_TAX = 0.2;
 export const CEMETERY_UPGRADE = { money: 500, stone: 25, wood: 10, maxLevel: 3 };
 export const CAR_PRICE = 700;
+/** Bicycles: the price a family pays, what the factory pays back for an old one, bikes per day at full staff, iron per bike, bikes a factory keeps. */
+export const BIKE = { price: 60, buyBack: 20, perDay: 12, iron: 0.5, max: 40 };
+/** A footpath tile costs this much (paved walkway). */
+export const PATH_COST = 3;
 /** Plants that burn no wood (the wind blows, the sun shines — solar only by day). */
 export const CLEAN_POWER: Partial<Record<BuildingKind, boolean>> = { windturbine: true, solarfarm: true, hydro: true };
 /** Air pollution sources: strength and reach in tiles. */

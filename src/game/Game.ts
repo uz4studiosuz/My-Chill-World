@@ -10,7 +10,7 @@ import { RoadMesh } from '../roads/RoadMesh';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building, rotToDir } from '../buildings/Buildings';
-import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE } from '../buildings/BuildingTypes';
+import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, MERCHANT, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason } from '../sim/Calendar';
@@ -105,7 +105,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
   pharmacy: ['💊', '#2e8b57'], dairy: ['🧀', '#3a6fd1'], supermarket: ['🛒', '#d9443b'], brickworks: ['🧱', '#a65e43'], steelmill: ['🏭', '#5d6670'], sewage: ['🚰', '#5f8fa0'], coalmine: ['⛏️', '#26292e'], coalplant: ['🏭', '#9aa3ab'], hydro: ['🌊', '#4fa3d1'],
-  tower15: ['🏢', '#c4553d'], tower30: ['🏢', '#3f6fb5'], tower50: ['🏙️', '#4f7d4a'], warehouse: ['📦', '#b9845a'], concerthall: ['🎻', '#8a3a4a'], casino: ['🎰', '#3b2a55'], mosque: ['🕌', '#2f7fc1'], themepark: ['🎡', '#d9443b'], bigpark: ['🌳', '#4f8a3a'], gym: ['🏋️', '#f07167'], teahouse: ['🫖', '#2f7fc1'], barber: ['💈', '#d9443b'],
+  tower15: ['🏢', '#c4553d'], tower30: ['🏢', '#3f6fb5'], tower50: ['🏙️', '#4f7d4a'], warehouse: ['📦', '#b9845a'], bikefactory: ['🚲', '#d9443b'], concerthall: ['🎻', '#8a3a4a'], casino: ['🎰', '#3b2a55'], mosque: ['🕌', '#2f7fc1'], themepark: ['🎡', '#d9443b'], bigpark: ['🌳', '#4f8a3a'], gym: ['🏋️', '#f07167'], teahouse: ['🫖', '#2f7fc1'], barber: ['💈', '#d9443b'],
   military: ['🪖', '#6b7a4a'], landfill: ['🗑️', '#7a6f5a'], recycling: ['♻️', '#4c9a52'], mill: ['🌾', '#c9b88a'], bakery: ['🍞', '#a65e43'], sawmill: ['🪚', '#8a5a35'], battery: ['🔋', '#3a6fd1'], kiosk: ['☕', '#d9443b'],
   airport: ['✈️', '#3a6fd1'], stadium: ['⚽', '#4f9a3e'], cinema: ['🎬', '#b0478f'], academy: ['🏛️', '#2d4f8a'], playground: ['🛝', '#e85a3a'], fountain: ['⛲', '#4fa3d1'],
   flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
@@ -113,7 +113,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
 
 const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
   townhall: ['Civil servant'], office: ['Clerk', 'Manager'], school: ['School staff', 'Teacher'], university: ['University staff', 'Professor'],
-  warehouse: ['Storekeeper'], concerthall: ['Stage hand', 'Conductor'], casino: ['Croupier', 'Casino manager'], mosque: ['Muezzin', 'Imam'], themepark: ['Ride operator', 'Park manager'], bigpark: ['Gardener'], gym: ['Fitness coach'], teahouse: ['Waiter', 'Cook'], barber: ['Barber', 'Stylist'],
+  warehouse: ['Storekeeper'], bikefactory: ['Bicycle maker', 'Engineer'], concerthall: ['Stage hand', 'Conductor'], casino: ['Croupier', 'Casino manager'], mosque: ['Muezzin', 'Imam'], themepark: ['Ride operator', 'Park manager'], bigpark: ['Gardener'], gym: ['Fitness coach'], teahouse: ['Waiter', 'Cook'], barber: ['Barber', 'Stylist'],
   hospital: ['Nurse', 'Doctor'], market: ['Seller'], carmarket: ['Car salesman'], bank: ['Cashier', 'Banker'], gasstation: ['Pump attendant'],
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
   farm: ['Farmer'], orchard: ['Fruit grower'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
@@ -331,8 +331,7 @@ export class Game implements ToolHost {
       const key = a < b ? `${a}:${b}` : `${b}:${a}`;
       let ok = this.commuteCache.get(key);
       if (ok === undefined) {
-        const ha = this.buildings.townHall(a), hb = this.buildings.townHall(b);
-        ok = !!ha && !!hb && ha.access >= 0 && hb.access >= 0 && this.traffic.canRoute(ha.access, hb.access);
+        ok = this.roadLinked(a, b) || this.footLinked(a, b);
         this.commuteCache.set(key, ok);
       }
       return ok;
@@ -864,7 +863,11 @@ export class Game implements ToolHost {
         if (!this.map.isLand(k)) return canal && this.map.water[k] ? { ok: false, reason: t('Start the canal next to the water, not on it') } : { ok: false, reason: t('Needs dry, flat land') };
         if (this.buildings.occ[k] !== -1 || this.net.isIsland(k)) return { ok: false, reason: t('Something is in the way') };
       }
-      if (!canal) return { ok: true, money: 0, stone: 0 };
+      if (!canal) {
+        const money = path.filter((tl) => !this.footpaths.tiles[idx(tl.x, tl.z)] && !this.net.type[idx(tl.x, tl.z)] && this.buildings.occ[idx(tl.x, tl.z)] === -1).length * PATH_COST;
+        if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }) };
+        return { ok: true, money, stone: 0 };
+      }
       const money = path.filter((tl) => !this.canals.tiles[idx(tl.x, tl.z)] && this.buildings.occ[idx(tl.x, tl.z)] === -1).length * CANAL_COST;
       if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }) };
       return { ok: true, money };
@@ -1518,6 +1521,34 @@ export class Game implements ToolHost {
   }
 
   /** A plane stopped at the terminal: tourists get off, surplus goods fly out, missing goods fly in. */
+  /** Are two towns joined by a road (cars can drive from one town hall to the other)? */
+  private roadLinked(a: number, b: number) {
+    const ha = this.buildings.townHall(a), hb = this.buildings.townHall(b);
+    return !!ha && !!hb && ha.access >= 0 && hb.access >= 0 && this.traffic.canRoute(ha.access, hb.access);
+  }
+
+  /** Can people walk or cycle from one town hall to the other along footpaths and the sidewalks of roads? */
+  private footLinked(a: number, b: number) {
+    const ha = this.buildings.townHall(a), hb = this.buildings.townHall(b);
+    if (!ha || !hb || ha.access < 0 || hb.access < 0) return false;
+    const ok = (k: number) => !!this.net.type[k] || !!this.footpaths.tiles[k];
+    const seen = new Uint8Array(N * N);
+    const stack = [ha.access];
+    seen[ha.access] = 1;
+    while (stack.length) {
+      const k = stack.pop()!;
+      if (k === hb.access) return true;
+      const x = k % N, z = (k / N) | 0;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, nz = z + dz;
+        if (nx < 0 || nz < 0 || nx >= N || nz >= N) continue;
+        const nk = nz * N + nx;
+        if (!seen[nk] && ok(nk)) { seen[nk] = 1; stack.push(nk); }
+      }
+    }
+    return false;
+  }
+
   /**
    * A town that runs itself builds a road to the nearest town it is not joined with yet: around the mountains,
    * along existing roads where it can, over water with a bridge. It pays from its own treasury.
@@ -1527,7 +1558,7 @@ export class Game implements ToolHost {
     if (!hall || hall.access < 0) return null;
     const others = [...this.eco.cities.values()]
       .map((o) => ({ o, h: this.buildings.townHall(o.id) }))
-      .filter((x) => x.o.id !== c.id && x.h && x.h.access >= 0 && !this.pop.commute(c.id, x.o.id))
+      .filter((x) => x.o.id !== c.id && x.h && x.h.access >= 0 && !this.roadLinked(c.id, x.o.id))
       .sort((a, b) => Math.abs(a.h!.x - hall.x) + Math.abs(a.h!.z - hall.z) - (Math.abs(b.h!.x - hall.x) + Math.abs(b.h!.z - hall.z)));
     const target = others[0];
     if (!target) return null;
@@ -1541,7 +1572,24 @@ export class Game implements ToolHost {
     const fresh = path.filter((k) => !this.net.type[k]);
     let money = 0, stone = 0;
     for (const k of fresh) { const r = this.map.water[k] ? BRIDGE_COST : ROAD_COST[2]; money += r.money; stone += r.stone; }
-    if (c.money < money + stone * TRADE_PRICE.stone * 1.25 + 1500) return null;
+    // not rich enough for a road (or a thrifty mayor): first a cheap footpath, so people can come on foot and by bike
+    const thrifty = c.style === 'thrifty' || c.style === 'green';
+    if (c.money < money + stone * TRADE_PRICE.stone * 1.25 + 1500 || (thrifty && !this.footLinked(c.id, target.o.id) && Math.random() < 0.6)) {
+      if (this.footLinked(c.id, target.o.id)) return null;
+      const walk = walkPath((k) => (this.net.type[k] || this.footpaths.tiles[k] ? 0.25 : this.map.height[k] > 0 || this.map.water[k] || this.buildings.occ[k] !== -1 || this.railway.tiles[k] ? Infinity : 1), hall.access, target.h!.access, 150000);
+      if (!walk) return null;
+      const lay = walk.filter((k) => !this.net.type[k] && !this.footpaths.tiles[k] && !this.canals.tiles[k]);
+      const price = lay.length * PATH_COST;
+      if (c.money < price + 800) return null;
+      this.eco.add(c, 'money', -price, 'Paths and canals');
+      this.footpaths.add(lay.map((k) => ({ x: k % N, z: (k / N) | 0 })));
+      this.terrain.clearTiles(lay);
+      this.networkChanged();
+      this.pop.assign(this.buildings);
+      if (!target.o.ai) this.life.events.push(t('{city} laid a footpath to your town — people can now come on foot and by bike', { city: c.name }));
+      else this.autoCity.note(target.o, t('{city} laid a footpath to us', { city: c.name }));
+      return t('{city} (footpath)', { city: target.o.name });
+    }
     // buy the stone it lacks, then pay for the road
     const short = Math.max(0, stone - c.stone);
     if (short) { this.eco.add(c, 'money', -short * TRADE_PRICE.stone * 1.25, 'Trade: goods bought'); this.eco.add(c, 'stone', short, 'Bought from traders'); }

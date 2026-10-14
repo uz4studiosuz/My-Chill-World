@@ -18,14 +18,12 @@ export interface NewsIssue {
 }
 
 /**
- * The morning newspaper. Every morning a new issue arrives; it does not pop up in the middle of the screen —
- * a counter on the newspaper button shows how many are unread, and the reader opens the newest one with
- * arrows to leaf back through the last days.
+ * The morning newspaper. Every morning a new issue opens by itself at the left edge of the screen (not over the
+ * middle of the town); the newspaper button opens it again, with arrows to leaf back through the last days.
  */
 export class Newspaper {
   private root: HTMLDivElement;
   private issues: NewsIssue[] = [];
-  private unread = 0;
   private index = 0;
   /** Called when the number of unread issues changes (the counter on the button). */
   onUnread: (n: number) => void = () => {};
@@ -50,16 +48,16 @@ export class Newspaper {
     if (!Newspaper.enabled) return;
     this.issues.unshift(n);
     if (this.issues.length > KEEP) this.issues.length = KEEP;
-    this.unread = Math.min(this.issues.length, this.unread + 1);
-    this.onUnread(this.unread);
-    if (this.visible) { this.index++; this.render(); }
+    // the new issue opens by itself at the left edge (it does not cover the town)
+    this.index = 0;
+    this.onUnread(0);
+    this.render();
   }
 
   /** Open the reader at the newest issue (or close it). */
   toggle() {
     if (this.visible) return this.hide();
     this.index = 0;
-    this.unread = 0;
     this.onUnread(0);
     this.render();
   }

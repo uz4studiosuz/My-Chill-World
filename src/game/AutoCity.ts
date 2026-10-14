@@ -45,8 +45,8 @@ export const STYLE_NAME: Record<TownStyle, string> = {
 const STYLE_WISH: Record<TownStyle, BuildingKind[]> = {
   builder: ['apartment', 'house', 'construction', 'sawmill', 'brickworks'],
   trader: ['market', 'supermarket', 'hotel', 'bank', 'kiosk', 'teahouse', 'trainstation'],
-  industrial: ['factory', 'ironmine', 'sawmill', 'brickworks', 'steelmill', 'carfactory', 'coalmine'],
-  green: ['park', 'bigpark', 'fountain', 'windturbine', 'solarfarm', 'playground', 'recycling'],
+  industrial: ['factory', 'ironmine', 'sawmill', 'brickworks', 'steelmill', 'carfactory', 'coalmine', 'bikefactory'],
+  green: ['park', 'bigpark', 'fountain', 'windturbine', 'solarfarm', 'playground', 'recycling', 'bikefactory'],
   thrifty: ['bank', 'orchard', 'fishery', 'grocery'],
 };
 

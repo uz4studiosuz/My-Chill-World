@@ -7,7 +7,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS } from '../buildings/BuildingTypes';
+import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE } from '../buildings/BuildingTypes';
 import type { BuildingKind, CropKind } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
@@ -621,7 +621,7 @@ export class Life {
       const fed = meal.eaten + meal.short > 0 ? meal.eaten / (meal.eaten + meal.short) : 1;
       const portions = Math.round((this.people.get(city.id) ?? 0) * fed + (fed >= 0.999 ? 1000 : 0));
       const r = pop.daily(buildings, belongs, portions, city.water, () => this.freeHomes(city.id), hasHall, {
-        heal: Math.min(40, heal), carStock: this.carStock(city.id),
+        heal: Math.min(40, heal), carStock: this.carStock(city.id), bikeStock: this.bikeStock(city.id),
         shops: { market: false, grocery: false, clothes: false },
         taxRate: city.taxRate, calm: this.calm,
         safety: Math.min(0.95, this.policeCover(city.id) * 0.75 + (own.some((b) => b.kind === 'military' && b.workers > 0) ? MILITARY.safety : 0)),
@@ -750,6 +750,7 @@ export class Life {
       if (r.deaths.length > 3) say(t('{n} people died today', { n: r.deaths.length }));
       if (r.leftTown) say(t('{n} people left town (debt)', { n: r.leftTown }));
       if (r.carsBought) say(t('{n} families bought a car', { n: r.carsBought }));
+      if (r.bikesBought || r.bikesSold) this.bikeSales(city, r.bikesBought, r.bikesSold, say);
     });
 
     // midnight: everyone is home — except the night shift, still at work
@@ -1435,6 +1436,12 @@ export class Life {
         // logs come in from the woodcutters by truck
         const cutter = buildings.list.find((w) => w.kind === 'woodcutter' && w.city === city.id && w.access >= 0);
         if (cutter) this.chainTruck(cutter, n, ['sawmill'], 'logs');
+      }
+      for (const bf of own.filter((b) => b.kind === 'bikefactory')) {
+        const n = Math.min(BIKE.perDay * staff(bf) * share, BIKE.max - bf.stored, Math.max(0, city.iron - 5) / BIKE.iron);
+        if (n <= 0) continue;
+        eco.add(city, 'iron', -n * BIKE.iron, 'Bicycle factory');
+        bf.stored += n;
       }
       // the factory sews clothes from cotton and makes furniture from planks (half the staff on each when both come in)
       for (const fc of own.filter((b) => b.kind === 'factory')) {
@@ -2439,6 +2446,23 @@ export class Life {
     c.activity = 'Shopping';
   }
 
+  /** Bicycles ready at the town's working bicycle factories. */
+  private bikeStock(cityId: number) {
+    return this.c.buildings.list.reduce((a, b) => a + (b.kind === 'bikefactory' && b.city === cityId && b.built >= 1 && b.workers > 0 ? Math.floor(b.stored) : 0), 0);
+  }
+
+  /** Bikes sold to families leave the factories (the town is paid); old bikes bought back go into their stock. */
+  private bikeSales(city: City, bought: number, sold: number, say: (msg: string) => void) {
+    const { buildings, eco } = this.c;
+    const shops = buildings.list.filter((b) => b.kind === 'bikefactory' && b.city === city.id && b.built >= 1);
+    let left = bought;
+    for (const s of shops) { const take = Math.min(left, Math.floor(s.stored)); s.stored -= take; s.sales = (s.sales ?? 0) + take * BIKE.price; left -= take; }
+    if (shops[0]) shops[0].stored = Math.min(BIKE.max, shops[0].stored + sold);
+    if (bought) eco.add(city, 'money', bought * BIKE.price, 'Bicycle sales');
+    if (sold) eco.add(city, 'money', -sold * BIKE.buyBack, 'Old bicycles bought back');
+    if (bought) say(t('{n} families bought bicycles', { n: bought }));
+  }
+
   /** Cars waiting for buyers at the city's car markets. */
   private carStock(cityId: number) {
     return this.c.buildings.list.reduce((a, b) => a + (b.kind === 'carmarket' && b.city === cityId && b.built >= 1 && b.workers > 0 ? Math.floor(b.stored) : 0), 0);
@@ -3011,6 +3035,16 @@ export class Life {
       // tired people walk slower
       c.walker.speed *= 0.7 + 0.3 * Math.min(1, (c.energy ?? 80) / 60);
       c.walker.citizen = c.id;
+    }
+    // a family with bicycles rides on the longer trips
+    const w = c.walker;
+    if (w) {
+      let len = 0;
+      for (let i = 1; i < route.points.length; i++) len += Math.hypot(route.points[i].x - route.points[i - 1].x, route.points[i].z - route.points[i - 1].z);
+      const ride = !!this.family(c)?.bike && c.age >= 10 && carry === 'none' && len > 8;
+      if (ride && !w.bike) { w.bike = true; w.speed *= 2.2; }
+      else if (!ride && w.bike) { w.bike = false; w.speed /= 2.2; }
+      if (ride) c.activity = c.activity === 'Walking to work' ? 'Cycling to work' : c.activity === 'Going home' ? 'Cycling home' : c.activity === 'Walking to school' ? 'Cycling to school' : c.activity;
     }
   }
 

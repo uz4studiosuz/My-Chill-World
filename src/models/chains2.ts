@@ -11,3 +11,4 @@ export * from './chains2/coalplant';
 export * from './chains2/hydro';
 export * from './chains2/moreCargo';
 export * from './chains2/warehouse';
+export * from './chains2/bikeFactory';

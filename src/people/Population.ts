@@ -1,5 +1,5 @@
 import { DAYS_PER_YEAR } from '../config';
-import { BUILDINGS, JOB_PRIORITY, RENT, DEGREE_JOBS } from '../buildings/BuildingTypes';
+import { BUILDINGS, JOB_PRIORITY, RENT, DEGREE_JOBS, BIKE } from '../buildings/BuildingTypes';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { Walker } from './Walkers';
 import { clanName, firstName } from './names';
@@ -84,6 +84,8 @@ export interface Family {
   loan?: number;
   /** Food kept at home (bought in the shops, eaten at meals). */
   pantry?: number;
+  /** The family owns bicycles (cheaper than a car; they ride to work). */
+  bike?: boolean;
 }
 
 export interface DeathReport {
@@ -103,6 +105,8 @@ export interface DailyOptions {
   shops: Record<'market' | 'grocery' | 'clothes', boolean>;
   /** Cars in stock at the city's car markets. */
   carStock: number;
+  /** Bicycles ready at the town's bicycle factories. */
+  bikeStock?: number;
   /** 0..1 — how much policing reduces fights and murders. */
   safety: number;
   /** Income tax rate. */
@@ -136,6 +140,9 @@ export interface DayReport {
   weddings: [string, string][];
   leftTown: number;
   carsBought: number;
+  /** Bikes bought, and old bikes sold back to the factory (when the family bought a car). */
+  bikesBought: number;
+  bikesSold: number;
 }
 
 
@@ -426,7 +433,7 @@ export class Population {
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
   daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, shops: { market: false, grocery: false, clothes: false }, carStock: 0, safety: 0, taxRate: 0.25 }): DayReport {
-    const r: DayReport = { rent: new Map(), spent: { market: 0, grocery: 0, clothes: 0 }, utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0 };
+    const r: DayReport = { rent: new Map(), spent: { market: 0, grocery: 0, clothes: 0 }, utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0, bikesBought: 0, bikesSold: 0 };
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
       const f = this.families.get(c.family);
@@ -482,13 +489,21 @@ export class Population {
       f.money += earned;
       f.income = Math.round(earned);
       f.debtDays = f.money < 0 ? f.debtDays + 1 : 0;
-      if (!f.car && opts.carStock > 0 && f.money > CAR_PRICE + 500) {
+      // a car when there is money for it (the old bike goes back to the factory cheaply), otherwise a bike
+      if (!f.car && opts.carStock > 0 && f.money + (f.bike ? BIKE.buyBack : 0) > CAR_PRICE + 500) {
+        if (f.bike) { f.bike = false; f.money += BIKE.buyBack; r.bikesSold++; for (const m of people) if (m.age >= 18) this.note(m, 'Sold the old bicycle back to the factory'); }
         opts.carStock--;
         f.money -= CAR_PRICE;
         f.car = { color: pick(CAR_COLORS), at: 'home', fuel: 100 };
         r.carsBought++;
         for (const m of people) if (m.age >= 18) this.note(m, 'The family bought a car');
         r.carSales += CAR_PRICE;
+      } else if (!f.car && !f.bike && (opts.bikeStock ?? 0) > 0 && f.money > BIKE.price + 100) {
+        opts.bikeStock!--;
+        f.money -= BIKE.price;
+        f.bike = true;
+        r.bikesBought++;
+        for (const m of people) if (m.age >= 10) this.note(m, 'The family bought bicycles');
       }
     }
 
@@ -642,7 +657,7 @@ export class Population {
   serialize() {
     return [...this.families.values()].map((f) => ({
       id: f.id, surname: f.surname, home: f.home, money: Math.round(f.money), income: f.income,
-      car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, debtDays: f.debtDays, loan: f.loan ? Math.round(f.loan) : undefined, pantry: f.pantry === undefined ? undefined : Math.round(f.pantry * 10) / 10,
+      car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, bike: f.bike || undefined, debtDays: f.debtDays, loan: f.loan ? Math.round(f.loan) : undefined, pantry: f.pantry === undefined ? undefined : Math.round(f.pantry * 10) / 10,
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
@@ -655,7 +670,7 @@ export class Population {
     this.citizens.clear();
     this.families.clear();
     for (const fd of data) {
-      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan, pantry: fd.pantry };
+      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan, pantry: fd.pantry, bike: fd.bike };
       this.families.set(f.id, f);
       this.nextFamily = Math.max(this.nextFamily, f.id + 1);
       for (const m of fd.members) {

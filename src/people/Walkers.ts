@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PERSON_VARIANTS, babyGeometry, logGeometry, personGeometry } from '../models/people';
 import type { Point } from '../buildings/Buildings';
 import { stretcherGeometry } from '../models/extras';
+import { bikeGeometry } from '../models/chains2';
 
 export type Carry = 'none' | 'log' | 'baby' | 'stretcher';
 
@@ -30,6 +31,8 @@ export interface Walker {
   lift?: number;
   /** Not drawn (the first-person camera is inside this person's head). */
   hidden?: boolean;
+  /** Riding a bicycle (drawn on a bike, faster). */
+  bike?: boolean;
   phase: number;
   onArrive?: (w: Walker) => void;
   onHoldEnd?: (w: Walker) => void;
@@ -51,6 +54,7 @@ export class Walkers {
   private baby: THREE.InstancedMesh;
   private log: THREE.InstancedMesh;
   private stretcher: THREE.InstancedMesh;
+  private bikes: THREE.InstancedMesh;
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private e = new THREE.Euler();
@@ -72,6 +76,7 @@ export class Walkers {
     this.baby = make(babyGeometry());
     this.log = make(logGeometry());
     this.stretcher = make(stretcherGeometry());
+    this.bikes = make(bikeGeometry());
   }
 
   walk(variant: number, scale: number, route: WalkRoute, carry: Carry = 'none', onArrive?: (w: Walker) => void): Walker {
@@ -207,19 +212,19 @@ export class Walkers {
 
   private render() {
     const counts = new Array(PERSON_VARIANTS).fill(0);
-    let nb = 0, nl = 0, ns = 0;
+    let nb = 0, nl = 0, ns = 0, nk = 0;
     for (const w of this.list) {
       if (w.hidden) continue;
       const tt = this.time * 9 + w.phase;
       const walking = w.hold <= 0 && !w.leaving;
-      let bob = walking ? Math.abs(Math.sin(tt)) * 0.008 : 0;
+      let bob = walking ? (w.bike ? 0.045 : Math.abs(Math.sin(tt)) * 0.008) : 0;
       if (w.anim === 'play') bob = Math.abs(Math.sin(tt * 0.8)) * 0.05;
       if (w.anim === 'cheer') bob = Math.max(0, Math.sin(tt * 0.7 + w.phase)) * 0.04;
       if (w.anim === 'sit') bob = -0.02;
       let tilt = 0;
       if (w.anim === 'chop') tilt = Math.max(0, Math.sin(tt * 0.7)) * 0.5;
       if (w.anim === 'farm') tilt = 0.35 + Math.sin(tt * 0.3) * 0.1;
-      this.e.set(tilt, Math.atan2(w.hx, w.hz), walking ? Math.sin(tt) * 0.06 : 0, 'YXZ');
+      this.e.set(tilt, Math.atan2(w.hx, w.hz), walking && !w.bike ? Math.sin(tt) * 0.06 : 0, 'YXZ');
       this.q.setFromEuler(this.e);
       const s = w.scale * w.fade;
       this.p.set(w.x, 0.02 + bob + (w.hold > 0 ? w.lift ?? 0 : 0), w.z);
@@ -230,6 +235,12 @@ export class Walkers {
       if (w.carry === 'baby' && nb < MAX_PER_VARIANT) this.baby.setMatrixAt(nb++, this.m);
       if (w.carry === 'log' && nl < MAX_PER_VARIANT) this.log.setMatrixAt(nl++, this.m);
       if (w.carry === 'stretcher' && ns < MAX_PER_VARIANT) this.stretcher.setMatrixAt(ns++, this.m);
+      if (w.bike && walking && nk < MAX_PER_VARIANT) {
+        this.p.set(w.x, 0.02, w.z);
+        this.sc.set(w.fade, w.fade, w.fade);
+        this.m.compose(this.p, this.q, this.sc);
+        this.bikes.setMatrixAt(nk++, this.m);
+      }
     }
     this.meshes.forEach((m, i) => {
       m.count = counts[i];
@@ -238,6 +249,8 @@ export class Walkers {
     this.baby.count = nb;
     this.log.count = nl;
     this.stretcher.count = ns;
+    this.bikes.count = nk;
+    this.bikes.instanceMatrix.needsUpdate = true;
     this.stretcher.instanceMatrix.needsUpdate = true;
     this.baby.instanceMatrix.needsUpdate = true;
     this.log.instanceMatrix.needsUpdate = true;
