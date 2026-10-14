@@ -2698,7 +2698,9 @@ export class Game implements ToolHost {
       sections: (() => {
         const out: NonNullable<InspectorView['sections']> = [];
         const y = Object.entries(f.earnY ?? {}).filter(([, v]) => Math.abs(v) >= 0.5).sort((a2, b2) => b2[1] - a2[1]);
-        out.push({ title: t('Income yesterday'), rows: y.length ? [...y.map(([k, v]) => [t(k), `+$${Math.round(v).toLocaleString('en-US')}`, 'good'] as [string, string, 'good']), [t('Total'), `$${Math.round(y.reduce((a2, [, v]) => a2 + v, 0)).toLocaleString('en-US')}`]] : [[t('Known tomorrow'), '—']] });
+        const today = Object.entries(f.earn ?? {}).filter(([, v]) => Math.abs(v) >= 0.5).sort((a2, b2) => b2[1] - a2[1]);
+        out.push({ title: t('Income yesterday'), rows: y.length ? [...y.map(([k, v]) => [t(k), `+$${Math.round(v).toLocaleString('en-US')}`, 'good'] as [string, string, 'good']), [t('Total'), `$${Math.round(y.reduce((a2, [, v]) => a2 + v, 0)).toLocaleString('en-US')}`]] : [[t('Total'), '$0']] });
+        if (today.length) out.push({ title: t('Income so far today'), rows: [...today.map(([k, v]) => [t(k), `+$${Math.round(v).toLocaleString('en-US')}`, 'good'] as [string, string, 'good']), [t('Total'), `$${Math.round(today.reduce((a2, [, v]) => a2 + v, 0)).toLocaleString('en-US')}`]] });
         if (f.bills) out.push({ title: t('Bills yesterday'), rows: [[t('Electricity'), `−$${f.bills.electricity}`], [t('Water'), `−$${f.bills.water}`]] });
         const biz = this.buildings.list.filter((x) => x.owner === f.id && !x.removed);
         if (biz.length) out.push({ title: t('Family businesses ({n})', { n: biz.length }), rows: biz.map((x) => [`${t(BUILDINGS[x.kind].name)} · ${this.cityOf(x).name}`, x.books ? `${x.workers}/${BUILDINGS[x.kind].jobs} · +$${x.books.profit}` : `${x.workers}/${BUILDINGS[x.kind].jobs}`, x.books && x.books.profit > 0 ? 'good' : undefined] as [string, string, ('good' | 'bad')?]) });
@@ -2764,7 +2766,8 @@ export class Game implements ToolHost {
     const bars: InspectorView['bars'] = [];
     rows.push([t('City'), city.name]);
     // every business shows yesterday's accounts (shops, the casino, the hotel, factories…)
-    if (!b.books && (b.owner >= 0 || BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind] || VISIT_PRICE[b.kind] || BUILDINGS[b.kind].revenue)) rows.push([t('Takings yesterday'), t('Known tomorrow')]);
+    // a business that has not closed a day yet: nothing yesterday, and what it has taken so far today
+    if (!b.books && (b.owner >= 0 || BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind] || VISIT_PRICE[b.kind] || BUILDINGS[b.kind].revenue)) rows.push([t('Takings yesterday'), '$0'], [t('Takings so far today'), `$${Math.round(b.sales ?? 0).toLocaleString('en-US')}`]);
     if (b.books) {
       const bk = b.books;
       const cash = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
@@ -4644,6 +4647,9 @@ export class Game implements ToolHost {
       const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.built, level: b.level, owner: b.owner, preferredDir: dir });
       if (b.wageF !== undefined) nb.wageF = b.wageF;
       if (b.total) nb.total = b.total;
+      if (b.books) nb.books = b.books;
+      if (b.sold) nb.sold = b.sold;
+      if (b.sales) nb.sales = b.sales;
       if (b.cropT !== undefined) nb.cropT = b.cropT;
       if (b.parent !== undefined) nb.parent = b.parent;
       if (b.cattleCount !== undefined) nb.cattleCount = b.cattleCount;
@@ -4698,7 +4704,7 @@ export class Game implements ToolHost {
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
         graves: b.graves, cattleCount: b.cattleCount, crop: b.cropKind, cropManual: b.cropManual || undefined,
         built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, parent: b.parent, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
-        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF, total: b.total,
+        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF, total: b.total, books: b.books, sold: b.sold, sales: b.sales ? Math.round(b.sales) : undefined,
       })),
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },
