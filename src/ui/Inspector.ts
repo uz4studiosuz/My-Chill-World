@@ -36,8 +36,6 @@ export interface Passport {
   birth: string;
   birthplace: string;
   number: string;
-  issued: string;
-  expires: string;
   mrz: [string, string];
 }
 
@@ -128,9 +126,7 @@ export class Inspector {
       field(t('Sex'), p.sex);
       field(t('Date of birth'), p.birth);
       field(t('Place of birth'), p.birthplace, true);
-      field(t('Document No.'), p.number);
-      field(t('Issued'), p.issued);
-      field(t('Valid until'), p.expires);
+      field(t('Document No.'), p.number, true);
       const stamp = el('div', 'pp-stamp');
       stamp.textContent = p.town;
       body.append(photo, fields, stamp);

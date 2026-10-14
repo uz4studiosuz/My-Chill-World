@@ -2508,10 +2508,16 @@ export class Game implements ToolHost {
     this.refreshInspector();
   }
 
+  /** The game day a person was born (their age is counted in months, one game day each). */
+  private bornDay(c: Citizen) { return Math.floor(this.eco.day - c.age * 12); }
+
+  /** Age as people count it: this year minus the year of birth. */
+  private ageOf(c: Citizen) { return calendarYear(this.eco.day) - calendarYear(this.bornDay(c)); }
+
   private personView(c: Citizen): InspectorView {
     const f = this.pop.families.get(c.family);
     const home = f && this.buildings.get(f.home);
-    const age = Math.floor(c.age);
+    const age = this.ageOf(c);
     const tags: InspectorView['tags'] = [];
     if (c.hunger < 25) tags.push({ text: t('Hungry'), tone: 'bad' });
     if (c.health < 50) tags.push({ text: t('Sick'), tone: 'bad' });
@@ -2531,29 +2537,20 @@ export class Game implements ToolHost {
     // ---- the ID card ----
     const town = home ? this.cityOf(home) : this.eco.city;
     const hash = (n: number) => { let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) >>> 0; };
-    // game year 1 is 2026; a person is born on a day of the month that stays the same
-    const dmy = (day: number, salt: number) =>
-      `${String(1 + (hash(c.id * 7 + salt) % 28)).padStart(2, '0')}.${String(monthOf(day) + 1).padStart(2, '0')}.${calendarYear(day)}`;
-    // the age is counted in months (one game day each): the birthday is that many months ago
-    const born = Math.floor(this.eco.day - c.age * 12);
-    const term = c.age >= 16 ? 120 : 60;
-    const firstDoc = c.age >= 16 ? born + 16 * 12 : born + 1;
-    const issuedDay = Math.min(this.eco.day, firstDoc + Math.floor(Math.max(0, this.eco.day - firstDoc) / term) * term);
-    const expiresDay = issuedDay + term;
+    // born that many months ago (one game day is one month): shown as month and year, e.g. "May 2004"
+    const born = this.bornDay(c);
     const firstPlace = c.story?.find((s) => s.p && typeof s.p.city === 'string')?.p?.city as string | undefined;
     const letters = (town.name.replace(/[^A-Za-z]/g, '').toUpperCase() + 'XX').slice(0, 2);
     const number = `${letters}${String(hash(c.id) % 10000000).padStart(7, '0')}`;
     const latin = (s: string) => s.normalize('NFD').replace(/[^A-Za-z]/g, '').toUpperCase();
     const mrz1 = `P<${latin(town.name).slice(0, 3).padEnd(3, '<')}${latin(f?.surname ?? '')}<<${latin(c.name)}`.padEnd(44, '<').slice(0, 44);
-    const bd = dmy(born, 1).split('.');
-    const mrz2 = `${number}<${latin(town.name).slice(0, 3).padEnd(3, '<')}${bd[2].slice(2)}${bd[1]}${bd[0]}${c.sex === 'm' ? 'M' : 'F'}${dmy(expiresDay, 2).split('.').reverse().join('').slice(2)}`.padEnd(44, '<').slice(0, 44);
+    const mrz2 = `${number}<${latin(town.name).slice(0, 3).padEnd(3, '<')}${String(calendarYear(born)).slice(2)}${String(monthOf(born) + 1).padStart(2, '0')}${c.sex === 'm' ? 'M' : 'F'}`.padEnd(44, '<').slice(0, 44);
     const female = c.sex !== 'm';
     const passport = {
       town: town.name, tint: town.tint ?? '#2f6b4f',
       photo: { skin: female ? SKIN[(c.variant - 3) % 4] ?? SKIN[0] : SKIN[c.variant % 4], cloth: female ? DRESSES[c.variant - 4] ?? DRESSES[0] : SHIRTS[c.variant] ?? SHIRTS[0], hair: female ? '#4a2c1a' : '#3a2a20', female },
       surname: f?.surname ?? '—', name: c.name, sex: c.sex === 'm' ? t('Male') : t('Female'),
-      birth: dmy(born, 1), birthplace: firstPlace ?? town.name, number,
-      issued: dmy(issuedDay, 2), expires: dmy(expiresDay, 2), mrz: [mrz1, mrz2] as [string, string],
+      birth: dateLabel(born), birthplace: firstPlace ?? town.name, number, mrz: [mrz1, mrz2] as [string, string],
     };
     // ---- personal details ----
     const members = f ? this.pop.members(f) : [];
@@ -2566,7 +2563,7 @@ export class Game implements ToolHost {
     const personal: [string, string, ('good' | 'bad')?][] = [
       [t('Age'), t('{n} years', { n: age })],
       [t('Marital status'), age < 18 ? t('Child') : spouse ? (c.sex === 'm' ? t('Married to {name}', { name: spouse.name }) : t('Married to {name}', { name: spouse.name })) : t('Single')],
-      ...(kids.length ? [[t('Children'), kids.map((k) => `${k.name} (${Math.floor(k.age)})`).join(', ')] as [string, string]] : []),
+      ...(kids.length ? [[t('Children'), kids.map((k) => `${k.name} (${this.ageOf(k)})`).join(', ')] as [string, string]] : []),
       ...(parents.length ? [[t('Parents'), parents.map((k) => k.name).join(', ')] as [string, string]] : []),
       [t('Education'), eduText, c.skill === 2 ? 'good' : undefined],
       [t('Faith'), believer(c) ? t('Believer') : t('Not religious')],
