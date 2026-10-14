@@ -88,7 +88,11 @@ export interface Building {
   sales?: number;
   /** Wages paid to the staff today, and yesterday's accounts of a business (revenue, wages, tax, the owner's profit). */
   wagesToday?: number;
-  books?: { revenue: number; wages: number; tax: number; profit: number };
+  books?: { revenue: number; wages: number; tax: number; profit: number; items?: Record<string, number> };
+  /** What the business sold or made today (item → how many). */
+  sold?: Record<string, number>;
+  /** Everything since it opened: takings, items sold or made, and the days counted. */
+  total?: { revenue: number; items: Record<string, number>; days: number };
   /** Mines and quarries: stone, coal or iron dug since the mountain last lost a level. */
   dug?: number;
   /** Pay of the staff set by the owning family (×the usual pay), instead of the town hall's. */

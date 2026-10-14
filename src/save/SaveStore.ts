@@ -37,7 +37,7 @@ export interface WorldSave {
   sandbox?: boolean;
   cleared: number[];
   stumps?: [number, number][];
-  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number; crop?: string; cropManual?: boolean; built?: number; level?: number; owner?: number; parent?: number; rot?: number; wageF?: number }[];
+  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number; crop?: string; cropManual?: boolean; built?: number; level?: number; owner?: number; parent?: number; rot?: number; wageF?: number; total?: { revenue: number; items: Record<string, number>; days: number } }[];
   /** Roads ordered and still being laid by the builders. */
   roadJobs?: { tiles: [number, number][]; done: number; lit: boolean; city: number; money: number; stone: number }[];
   population: PopulationSave;

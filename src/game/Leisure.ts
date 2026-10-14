@@ -29,6 +29,8 @@ export interface LeisureHost {
   weatherMood: string;
   /** A visitor pays for a service at a business (taxed on the spot). */
   sell(c: Citizen, b: Building, amount: number): void;
+  /** Count something the business sold today. */
+  tally(b: Building, item: string, n?: number): void;
 }
 
 /** About half of the adults are believers (fixed per person). */
@@ -219,6 +221,7 @@ export class Leisure {
           const price = 3 * (this.host.weatherMood === 'heat' && k.kind === 'kiosk' ? 2 : 1);
           f.money -= price;
           k.sales = (k.sales ?? 0) + price;
+          this.host.tally(k, k.kind === 'kiosk' ? 'Drinks and snacks' : 'Bread and pastries');
           n++;
         }
       }
@@ -291,7 +294,8 @@ export class Leisure {
     const { walkers, pop, eco } = this.c;
     const f = pop.families.get(c.family);
     const price = b.kind === 'cinema' ? CINEMA.ticket : b.kind === 'stadium' ? FOOTBALL.ticket : 0;
-    if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; }
+    if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; this.host.tally(b, 'Tickets'); }
+    if (b.kind === 'casino' && f) this.host.tally(b, 'Players');
     const visit = VISIT_PRICE[b.kind];
     if (b.kind === 'casino' && f) {
       // bets of $1–3, round after round, until the evening ends or the player has lost what he allowed himself

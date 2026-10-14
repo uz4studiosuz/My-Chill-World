@@ -104,6 +104,9 @@ export const PROMISE_TEXT: Record<PromiseKind, string> = {
  * Everyday life: schedules, commuting by car or on foot (sidewalks, zebra crossings), work behaviour,
  * production, the power grid, water, needs, fires and the end-of-day settlement.
  */
+/** Blows of the miners' picks that break one level of rock away. */
+const MINE_BLOWS = 45;
+
 export class Life {
   readonly graph: PedGraph;
   private spots = new Map<string, number>();
@@ -260,9 +263,17 @@ export class Life {
     this.onMoney(cityId, amount);
   }
 
+  /** Count something a business sold (or made) today, for its accounts. */
+  tally(b: Building, item: string, n = 1) {
+    if (n <= 0) return;
+    const s = (b.sold ??= {});
+    s[item] = (s[item] ?? 0) + n;
+  }
+
   /** A family pays the city for a service (hospital treatment, parking ticket) on the spot. */
   /** A visitor pays a business for a service (teahouse, gym, casino…): the tax reaches the town hall right away. */
   sell(c: Citizen, b: Building, amount: number) {
+    if (b.kind !== 'casino') this.tally(b, 'Visitors');
     const f = this.family(c);
     const city = this.c.eco.cities.get(b.city);
     if (!f || !city) return;
@@ -696,7 +707,15 @@ export class Life {
         } else if (d.revenue) {
           turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5);
         }
-        if (!turnover && !tillSales) { if (wages || b.owner >= 0) b.books = { revenue: wages, wages, tax: 0, profit: 0 }; continue; }
+        const items = b.sold;
+        b.sold = undefined;
+        const keep = (revenue: number) => {
+          const tt = (b.total ??= { revenue: 0, items: {}, days: 0 });
+          tt.revenue += revenue; tt.days++;
+          for (const [k, n] of Object.entries(items ?? {})) tt.items[k] = (tt.items[k] ?? 0) + n;
+        };
+        // a public place without takings: the town pays the wages
+        if (!turnover && !tillSales) { if (wages || b.owner >= 0) { b.books = { revenue: 0, wages: Math.round(wages), tax: 0, profit: 0, items }; keep(0); } continue; }
         turnover *= (1 + 0.25 * this.skilledShare(b)) * (city.smart ? 1.1 : 1);
         business += turnover * city.taxRate * 0.8;
         const owner = b.owner >= 0 ? pop.families.get(b.owner) : undefined;
@@ -718,7 +737,8 @@ export class Life {
           profit += p;
         } else if (b.owner >= 0) b.owner = -1;
         // yesterday's accounts: the takings paid the staff, the tax and the owner's profit
-        b.books = { revenue: Math.round(turnover + tillSales + wages), wages: Math.round(wages), tax: Math.round(turnover * city.taxRate * 0.8 + tillTax), profit: Math.round(profit) };
+        b.books = { revenue: Math.round(turnover + tillSales + wages), wages: Math.round(wages), tax: Math.round(turnover * city.taxRate * 0.8 + tillTax), profit: Math.round(profit), items };
+        keep(b.books.revenue);
       }
       const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax + rentToCity + r.utilities + business - r.publicWages - upkeep);
       city.money += net;
@@ -1315,6 +1335,8 @@ export class Life {
   /** Digging eats slowly into the nearest mountain: one level of rock goes per DIG_PER_LEVEL of stone, coal or iron. */
   private dig(b: Building, amount: number) {
     if (amount <= 0) return;
+    // while the workers hack at a face outside, their blows take the rock away (see mineLoop)
+    if (this.mineFaces.get(b.id)?.crew.length) return;
     b.dug = (b.dug ?? 0) + amount;
     const per = DIG_PER_LEVEL[b.kind] ?? 150;
     if (b.dug < per) return;
@@ -1398,12 +1420,12 @@ export class Life {
         }
       }
       if ((b.kind === 'coalmine' || b.kind === 'ironmine') && this.c.map.mountainsNear(b.x, b.z, 3) === 0) continue; // the seam is worked out
-      if (b.kind === 'coalmine') { const n = CHAIN2.coalPerDay * Math.min(1, b.workers / d.jobs) * share; this.c.eco.add(city, 'coal', n, 'Coal mines'); this.dig(b, n); }
-      if (b.kind === 'ironmine') { const n = IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share; this.c.eco.add(city, 'iron', n, 'Iron mines'); this.dig(b, n); }
+      if (b.kind === 'coalmine') { const n = CHAIN2.coalPerDay * Math.min(1, b.workers / d.jobs) * share; this.c.eco.add(city, 'coal', n, 'Coal mines'); this.tally(b, 'Coal dug', n); this.dig(b, n); }
+      if (b.kind === 'ironmine') { const n = IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share; this.c.eco.add(city, 'iron', n, 'Iron mines'); this.tally(b, 'Iron ore dug', n); this.dig(b, n); }
       if (b.kind === 'carfactory' && b.stored < CARS.factoryMax) {
         const made = CARS.perDay * Math.min(1, b.workers / d.jobs) * (b.powered ? 1 : 0.4) * share;
         const iron = made * CARS.iron;
-        if (city.iron >= iron) { this.c.eco.add(city, 'iron', -iron, 'Car factories'); b.stored += made; }
+        if (city.iron >= iron) { this.c.eco.add(city, 'iron', -iron, 'Car factories'); b.stored += made; this.tally(b, 'Cars made', made); }
       }
       if (b.kind === 'carfactory' && b.stored >= CARS.truckLoad && b.trucks === 0 && b.access >= 0) this.deliverCars(b);
       if (!d.food || !d.jobs) continue;
@@ -1447,7 +1469,7 @@ export class Life {
       if (b.built < 1) continue;
       if (this.c.map.mountainsNear(b.x, b.z, 3) === 0) continue; // the rock is gone
       const dug = QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share;
-      if (b.stored < QUARRY.maxStored) this.dig(b, dug);
+      if (b.stored < QUARRY.maxStored) { this.dig(b, dug); this.tally(b, 'Stone dug', dug); }
       b.stored = Math.min(QUARRY.maxStored, b.stored + dug);
       if (!th || b.stored < QUARRY.truckLoad) continue;
       // no road link: a miner carries the stone to the Town Hall on foot
@@ -1503,6 +1525,7 @@ export class Life {
       .sort((a, b) => a.stored - b.stored)[0];
     if (!market) return;
     // next door: the cars are simply driven over
+    this.tally(factory, 'Cars delivered to the market', CARS.truckLoad);
     if (market.access === factory.access || dist(market, factory) <= 3) {
       factory.stored -= CARS.truckLoad;
       market.stored += CARS.truckLoad;
@@ -2143,9 +2166,10 @@ export class Life {
       this.attraction.set(h.id, attract / 2.5);
       h.stored = guests;
       h.sales = (h.sales ?? 0) + guests * TOURISM.spend;
+      this.tally(h, 'Guests', guests);
       // tourists also shop in town
       const shops = own.filter((b) => b.workers > 0 && (b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'market'));
-      for (const s of shops) s.sales = (s.sales ?? 0) + (guests * 3) / shops.length;
+      for (const s of shops) { s.sales = (s.sales ?? 0) + (guests * 3) / shops.length; this.tally(s, 'Sold to tourists', guests / shops.length); }
       total += guests;
     }
     if (total > 0 && city.tourists === 0) say(t('The first tourists arrived in the city!'));
@@ -2517,6 +2541,8 @@ export class Life {
                 const cost = (100 - car.fuel) * FUEL.price;
                 f.money -= cost;
                 station.sales = (station.sales ?? 0) + cost;
+                this.tally(station, 'Fuel (litres)', Math.round(100 - car.fuel));
+                this.tally(station, 'Cars filled up');
                 car.fuel = 100;
                 c.activity = 'Refuelling';
                 if (!driveHome(station.access, buildings.door(station))) { car.at = 'home'; done(); }
@@ -2592,9 +2618,11 @@ export class Life {
     let spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1) * price);
     const town = this.c.eco.cities.get(b.city);
     // clothes from the factory sell best; raw cotton a little; furniture sells in the markets
-    if (b.kind === 'clothes' && town && town.garments >= 1) { this.c.eco.add(town, 'garments', -1, 'Clothing stores'); spend = Math.round(spend * 1.8); }
-    else if (b.kind === 'clothes' && town && town.cotton >= 1) { this.c.eco.add(town, 'cotton', -1, 'Clothing stores'); spend = Math.round(spend * 1.3); }
-    if ((b.kind === 'market' || b.kind === 'supermarket') && town && town.furniture >= 1 && f.money > 80 && Math.random() < 0.25) { this.c.eco.add(town, 'furniture', -1, 'Sold in the markets'); spend += 30; }
+    let item = food ? 'Food baskets' : b.kind === 'pharmacy' ? 'Medicine' : b.kind === 'clothes' ? 'Clothes' : 'Purchases';
+    if (b.kind === 'clothes' && town && town.garments >= 1) { this.c.eco.add(town, 'garments', -1, 'Clothing stores'); spend = Math.round(spend * 1.8); item = 'Factory clothes'; }
+    else if (b.kind === 'clothes' && town && town.cotton >= 1) { this.c.eco.add(town, 'cotton', -1, 'Clothing stores'); spend = Math.round(spend * 1.3); item = 'Cotton cloth'; }
+    if ((b.kind === 'market' || b.kind === 'supermarket') && town && town.furniture >= 1 && f.money > 80 && Math.random() < 0.25) { this.c.eco.add(town, 'furniture', -1, 'Sold in the markets'); spend += 30; this.tally(b, 'Furniture'); }
+    this.tally(b, item);
     // a pharmacy sells medicine: the sick feel better
     if (b.kind === 'pharmacy') { c.health = Math.min(100, c.health + 15); if (c.flu) c.flu = Math.max(0, c.flu - 1); }
     f.money -= spend;
@@ -2619,7 +2647,7 @@ export class Life {
     const { buildings, eco } = this.c;
     const shops = buildings.list.filter((b) => b.kind === 'bikefactory' && b.city === city.id && b.built >= 1);
     let left = bought;
-    for (const s of shops) { const take = Math.min(left, Math.floor(s.stored)); s.stored -= take; s.sales = (s.sales ?? 0) + take * BIKE.price; left -= take; }
+    for (const s of shops) { const take = Math.min(left, Math.floor(s.stored)); s.stored -= take; s.sales = (s.sales ?? 0) + take * BIKE.price; this.tally(s, 'Bicycles', take); left -= take; }
     if (shops[0]) shops[0].stored = Math.min(BIKE.max, shops[0].stored + sold);
     if (bought) eco.add(city, 'money', bought * BIKE.price, 'Bicycle sales');
     if (sold) eco.add(city, 'money', -sold * BIKE.buyBack, 'Old bicycles bought back');
@@ -2638,6 +2666,7 @@ export class Life {
     for (const m of markets) {
       const take = Math.min(sold, Math.floor(m.stored));
       m.stored -= take;
+      this.tally(m, 'Cars', take);
       sold -= take;
     }
     const factory = buildings.list.some((b) => b.kind === 'carfactory' && b.city === cityId && b.built >= 1);
@@ -3072,6 +3101,7 @@ export class Life {
     }
     this.cash(depot.city, BUS.fare - share, 'fares');
     depot.sales = (depot.sales ?? 0) + BUS.fare;
+    this.tally(depot, 'Bus tickets');
   }
 
   /** Check if a citizen can use public transit to travel from origin to dest. */
@@ -3257,7 +3287,7 @@ export class Life {
    * mountain tile, hack at it (dust and chips fly — grey stone, black coal, rusty iron), and move on now and then.
    */
   /** The rock face each quarry or mine works on: one rock tile, worked from one side until it is gone. */
-  private mineFaces = new Map<number, { rock: number; stand: { x: number; z: number }; tile: number; dx: number; dz: number; crew: number[] }>();
+  private mineFaces = new Map<number, { rock: number; stand: { x: number; z: number }; tile: number; dx: number; dz: number; crew: number[]; blows?: number }>();
   private mineFace(site: Building) {
     const { map, buildings } = this.c;
     const open = (k: number) => map.height[k] <= 0 && !map.water[k] && buildings.occ[k] === -1;
@@ -3284,7 +3314,7 @@ export class Life {
         .sort((p, q) => Math.hypot(p.t % N + 0.5 - cx, ((p.t / N) | 0) + 0.5 - cz) - Math.hypot(q.t % N + 0.5 - cx, ((q.t / N) | 0) + 0.5 - cz));
       for (const o of sides) {
         if (!pedPath(this.graph, this.graph.node(from), this.graph.node(o.t), 4000)) continue;
-        const face = { rock: k, tile: o.t, dx: o.dx, dz: o.dz, crew: [] as number[], stand: { x: tileToWorld(x + o.dx) - o.dx * 0.18, z: tileToWorld(z + o.dz) - o.dz * 0.18 } };
+        const face = { rock: k, tile: o.t, dx: o.dx, dz: o.dz, crew: [] as number[], blows: 0, stand: { x: tileToWorld(x + o.dx) - o.dx * 0.18, z: tileToWorld(z + o.dz) - o.dz * 0.18 } };
         this.mineFaces.set(site.id, face);
         return face;
       }
@@ -3317,6 +3347,15 @@ export class Life {
         if (!w || !atWork()) return;
         c.activity = site.kind === 'quarry' ? 'Breaking stone' : site.kind === 'coalmine' ? 'Digging coal' : 'Digging iron ore';
         if (Math.random() < 0.6) effects.puff(stand.x + (rockAt.x - stand.x) * 0.5, stand.z + (rockAt.z - stand.z) * 0.5, 0.18, 4, dust);
+        // every blow chips the rock: after enough of them a level of it breaks away and the mountain gets lower
+        f.blows = (f.blows ?? 0) + 1;
+        if (f.blows >= MINE_BLOWS && this.c.map.height[f.rock] > 0) {
+          f.blows = 0;
+          this.c.map.height[f.rock] -= 1;
+          this.c.terrain.queueReshape(f.rock);
+          effects.puff(rockAt.x, rockAt.z, 0.35, 12, dust);
+          if (this.c.map.height[f.rock] <= 0) { this.mineLoop(c, site); return; }
+        }
         if (--hits <= 0) { this.mineLoop(c, site); return; }
         walkers.holdFor(w, 1.4, 'chop', hack, { x: rockAt.x + (stand.x - f.stand.x), z: rockAt.z + (stand.z - f.stand.z) });
       };

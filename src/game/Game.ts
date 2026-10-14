@@ -2681,8 +2681,18 @@ export class Game implements ToolHost {
     if (!b.books && (b.owner >= 0 || BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind] || VISIT_PRICE[b.kind] || BUILDINGS[b.kind].revenue)) rows.push([t('Takings yesterday'), t('Known tomorrow')]);
     if (b.books) {
       const bk = b.books;
-      rows.push([t('Takings yesterday'), `$${bk.revenue}`], [t('Wages paid'), `−$${bk.wages}`], [t('Tax paid'), `−$${bk.tax}`]);
-      if (b.owner >= 0) rows.push([t("Owner's profit"), `+$${bk.profit}`, bk.profit > 0 ? 'good' : 'bad']);
+      const cash = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
+      const list = (it?: Record<string, number>) => Object.entries(it ?? {}).filter(([, n]) => n >= 0.5).sort((a, c) => c[1] - a[1]).map(([k, n]) => `${t(k)}: ${Math.round(n).toLocaleString('en-US')}`).join(' · ');
+      if (bk.revenue || b.owner >= 0) rows.push([t('Takings yesterday'), cash(bk.revenue)]);
+      else rows.push([t('Takings yesterday'), t('None (the town pays the wages)')]);
+      rows.push([t('Wages paid'), `−${cash(bk.wages)}`]);
+      if (bk.tax) rows.push([t('Tax paid'), `−${cash(bk.tax)}`]);
+      if (b.owner >= 0) rows.push([t("Owner's profit"), `${bk.profit >= 0 ? '+' : '−'}${cash(Math.abs(bk.profit))}`, bk.profit > 0 ? 'good' : 'bad']);
+      if (list(bk.items)) rows.push([t('Sold or made yesterday'), list(bk.items)]);
+      if (b.total && b.total.days > 1) {
+        if (b.total.revenue) rows.push([t('Takings since opening ({n} days)', { n: b.total.days }), cash(b.total.revenue)]);
+        if (list(b.total.items)) rows.push([t('Sold or made since opening'), list(b.total.items)]);
+      }
       if (b.owner >= 0 && BUILDINGS[b.kind].jobs) rows.push([t('Pay set by the owner'), `$${(BUILDINGS[b.kind].salary * (b.wageF ?? 1)).toFixed(1)}/${t('day')}`]);
     }
     const actions: NonNullable<InspectorView['actions']> = [];
@@ -2741,6 +2751,7 @@ export class Game implements ToolHost {
       rows.push([t('Iron per car'), `${CARS.iron}`], [t('Iron in stock'), `${Math.floor(city.iron)}`, city.iron < CARS.iron ? 'bad' : undefined]);
     }
     if (b.sales !== undefined && (b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'market' || b.kind === 'gasstation')) rows.push([t('Sales today'), `$${Math.round(b.sales)}`]);
+    if (b.sold && Object.keys(b.sold).length) rows.push([t('So far today'), Object.entries(b.sold).filter(([, n]) => n >= 0.5).sort((a, c) => c[1] - a[1]).map(([k, n]) => `${t(k)}: ${Math.round(n)}`).join(' · ') || '—']);
     if (b.kind === 'quarry') {
       bars.push({ label: t('Stone ready'), value: b.stored / QUARRY.maxStored, color: '#aab4be', text: `${Math.floor(b.stored)}/${QUARRY.maxStored}` });
       rows.push([t('Trucks'), `${b.trucks}/2`]);
@@ -3430,7 +3441,7 @@ export class Game implements ToolHost {
             const owner = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
             const bk = b.books!;
             return [`${t(BUILDINGS[b.kind].name)} · ${owner ? t('{name} family', { name: owner.surname }) : t('City-owned')}`,
-              `${t('takings')} $${bk.revenue} · ${t('tax')} $${bk.tax}${owner ? ` · ${t('profit')} ${bk.profit >= 0 ? '+' : '−'}$${Math.abs(bk.profit)}` : ''}`,
+              `${t('takings')} $${bk.revenue} · ${t('tax')} $${bk.tax}${owner ? ` · ${t('profit')} ${bk.profit >= 0 ? '+' : '−'}$${Math.abs(bk.profit)}` : ''}${(() => { const top = Object.entries(bk.items ?? {}).filter(([, n]) => n >= 0.5).sort((a, c) => c[1] - a[1])[0]; return top ? ` · ${t(top[0])}: ${Math.round(top[1])}` : ''; })()}`,
               bk.profit < 0 ? 'bad' : undefined, () => { this.cityReport?.hide(); this.cam.flyTo(b.mesh.position.x, b.mesh.position.z, 6); this.select({ type: 'building', id: b.id }); }] as [string, string, ('good' | 'bad' | undefined), () => void];
           }) : [[t('No business has taken any money yet'), '—']],
           note: t('Takings of all businesses yesterday: ${a}; business tax for the town: ${b}.', { a: Math.round(total), b: Math.round(tax) }) } as ReportSection];
@@ -4517,6 +4528,7 @@ export class Game implements ToolHost {
       const dir = b.rot === undefined ? 0 : Math.max(0, SIDES.findIndex((sd) => Math.abs(Math.atan2(Math.sin(sd.rot - b.rot!), Math.cos(sd.rot - b.rot!))) < 0.01));
       const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.built, level: b.level, owner: b.owner, preferredDir: dir });
       if (b.wageF !== undefined) nb.wageF = b.wageF;
+      if (b.total) nb.total = b.total;
       if (b.cropT !== undefined) nb.cropT = b.cropT;
       if (b.parent !== undefined) nb.parent = b.parent;
       if (b.cattleCount !== undefined) nb.cattleCount = b.cattleCount;
@@ -4571,7 +4583,7 @@ export class Game implements ToolHost {
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
         graves: b.graves, cattleCount: b.cattleCount, crop: b.cropKind, cropManual: b.cropManual || undefined,
         built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, parent: b.parent, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
-        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF,
+        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF, total: b.total,
       })),
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },
