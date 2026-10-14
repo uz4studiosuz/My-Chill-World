@@ -138,6 +138,10 @@ export class Life {
   batteryCap = 0;
   /** Food portions eaten per day, per city (by age). */
   private mouths = new Map<number, number>();
+  /** Each family: how much it eats per day and its city. */
+  private famNeed = new Map<number, { need: number; city: number }>();
+  /** Cities where families can buy food (a staffed food shop). */
+  private foodShops = new Set<number>();
   /** Share of homes heated this winter, per city. */
   private heated = new Map<number, number>();
   private routeCache = new Map<number, { t: number; stops: number[] }>();
@@ -303,7 +307,36 @@ export class Life {
         if (lot) out.push({ ...buildings.slot(lot, f.car.slot!), color });
       }
     }
+    // new cars for sale stand in a row in front of each car market
+    const SHOW = ['red', 'blue', 'white', 'black', 'silver', 'green', 'yellow', 'orange'];
+    for (const m of buildings.list) {
+      if (m.kind !== 'carmarket' || m.built < 1) continue;
+      const n = Math.min(8, Math.floor(m.stored));
+      const cr = Math.cos(m.rot), sr = Math.sin(m.rot);
+      for (let i = 0; i < n; i++) {
+        const lx = -0.78 + (i % 4) * 0.52, lz = i < 4 ? 0.7 : 0.38;
+        out.push({ x: m.mesh.position.x + lx * cr + lz * sr, z: m.mesh.position.z - lx * sr + lz * cr, rot: m.rot + Math.PI / 2, color: colorOf(SHOW[(m.id + i) % SHOW.length]) });
+      }
+    }
     return out;
+  }
+
+  /** Cars waiting for buyers in a town's car markets. */
+  carsInMarkets(cityId: number) {
+    return this.c.buildings.list.reduce((a, b) => a + (b.kind === 'carmarket' && b.city === cityId && b.built >= 1 ? Math.floor(b.stored) : 0), 0);
+  }
+
+  /** Take cars out of (n < 0) or put cars into (n > 0) a town's car markets; returns how many moved. */
+  moveCars(cityId: number, n: number) {
+    let left = Math.abs(n), moved = 0;
+    for (const m of this.c.buildings.list) {
+      if (m.kind !== 'carmarket' || m.city !== cityId || m.built < 1 || left <= 0) continue;
+      const k = n < 0 ? Math.min(left, Math.floor(m.stored)) : Math.min(left, Math.max(0, CARS.marketMax - Math.floor(m.stored)));
+      m.stored += n < 0 ? -k : k;
+      left -= k;
+      moved += k;
+    }
+    return moved;
   }
 
   roadUpkeep() {
@@ -335,7 +368,11 @@ export class Life {
       let n = 0;
       for (const c of pop.members(f)) n += c.age < 3 ? FOOD_RATE.baby : c.age < 14 ? FOOD_RATE.child : FOOD_RATE.adult;
       out.set(h.city, (out.get(h.city) ?? 0) + n);
+      this.famNeed.set(f.id, { need: n, city: h.city });
     }
+    for (const id of this.famNeed.keys()) if (!pop.families.has(id)) this.famNeed.delete(id);
+    this.foodShops.clear();
+    for (const b of buildings.list) if ((b.kind === 'grocery' || b.kind === 'market' || b.kind === 'supermarket' || b.kind === 'bakery') && b.built >= 1 && b.workers > 0) this.foodShops.add(b.city);
     return out;
   }
 
@@ -1042,6 +1079,7 @@ export class Life {
       else if (city.water < 0.8) reasons.push('Not enough water — build another water tower (one serves 160 people)');
       if (city.happiness < 45) reasons.push('People are unhappy (below 45%)');
       if (city.food < n * 2) reasons.push('Too little food in stock (needs 2 days of food)');
+      if (n > 0 && !this.foodShops.has(city.id)) reasons.push('No open food shop — families cannot buy food');
       if (city.powered < 0.6) reasons.push('Power shortage');
       if (vacancies < 2) reasons.push('No open jobs');
       city.migration = { vacancies, freeHomes: homes.length, unemployed, reasons };
@@ -1065,19 +1103,38 @@ export class Life {
   }
 
   /** Everyone eats a little all the time; shortages are remembered for the evening settlement. */
+  /**
+   * Families eat from the food they keep at home. When it runs low, they buy more in the town's food shops
+   * (the food leaves the town's stores); with no open food shop there is nothing to buy and people go hungry.
+   */
   private eat(dt: number) {
-    for (const city of this.c.eco.cities.values()) {
-      const need = ((this.mouths.get(city.id) ?? 0) * dt) / DAY_SECONDS;
-      if (need <= 0) continue;
-      const eaten = Math.min(Math.max(0, city.food), need);
-      city.food -= eaten;
-      this.c.eco.note(city, 'food', -eaten, 'Eaten by citizens');
+    const { pop, eco } = this.c;
+    const bought = new Map<number, number>();
+    for (const [id, fn] of this.famNeed) {
+      const f = pop.families.get(id);
+      const city = eco.cities.get(fn.city);
+      if (!f || !city || fn.need <= 0) continue;
+      if (f.pantry === undefined) f.pantry = fn.need * 2;
+      // shopping: keep about three days of food at home
+      if (f.pantry < fn.need * 1.5 && this.foodShops.has(city.id) && city.food > 0) {
+        const n = Math.min(city.food, fn.need * 3 - f.pantry);
+        city.food -= n;
+        f.pantry += n;
+        bought.set(city.id, (bought.get(city.id) ?? 0) + n);
+      }
+      const need = (fn.need * dt) / DAY_SECONDS;
+      const eaten = Math.min(Math.max(0, f.pantry), need);
+      f.pantry -= eaten;
       const m = this.meals.get(city.id) ?? { eaten: 0, short: 0 };
       m.eaten += eaten;
       m.short += need - eaten;
       this.meals.set(city.id, m);
     }
+    for (const [cid, n] of bought) { const city = eco.cities.get(cid); if (city) eco.note(city, 'food', -n, 'Bought by families in the shops'); }
   }
+
+  /** Is there a staffed food shop in the town (families can buy food)? */
+  hasFoodShop(cityId: number) { return this.foodShops.has(cityId); }
 
   // ---------- production ----------
 

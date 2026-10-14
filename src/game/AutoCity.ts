@@ -21,6 +21,12 @@ export interface AutoHost {
   networkChanged(): void;
   say(msg: string): void;
   happiness(cityId: number): number;
+  /** Dig an irrigation canal from a field to the nearest water. */
+  digCanal(farm: Building): void;
+  /** Pull a building down (half the cost back). */
+  demolish(b: Building): void;
+  /** Is this farm field watered (canal, river, rain)? */
+  irrigated(b: Building): boolean;
   /** Richest families of a town: name and savings. */
   richest(cityId: number): { name: string; money: number }[];
 }
@@ -82,7 +88,29 @@ export class AutoCity {
    * the town is rich; a loan in an emergency; surplus goods sold; booms, crises and millionaires go into the news.
    */
   private daily(city: City) {
-    const { eco } = this.h;
+    const { eco, buildings } = this.h;
+    // food security: with little food left the mayor buys from the traders (the treasury pays)
+    {
+      const ppl = this.h.people(city.id);
+      const want = ppl * 5 - city.food;
+      if (ppl > 0 && city.food < ppl * 3 && want > 0) {
+        const price = TRADE_PRICE.food * 1.25;
+        const n = Math.floor(Math.min(want, Math.max(0, city.money - 300) / price));
+        if (n > 0) {
+          eco.add(city, 'money', -n * price, 'Trade: goods bought');
+          eco.add(city, 'food', n, 'Bought from traders');
+          this.note(city, t('Food was running out: the mayor bought {n} food', { n }), n > ppl * 2);
+        }
+      }
+    }
+    // a building in the wrong place is pulled down (and built again where it works)
+    for (const b of buildings.list) {
+      if (b.city !== city.id || b.removed || b.built < 1 || b.kind === 'townhall') continue;
+      const noRoad = BUILDINGS[b.kind].needsRoad && b.access < 0;
+      const dry = b.kind === 'farm' && !this.h.irrigated(b) && Math.random() < 0.5;
+      if (dry) { this.h.digCanal(b); if (!this.h.irrigated(b) && Math.random() < 0.2) { this.h.demolish(b); this.note(city, t('A dry field was given up — a new one will be dug near water')); } continue; }
+      if (noRoad) { this.h.demolish(b); this.note(city, t('The {name} had no road — it was pulled down to be built again', { name: t(BUILDINGS[b.kind].name) })); break; }
+    }
     const style = this.styleOf(city);
     const people = this.h.people(city.id);
     const happy = this.h.happiness(city.id);
@@ -169,6 +197,7 @@ export class AutoCity {
     if (!spot) { this.growStreets(city, hall, own); return; }
     this.pay(city, want);
     const b = buildings.place(want, spot.x, spot.z, { city: city.id });
+    if (want === 'farm') this.h.digCanal(b);
     this.h.clearTiles(buildings.footprint(want, spot.x, spot.z).map((f) => idx(f.x, f.z)));
     this.h.networkChanged();
     this.note(city, t('Started building a {name}', { name: t(BUILDINGS[want].name) }));
@@ -192,11 +221,18 @@ export class AutoCity {
     if (!count('construction')) return 'construction';
     if (towers * BUILDINGS.watertower.water < people + 20) return 'watertower';
     if (plants < demand * 1.15 + 6) return city.iron >= 20 && city.money > 1500 ? 'windturbine' : 'powerplant';
-    if (city.food < people * 4 && count('farm') + count('orchard') < 2 + people / 40) return count('farm') <= count('orchard') ? 'farm' : 'orchard';
+    // food: enough fields for what the people eat (winter stores come from the harvest)
+    const fy = city.foodYesterday;
+    const short = fy.eaten > fy.made * 1.1 || city.food < people * 4;
+    const fields = count('farm') + count('orchard') + count('ranch') + count('fishery');
+    if (short && fields < 2 + people / 25) return count('farm') <= count('orchard') + 1 ? 'farm' : count('ranch') < count('orchard') ? 'ranch' : 'orchard';
+    if (people >= 30 && !count('grocery') && !count('market') && !count('supermarket')) return 'grocery';
     if (city.wood < 60 && count('woodcutter') < 2) return 'woodcutter';
     if (city.stone < 60 && !count('quarry')) return 'quarry';
-    if (free < 1) return people > 140 && city.iron >= 15 ? 'apartment' : 'house';
+    if (free < 1) return people > 400 && city.money > 16000 ? 'tower30' : people > 220 && city.money > 9000 ? 'tower15' : people > 140 && city.iron >= 15 ? 'apartment' : 'house';
     if (!count('grocery') && people >= 25) return 'grocery';
+    // stores almost full: a warehouse
+    if ((['food', 'wood', 'stone', 'iron', 'grain'] as const).some((r) => city[r] >= this.h.eco.capacity(city, r) * 0.85) && count('warehouse') < 4) return 'warehouse';
     if (!count('school') && people >= 35) return 'school';
     if (!count('kindergarten') && people >= 50) return 'kindergarten';
     if (!count('park') && people >= 45) return 'park';
@@ -261,10 +297,18 @@ export class AutoCity {
       if (score >= bd) continue;
       if (!buildings.check(kind, x, z).ok) continue;
       if (kind === 'farm' && !this.h.isWatered(x, z, 3) && map.arid[idx(x, z)] > 0.5) continue;
+      if (kind === 'farm' && !this.h.isWatered(x, z, 3) && !this.nearWater(x, z, 14)) continue;
       best = { x, z };
       bd = score;
     }
     return best;
+  }
+
+  /** Is there a river or lake within `r` tiles (a canal can reach it)? */
+  private nearWater(x: number, z: number, r: number) {
+    const { map } = this.h;
+    for (let dz = -r; dz <= r; dz += 2) for (let dx = -r; dx <= r; dx += 2) if (inBounds(x + dx, z + dz) && map.water[idx(x + dx, z + dz)]) return true;
+    return false;
   }
 
   /** How far the town reaches from its hall. */

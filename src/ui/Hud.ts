@@ -36,8 +36,10 @@ export const ITEMS: ToolItem[] = [
   { tool: 'path', cat: 'roads', name: 'Footpath', desc: 'Free walking path. People walk faster on paths than on grass.', money: 0, stone: 0, wood: 0, perTile: true, tag: 'Free · pedestrians', icon: 'path' },
   { tool: 'pipe', cat: 'roads', name: 'Water Pipe', desc: 'Underground pipe. Water runs under roads anyway; pipes bring it to homes and towers that are not on a road.', money: PIPE_COST.money, stone: 0, wood: 0, iron: PIPE_COST.iron, perTile: true, tag: 'Water to homes', icon: 'water' },
   { tool: 'canal', cat: 'roads', name: 'Irrigation Canal', desc: 'Dig from a river or lake to a crop farm — farms need water to grow.', money: 8, stone: 0, wood: 0, perTile: true, tag: 'Water for farms', icon: 'canal' },
-  b('townhall', 'buildings', 'New city', 'Found a new city with its own Town Hall, treasury and citizens. Select a Town Hall to build for that city.', 'buildings'),
   b('apartment', 'buildings', '6 families', 'Five floors, six flats. Families pay rent to the owner — the city or a businessman who built it.', 'office'),
+  b('tower15', 'buildings', '15 families', 'Five floors, fifteen flats. Families pay rent to the owner.', 'office'),
+  b('tower30', 'buildings', '30 families', 'Nine floors, thirty flats — many homes on a small plot. Uses a lot of electricity.', 'office'),
+  b('tower50', 'buildings', '50 families (3×3)', 'Fourteen floors and fifty flats: a whole neighbourhood in one tower. Needs iron and lots of power.', 'office'),
   b('house', 'buildings', 'One family', 'Home for one family (up to 10 people). Needs a road.', 'house'),
   b('watertower', 'buildings', 'Water for 160', 'Clean drinking water. Without it people get sick.', 'watertower'),
   b('park', 'buildings', 'Green space', 'A park with a pond and benches. People recover faster in a green town.', 'orchard'),
@@ -72,6 +74,7 @@ export const ITEMS: ToolItem[] = [
   b('gasstation', 'business', 'Fuel', 'Sells fuel to the town\'s drivers and pays business tax.', 'energy'),
   b('office', 'business', '24 jobs', 'Workplace with parking spaces in front.', 'office'),
   b('construction', 'business', 'Builders', 'Builders work here: they walk to every construction site and build it. Without a construction company nothing can be built (it can build itself and a Town Hall slowly).', 'quarry'),
+  b('warehouse', 'production', '+2000 storage', 'Keeps the town\'s goods: every warehouse stores 2,000 more of each good (2,500 food). Without room, new harvests and goods spoil.', 'production'),
   b('dairy', 'production', 'Milk → cheese', 'Ranches send milk in a tanker; the dairy makes cheese and ice cream for the shops (1.5 food per milk).', 'cow'),
   b('brickworks', 'production', 'Stone → bricks', 'Fires stone into bricks. Trucks bring bricks to construction sites, which go up faster.', 'quarry'),
   b('steelmill', 'production', 'Iron → steel', 'Melts iron into steel beams for big construction sites.', 'iron'),
@@ -100,6 +103,7 @@ export const ITEMS: ToolItem[] = [
   b('gym', 'business', 'Health', 'Fitness club: people who train fall ill less often and stay healthy longer.', 'heart'),
   b('teahouse', 'business', 'Choyxona', 'A national teahouse: cooks and waiters serve tea and plov. In the evening people gather here. Earns much more than a coffee cart.', 'food'),
   b('barber', 'business', 'Haircut', 'A cheap haircut that cheers people up right away.', 'people'),
+  b('concerthall', 'services', '120 seats', 'Music in the evening (a small ticket). Touring stars only come to a town with a concert hall: then tourists and residents fill the seats and the tickets pay.', 'heart'),
   b('casino', 'business', 'Big tax', 'Adults try their luck in the evening. The town takes 40% tax on the stakes. Rich families may build one too.', 'coin'),
   b('themepark', 'business', 'Rides (4×4)', 'Ferris wheel, carousel and a roller coaster. Families and children come at weekends and after school.', 'ball'),
   b('playground', 'decor', 'Children play', 'Swings, a slide and a sandbox. After school children come here to play.', 'heart'),
@@ -170,7 +174,7 @@ export interface HudHandlers {
   rotateBuild?: () => void;
 }
 
-export const SPEEDS = [0, 1, 3, 10, 50, 100];
+export const SPEEDS = [0, 1, 3, 10, 50, 100, 500];
 /** Readouts hidden behind the fold on narrow screens. */
 const SECONDARY = new Set(['stone', 'wood', 'iron', 'food', 'energy', 'water', 'jobs']);
 

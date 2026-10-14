@@ -57,7 +57,7 @@ export const DECISIONS: Decision[] = [
   },
   {
     id: 'concert', title: 'A famous singer is on tour',
-    when: (c) => c.people >= 40 && c.city.money >= 900,
+    when: (c) => c.has('concerthall') && c.city.money >= 900,
     text: 'A star offers to give a concert on the town square.',
     options: [
       { label: 'Book the concert', note: '−$900, +8 happiness for 3 days, tourists come', act: (c) => { c.add('money', -900, 'Concert'); c.mood(8, 3); c.tourists(30); } },

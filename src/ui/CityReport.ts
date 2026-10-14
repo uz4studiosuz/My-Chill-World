@@ -1,6 +1,7 @@
 import { el, icon } from './dom';
 import { t } from '../i18n/i18n';
 import { drawChart, Series } from './Chart';
+import type { InspectorView } from './Inspector';
 
 /** A block of the city report. */
 export interface ReportSection {
@@ -19,7 +20,11 @@ export interface ReportSection {
   note?: string;
 }
 
-export interface CityReportView { title: string; subtitle: string; tabs: { id: string; label: string; sections: ReportSection[] }[] }
+/** A tab: report sections, the town hall itself (figures and buttons), or another window shown inside (statistics, trade). */
+export interface ReportTab { id: string; label: string; sections?: ReportSection[]; hall?: InspectorView; embed?: string }
+export interface CityReportView { title: string; subtitle: string; tabs: ReportTab[] }
+/** A window that can live inside the town hall window (statistics, trade). */
+export interface Embed { el: () => HTMLElement; open: () => void; close: () => void }
 
 const fmtOf = (f?: string) => (n: number) => f === 'money' ? `$${Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : Math.round(n)}` : f === 'pct' ? `${Math.round(n)}%` : f === 'kw' ? `${Math.round(n)} kW` : Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`;
 
@@ -53,16 +58,31 @@ export class CityReport {
   private root: HTMLDivElement;
   visible = false;
   private tab = '';
-  private id = -1;
+  id = -1;
+  /** Called when the player closes the window. */
+  onClose?: () => void;
   private last = '';
 
-  constructor(parent: HTMLElement, private get: (cityId: number) => CityReportView | null) {
+  /** Embedded window currently shown, and where it came from. */
+  private embedded: { key: string; el: HTMLElement; home: HTMLElement | null } | null = null;
+
+  constructor(parent: HTMLElement, private get: (cityId: number) => CityReportView | null, private embeds: Record<string, Embed> = {}) {
     this.root = el('div', 'stats city-report');
     parent.appendChild(this.root);
   }
 
   open(cityId: number) { this.id = cityId; this.visible = true; this.root.classList.add('show'); this.render(); }
-  hide() { this.visible = false; this.root.classList.remove('show'); }
+  hide() { this.release(); this.visible = false; this.root.classList.remove('show'); }
+
+  /** Give an embedded window back to its place. */
+  private release() {
+    const e = this.embedded;
+    if (!e) return;
+    this.embedded = null;
+    this.embeds[e.key]?.close();
+    e.el.classList.remove('embedded');
+    if (e.home) e.home.appendChild(e.el);
+  }
 
   render() {
     if (!this.visible) return;
@@ -84,7 +104,7 @@ export class CityReport {
     const x = el('button', 'info-x');
     x.innerHTML = icon('close');
     x.setAttribute('aria-label', t('Close'));
-    x.addEventListener('click', () => this.hide());
+    x.addEventListener('click', () => { this.hide(); this.onClose?.(); });
     head.append(titles, x);
     const tabs = el('div', 'stats-tabs');
     for (const tb of v.tabs) {
@@ -95,7 +115,22 @@ export class CityReport {
     }
     const body = el('div', 'stats-body');
     const later: (() => void)[] = [];
-    for (const sec of v.tabs.find((x2) => x2.id === this.tab)?.sections ?? []) {
+    const cur = v.tabs.find((x2) => x2.id === this.tab);
+    // another window shown inside (statistics, trade)
+    if (cur?.embed && this.embeds[cur.embed]) {
+      const em = this.embeds[cur.embed];
+      if (this.embedded?.key !== cur.embed) {
+        this.release();
+        const node = em.el();
+        this.embedded = { key: cur.embed, el: node, home: node.parentElement };
+        em.open();
+        node.classList.add('embedded');
+      }
+      body.classList.add('cr-embed');
+      body.appendChild(this.embedded!.el);
+    } else this.release();
+    if (cur?.hall) this.renderHall(body, cur.hall);
+    for (const sec of cur?.sections ?? []) {
       const box = el('div', 'srows cr-sec');
       if (sec.wide || sec.kpis) box.style.gridColumn = '1 / -1';
       const tt = el('div', 'srows-title');
@@ -165,5 +200,57 @@ export class CityReport {
     this.root.append(head, tabs, body);
     body.scrollTop = scroll;
     later.forEach((f) => f());
+  }
+
+  /** The town hall's own panel, wide: figures as bars, rows in blocks, and its buttons. */
+  private renderHall(body: HTMLElement, h: InspectorView) {
+    const top = el('div', 'srows cr-sec');
+    top.style.gridColumn = '1 / -1';
+    if (h.tags?.length) {
+      const tags = el('div', 'cr-tags');
+      for (const tg of h.tags) { const s = el('span', `tag ${tg.tone}`); s.textContent = tg.text; tags.appendChild(s); }
+      top.appendChild(tags);
+    }
+    for (const b of h.bars ?? []) {
+      const row = el('div', 'wt-bar');
+      row.innerHTML = `<span></span><div><i></i></div><b></b>`;
+      (row.querySelector('span') as HTMLElement).textContent = b.label;
+      const bar = row.querySelector('i') as HTMLElement;
+      bar.style.width = `${Math.max(1, Math.min(1, b.value) * 100)}%`;
+      bar.style.background = b.color;
+      (row.querySelector('b') as HTMLElement).textContent = b.text ?? `${Math.round(b.value * 100)}%`;
+      top.appendChild(row);
+    }
+    if (h.actions?.length) {
+      const acts = el('div', 'cr-actions');
+      for (const a of h.actions) {
+        const btn = el('button', `btn-mini${a.active ? ' active' : ''}`);
+        btn.innerHTML = `${a.icon ? icon(a.icon) : ''}<span></span>`;
+        (btn.querySelector('span') as HTMLElement).textContent = a.label;
+        btn.addEventListener('click', () => { a.onClick(); this.last = ''; this.render(); });
+        acts.appendChild(btn);
+      }
+      top.appendChild(acts);
+    }
+    body.appendChild(top);
+    const block = (title: string, rows: [string, string, ('good' | 'bad')?][]) => {
+      if (!rows.length) return;
+      const box = el('div', 'srows cr-sec');
+      const tt = el('div', 'srows-title');
+      tt.textContent = title;
+      box.appendChild(tt);
+      for (const [k, val, tone] of rows) {
+        const r = el('div', 'info-row');
+        r.innerHTML = '<span></span><span></span>';
+        (r.children[0] as HTMLElement).textContent = k;
+        (r.children[1] as HTMLElement).textContent = val;
+        if (tone) (r.children[1] as HTMLElement).className = tone === 'good' ? 'pos' : 'neg';
+        box.appendChild(r);
+      }
+      body.appendChild(box);
+    };
+    block(h.subtitle || h.title, h.rows ?? []);
+    for (const s of h.sections ?? []) block(s.title, s.rows);
+    if (h.people?.length) block(h.listTitle ?? '', h.people.slice(0, 40).map((p) => [`${p.icon} ${p.name}`, p.detail] as [string, string]));
   }
 }

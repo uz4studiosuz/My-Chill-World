@@ -2,6 +2,7 @@
 // Every 3D element lives in its own file in ./buildings/ (one function per file, easy to find and improve).
 export * from './buildings/house';
 export * from './buildings/townHall';
+export * from './buildings/tower';
 export * from './buildings/office';
 export * from './buildings/parking';
 export * from './buildings/quarry';

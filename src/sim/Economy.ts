@@ -179,8 +179,21 @@ export class Economy {
   }
 
   /** Change a resource and write it into the books. */
+  /** How much of a good a town can keep (town hall + warehouses); set by the game. */
+  capacity: (city: City, res: Res) => number = () => Infinity;
+
   add(city: City, res: Res, amount: number, reason: string) {
     if (!amount) return;
+    if (amount > 0 && res !== 'money') {
+      // no room in the stores: what does not fit spoils
+      const room = Math.max(0, this.capacity(city, res) - city[res]);
+      if (amount > room) {
+        this.note(city, res, amount, reason);
+        this.note(city, res, -(amount - room), 'Spoiled — no room in the stores');
+        city[res] += room;
+        return;
+      }
+    }
     city[res] += amount;
     this.note(city, res, amount, reason);
   }

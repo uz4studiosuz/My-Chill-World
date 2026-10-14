@@ -34,7 +34,7 @@ export interface LeisureHost {
 /** About half of the adults are believers (fixed per person). */
 export const believer = (c: Citizen) => ((c.id * 2654435761) >>> 0) / 4294967296 < FAITH_SHARE;
 /** Visitors of these places go inside (the walker disappears until they come out). */
-const INDOOR = new Set(['casino', 'gym', 'barber']);
+const INDOOR = new Set(['casino', 'gym', 'barber', 'concerthall']);
 
 export type PetitionKind = 'shop' | 'school' | 'light' | 'park' | 'hospital' | 'busstop' | 'playground';
 
@@ -168,6 +168,7 @@ export class Leisure {
     // evening: the teahouse, the gym, the casino; a haircut in the daytime; rides after school
     if (tod > 0.74 && tod < 0.84) this.outings(['teahouse'], (c) => c.age >= 16, 0.04, 16, Math.min(0.92, tod + 0.08), 18, 'Drinking tea at the choyxona');
     if (tod > 0.74 && tod < 0.82) this.outings(['gym'], (c) => c.age >= 16 && c.age < 62, 0.03, 10, tod + 0.06, 16, 'Working out at the gym');
+    if (tod > 0.76 && tod < 0.82) this.outings(['concerthall'], (c) => c.age >= 12, this.concertTonight ? 0.25 : 0.02, this.concertTonight ? 120 : 30, 0.95, 26, this.concertTonight ? 'At a concert' : 'Listening to music');
     if (tod > 0.8 && tod < 0.9) this.outings(['casino'], (c) => c.age >= 21, 0.025, 20, 0.97, 24, 'Playing at the casino');
     if (tod > 0.4 && tod < 0.7) this.outings(['barber'], (c) => c.age >= 5, 0.008, 4, tod + 0.04, 12, 'Getting a haircut');
     if (!weekend && tod > 0.63 && tod < 0.7) this.outings(['themepark'], (c) => c.age >= 5 && c.age < 16, 0.04, 20, Math.min(0.8, tod + 0.1), 24, 'Riding the attractions');
@@ -635,6 +636,8 @@ export class Leisure {
   }
 
   get beautyOf() { return this.beauty; }
+  /** A touring star plays tonight: many more people come to the concert hall. */
+  concertTonight = false;
 
   // ---------- petitions ----------
 

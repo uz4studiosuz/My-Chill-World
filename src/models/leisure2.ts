@@ -9,3 +9,4 @@ export * from './leisure2/bigpark';
 export * from './leisure2/gym';
 export * from './leisure2/teahouse';
 export * from './leisure2/barber';
+export * from './leisure2/concertHall';

@@ -11,11 +11,16 @@ export interface TradeHost {
   buy(g: Good, n: number): void;
   /** Towns that run themselves: what they lack and what they have too much of. */
   neighbours(): Neighbour[];
+  /** Cars: in your car markets, room left, prices; sell (export) or buy (import) one car. */
+  cars(): { have: number; room: number; sell: number; buy: number; market: boolean };
+  carDeal(selling: boolean): void;
+  /** Sell cars to a neighbour town. */
+  carsTo(id: number): void;
   deal(id: number, g: Good, n: number, selling: boolean): void;
   gift(id: number): void;
 }
 
-export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[] }
+export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[]; carPrice?: number }
 
 /** Trade window: today's prices for every good, with buttons to sell and buy, and the partners. */
 export class TradePanel {
@@ -28,6 +33,9 @@ export class TradePanel {
   }
 
   toggle() { if (this.visible) this.hide(); else { this.visible = true; this.render(); } }
+  open() { this.visible = true; this.render(); }
+  /** The window element (it can be shown inside the town hall window). */
+  get element() { return this.root; }
 
   hide() {
     this.visible = false;
@@ -91,6 +99,25 @@ export class TradePanel {
       row.append(name, offer, btns);
       table.appendChild(row);
     }
+    // cars from your car markets: export them, or import when you have no car factory
+    const car = this.host.cars();
+    {
+      const row = el('div', 'trade-row');
+      const name = el('div', 'trade-name');
+      name.innerHTML = `<b></b><small></small>`;
+      (name.querySelector('b') as HTMLElement).textContent = t('Cars');
+      (name.querySelector('small') as HTMLElement).textContent = car.market ? t('{n} in the car markets', { n: car.have }) : t('Build a car market first');
+      const offer = el('div', 'trade-offer');
+      offer.innerHTML = `<span class="pos"></span><small></small><span class="neg"></span>`;
+      (offer.querySelector('.pos') as HTMLElement).textContent = `${t('Sell')} $${car.sell}`;
+      (offer.querySelector('small') as HTMLElement).textContent = t('per car');
+      (offer.querySelector('.neg') as HTMLElement).textContent = `${t('Buy')} $${car.buy}`;
+      const btns = el('div', 'trade-btns');
+      const mk = (label: string, cls: string, on: boolean, fn: () => void) => { const b = el('button', `btn-mini ${cls}`); b.textContent = label; b.disabled = !on; b.addEventListener('click', () => { fn(); this.render(); }); return b; };
+      btns.append(mk('−1', 'sell', car.have >= 1, () => this.host.carDeal(true)), mk('+1', 'buy', car.market && car.room > 0 && city.money >= car.buy, () => this.host.carDeal(false)));
+      row.append(name, offer, btns);
+      table.appendChild(row);
+    }
     body.appendChild(table);
 
     // neighbour towns: real towns on the map, trading with their own treasury
@@ -127,6 +154,17 @@ export class TradePanel {
           card.appendChild(row);
         };
         line(t('They need'), n.wants, true);
+        if (n.carPrice) {
+          const row = el('div', 'nb-row');
+          const l = el('small', '');
+          l.textContent = t('They want cars');
+          const b = el('button', 'btn-mini sell');
+          b.textContent = `${t('Cars')} −1 · $${n.carPrice}`;
+          b.disabled = car.have < 1 || n.money < n.carPrice;
+          b.addEventListener('click', () => { this.host.carsTo(n.id); this.render(); });
+          row.append(l, b);
+          card.appendChild(row);
+        }
         line(t('They sell'), n.offers, false);
         body.appendChild(card);
       }

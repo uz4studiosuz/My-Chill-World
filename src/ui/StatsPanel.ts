@@ -105,6 +105,9 @@ export class StatsPanel {
     parent.appendChild(this.root);
   }
 
+  /** The window element (it can be shown inside the town hall window). */
+  get element() { return this.root; }
+
   toggle() {
     if (this.visible) this.hide();
     else this.show();

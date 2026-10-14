@@ -5,7 +5,7 @@ export type BuildingKind =
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
   | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
-  | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber';
+  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber';
 
 
 /** How a building's workers behave while at work. */
@@ -131,6 +131,14 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   bench: def({ kind: 'bench', name: 'Benches', size: 1, money: 50, wood: 4, needsRoad: false }),
   lamppost: def({ kind: 'lamppost', name: 'Lamp Post', size: 1, money: 80, iron: 1, needsRoad: false, energy: 0.2 }),
   sapling: def({ kind: 'sapling', name: 'Tree', size: 1, money: 30, needsRoad: false }),
+  tower15: def({ kind: 'tower15', name: 'Block of 15 Flats', size: 2, money: 4500, stone: 80, wood: 25, iron: 25, housing: 10, units: 15, upkeep: 4, energy: 18,
+    slots: [[-0.75, 0.75, 0], [-0.45, 0.75, 0], [-0.15, 0.75, 0], [0.15, 0.75, 0], [0.45, 0.75, 0], [0.75, 0.75, 0]] }),
+  tower30: def({ kind: 'tower30', name: 'Block of 30 Flats', size: 2, money: 8000, stone: 140, wood: 30, iron: 50, housing: 10, units: 30, upkeep: 7, energy: 34,
+    slots: [[-0.75, 0.75, 0], [-0.45, 0.75, 0], [-0.15, 0.75, 0], [0.15, 0.75, 0], [0.45, 0.75, 0], [0.75, 0.75, 0]] }),
+  tower50: def({ kind: 'tower50', name: 'Block of 50 Flats', size: 3, money: 14000, stone: 220, wood: 40, iron: 90, housing: 10, units: 50, upkeep: 12, energy: 56,
+    slots: [[-1.2, 1.2, 0], [-0.9, 1.2, 0], [-0.6, 1.2, 0], [-0.3, 1.2, 0], [0.3, 1.2, 0], [0.6, 1.2, 0], [0.9, 1.2, 0], [1.2, 1.2, 0]] }),
+  warehouse: def({ kind: 'warehouse', name: 'Warehouse', size: 2, money: 900, stone: 20, wood: 30, jobs: 2, salary: 11, publicJob: true, upkeep: 2, energy: 1 }),
+  concerthall: def({ kind: 'concerthall', name: 'Concert Hall', size: 2, money: 2800, stone: 50, wood: 25, iron: 10, jobs: 5, salary: 15, publicJob: true, upkeep: 6, energy: 5 }),
   casino: def({ kind: 'casino', name: 'Casino', size: 2, money: 4000, stone: 50, wood: 10, iron: 15, jobs: 6, salary: 18, energy: 6 }),
   mosque: def({ kind: 'mosque', name: 'Mosque', size: 2, money: 1800, stone: 40, wood: 15, jobs: 2, salary: 12, publicJob: true, upkeep: 2, energy: 2 }),
   themepark: def({ kind: 'themepark', name: 'Amusement Park', size: 4, money: 3500, stone: 30, wood: 40, iron: 25, jobs: 6, salary: 13, upkeep: 4, energy: 6 }),
@@ -184,8 +192,12 @@ export const CHAIN2 = {
   /** Construction boost from each delivered material, and how much a delivery uses. */
   brickBoost: 1.3, steelBoost: 1.3, perSite: 3,
 };
+/** Storage: what the town hall can keep of each good, and what each warehouse adds (food keeps longer in its cold rooms). */
+export const STORAGE = { hall: 800, hallFood: 1500, warehouse: 2000, warehouseFood: 2500 };
+/** Concert hall: seats, and the ticket for a big concert by a touring star. */
+export const CONCERT = { seats: 120, ticket: 12 };
 /** Paid leisure and services: what a visit costs. Casino stakes are taxed at a higher rate. */
-export const VISIT_PRICE: Partial<Record<BuildingKind, [number, number]>> = { casino: [15, 70], themepark: [5, 9], gym: [3, 5], teahouse: [6, 14], barber: [3, 7] };
+export const VISIT_PRICE: Partial<Record<BuildingKind, [number, number]>> = { concerthall: [6, 10], casino: [15, 70], themepark: [5, 9], gym: [3, 5], teahouse: [6, 14], barber: [3, 7] };
 export const CASINO_TAX = 0.4;
 /** A share of the adults are believers who go to the mosque to pray. */
 export const FAITH_SHARE = 0.45;
@@ -237,6 +249,12 @@ export const POLICE_RANGE = 14;
 export const POWER_PRIORITY: Partial<Record<BuildingKind, number>> = {
   watertower: 0, hospital: 0, firestation: 1, police: 1, school: 2, townhall: 2, university: 2, busdepot: 3, house: 5,
 };
+/** Workplaces that need a school diploma or a degree (doctors, teachers, engineers, bankers…). */
+export const DEGREE_JOBS: Partial<Record<BuildingKind, boolean>> = {
+  hospital: true, school: true, university: true, academy: true, bank: true, office: true, pharmacy: true, kindergarten: true,
+  townhall: true, airport: true, steelmill: true, carfactory: true, coalplant: true, hydro: true, police: true,
+};
+
 /** Lower = filled first when people look for work (water, food, energy and materials keep the town alive). */
 export const JOB_PRIORITY: Partial<Record<BuildingKind, number>> = {
   watertower: 0, farm: 1, orchard: 1, ranch: 1, fishery: 1, powerplant: 1, construction: 1, woodcutter: 2, grocery: 2, quarry: 2, ironmine: 2, hospital: 3, townhall: 3, busdepot: 3, police: 3, firestation: 3, hotel: 4,

@@ -1386,3 +1386,19 @@ button.chip:hover { background: var(--raised); }
 }
 
 .home-btn { color: var(--accent); }
+
+/* ---------- town hall window: one big window with everything ---------- */
+.city-report { z-index: 9; }
+.cr-embed { display: block !important; padding: 0 !important; overflow: hidden; }
+.stats.embedded, .respanel.embedded {
+  position: static !important; inset: auto !important; transform: none !important; opacity: 1 !important; visibility: visible !important;
+  width: auto !important; max-width: none !important; height: 100% !important; max-height: none !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important;
+  display: flex !important; flex-direction: column; background: transparent !important;
+}
+.stats.embedded > .stats-head, .respanel.embedded > .rp-head { display: none !important; }
+.respanel.embedded .rp-body { max-height: none !important; overflow-y: auto; flex: 1; }
+.cr-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.cr-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cr-actions .btn-mini { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; }
+.cr-actions .btn-mini svg { width: 15px; height: 15px; }
+.cr-actions .btn-mini.active { background: var(--accent); color: var(--on-accent, #1c222c); }

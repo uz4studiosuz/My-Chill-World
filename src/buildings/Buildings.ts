@@ -16,7 +16,9 @@ import {
 } from '../models/extras';
 import { glowTexture, nightLevel, windowMaterial } from '../fx/NightGlow';
 import { siteTapeGeometry } from '../models/sitetape';
-import { barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
+import { warehouseGeometry } from '../models/chains2';
+import { tower15Geometry, tower30Geometry, tower50Geometry } from '../models/buildings';
+import { concertHallGeometry, barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
 import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
 import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
 import { box, hash2, merge } from '../utils/voxel';
@@ -182,6 +184,11 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'airport': return airportGeometry();
     case 'pharmacy': return pharmacyGeometry();
     case 'casino': return casinoGeometry();
+    case 'concerthall': return concertHallGeometry();
+    case 'warehouse': return warehouseGeometry();
+    case 'tower15': return tower15Geometry();
+    case 'tower30': return tower30Geometry();
+    case 'tower50': return tower50Geometry();
     case 'mosque': return mosqueGeometry();
     case 'themepark': return themeparkGeometry();
     case 'bigpark': return bigparkGeometry();

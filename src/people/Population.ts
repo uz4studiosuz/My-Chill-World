@@ -1,5 +1,5 @@
 import { DAYS_PER_YEAR } from '../config';
-import { BUILDINGS, JOB_PRIORITY, RENT } from '../buildings/BuildingTypes';
+import { BUILDINGS, JOB_PRIORITY, RENT, DEGREE_JOBS } from '../buildings/BuildingTypes';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { Walker } from './Walkers';
 import { clanName, firstName } from './names';
@@ -57,7 +57,7 @@ export interface Citizen {
 export interface StoryEntry { d: number; a: number; k: string; p?: Record<string, string | number> }
 
 /** Workplaces that keep running at night: a third of the staff works the night shift. */
-export const NIGHT_SHIFT: Partial<Record<string, boolean>> = { factory: true, carfactory: true, hospital: true, police: true, firestation: true, powerplant: true, hotel: true, busdepot: true, trainstation: true, military: true };
+export const NIGHT_SHIFT: Partial<Record<string, boolean>> = { factory: true, carfactory: true, hospital: true, police: true, firestation: true, powerplant: true, coalplant: true, hydro: true, hotel: true, busdepot: true, trainstation: true, military: true, airport: true, watertower: true, sewage: true, gasstation: true };
 /** Night shift pays this much more. */
 export const NIGHT_BONUS = 1.5;
 const MAX_STORY = 40;
@@ -82,6 +82,8 @@ export interface Family {
   debtDays: number;
   /** Owed to the bank (taken to build a house or a business). */
   loan?: number;
+  /** Food kept at home (bought in the shops, eaten at meals). */
+  pantry?: number;
 }
 
 export interface DeathReport {
@@ -274,7 +276,7 @@ export class Population {
       if (c.job >= 0 && (!free.has(c.job) || !this.canWork(c) || free.get(c.job)! <= 0)) c.job = -1;
       if (c.job >= 0) free.set(c.job, free.get(c.job)! - 1);
     }
-    const nearest = (pool: Map<number, number>, from: Building | undefined, kind?: string) => {
+    const nearest = (pool: Map<number, number>, from: Building | undefined, kind?: string, who?: Citizen) => {
       let best = -1, bd = Infinity;
       for (const [id, n] of pool) {
         if (n <= 0) continue;
@@ -282,8 +284,10 @@ export class Population {
         if (kind && b.kind !== kind) continue;
         if (from && b.city !== from.city) continue;
         // jobs: the most needed first; among equal ones the emptier workplace wins, so newcomers spread out evenly
-        const fill = kind ? 0 : (1 - n / Math.max(1, BUILDINGS[b.kind].jobs)) * 30;
-        const d = (from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0) + (kind ? 0 : this.priority(b) * 200 + fill);
+        const fill = kind ? 0 : (1 - n / Math.max(1, BUILDINGS[b.kind].jobs)) * 80;
+        const pay = kind ? 0 : -BUILDINGS[b.kind].salary * this.wageFactor(b) * 1.5;
+        const diploma = kind || !who ? 0 : DEGREE_JOBS[b.kind] ? (who.skill >= 1 ? -25 : 120) : who.skill >= 1 ? 10 : 0;
+        const d = (from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0) + (kind ? 0 : this.priority(b) * 200 + fill + pay + diploma);
         if (d < bd) { bd = d; best = id; }
       }
       return best;
@@ -294,7 +298,7 @@ export class Population {
         if (id >= 0) { c.school = id; seats.set(id, seats.get(id)! - 1); }
       }
       if (c.job < 0 && this.canWork(c)) {
-        const id = nearest(free, homeOf(c));
+        const id = nearest(free, homeOf(c), undefined, c);
         if (id >= 0) { c.job = id; free.set(id, free.get(id)! - 1); }
       }
     }
@@ -358,11 +362,12 @@ export class Population {
       if (c.night && !was) this.note(c, 'Moved to the night shift (+50% pay)');
       if (c.night) {
         // the night shift starts in the evening and ends the next morning
-        c.leaveAt = rand(0.8, 0.84);
-        c.returnAt = rand(0.27, 0.31);
+        // the night shift comes before the day shift leaves and goes home after the next day shift arrives
+        c.leaveAt = rand(0.68, 0.71);
+        c.returnAt = rand(0.33, 0.36);
       } else if (c.job >= 0) {
-        c.leaveAt = rand(0.24, 0.33);
-        c.returnAt = rand(0.7, 0.78);
+        c.leaveAt = rand(0.24, 0.3);
+        c.returnAt = rand(0.73, 0.78);
       } else if (c.school >= 0) {
         c.leaveAt = rand(0.28, 0.32);
         c.returnAt = rand(0.6, 0.65);
@@ -452,7 +457,7 @@ export class Population {
         r.spent[kind] += spend;
       }
       const flat = buildings.get(f.home);
-      if (flat?.kind === 'apartment') {
+      if (flat && BUILDINGS[flat.kind].units > 1) {
         earned -= RENT;
         r.rent.set(flat.id, (r.rent.get(flat.id) ?? 0) + RENT);
       }
@@ -620,7 +625,7 @@ export class Population {
   serialize() {
     return [...this.families.values()].map((f) => ({
       id: f.id, surname: f.surname, home: f.home, money: Math.round(f.money), income: f.income,
-      car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, debtDays: f.debtDays, loan: f.loan ? Math.round(f.loan) : undefined,
+      car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, debtDays: f.debtDays, loan: f.loan ? Math.round(f.loan) : undefined, pantry: f.pantry === undefined ? undefined : Math.round(f.pantry * 10) / 10,
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
@@ -633,7 +638,7 @@ export class Population {
     this.citizens.clear();
     this.families.clear();
     for (const fd of data) {
-      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan };
+      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan, pantry: fd.pantry };
       this.families.set(f.id, f);
       this.nextFamily = Math.max(this.nextFamily, f.id + 1);
       for (const m of fd.members) {
