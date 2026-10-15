@@ -1671,7 +1671,13 @@ body.ui2 .dock .drawer .card .tag { display: none; }
 body.ui2 .dock .drawer .card .cost { margin-top: 2px; gap: 2px; }
 body.ui2 .dock .drawer .card .cost span { padding: 1px 4px; font-size: 10px; background: var(--raised); }
 body.ui2 .dock .drawer .card .cost svg { width: 10px; height: 10px; }
-body.ui2 .dock .drawer .card-count { position: absolute; top: 3px; right: 4px; font: 700 10px var(--font-ui); color: var(--muted); }
+body.ui2 .dock .drawer .card-count { top: 4px; right: 4px; min-width: 0; padding: 1px 5px; border-radius: 6px; background: rgba(13, 15, 19, 0.78); color: var(--accent); border: 1px solid var(--line); font: 700 10px/1.3 var(--font-ui); }
+/* tiles of one height: the image, the name, then the costs on one line (they shrink to fit) */
+body.ui2 .dock .drawer .cards { align-items: stretch; }
+body.ui2 .dock .drawer .card { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+body.ui2 .dock .drawer .card .cost { flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 100%; margin-top: auto; }
+body.ui2 .dock .drawer .card .cost span { padding: 1px 3px; font-size: 9.5px; gap: 1px; }
+body.ui2 .dock .drawer .card .cost i { display: none; }
 body.ui2 .dock .drawer-desc { margin: 2px 2px 0; padding: 4px 2px 0; min-height: 0; border-top: 1px solid var(--frame-line); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
 body.ui2 .dock.min .drawer { display: none; }
 body.ui2 .dock.min .dock-tools { flex-direction: row; padding: 6px; }
@@ -1683,7 +1689,8 @@ body.ui2 .inspector { left: auto; right: 0; top: calc(var(--top-h) + env(safe-ar
 body.ui2 .stats { left: calc((100vw - var(--side-w)) / 2) !important; top: calc(var(--top-h) + 10px) !important; bottom: calc(var(--dock-h) + 10px) !important; width: min(1080px, calc(100vw - var(--side-w) - 24px)) !important; }
 body.ui2 .goals { right: calc(var(--side-w) + 10px); top: calc(var(--top-h) + 10px); bottom: calc(var(--dock-h) + 10px); }
 body.ui2 .respanel, body.ui2 .news { top: calc(var(--top-h) + 10px); left: calc((100vw - var(--side-w)) / 2); max-height: calc(100vh - var(--top-h) - var(--dock-h) - 20px); overflow-y: auto; }
-body.ui2 .layerbar { right: calc(var(--side-w) + 10px); top: calc(var(--top-h) + 10px); transform: none; }
+/* the map layer buttons sit at the lower left of the map, clear of the windows on the right */
+body.ui2 .layerbar { left: 10px; right: auto; top: auto; bottom: calc(var(--dock-h) + 10px); transform: none; flex-direction: column; }
 body.ui2 .hint { bottom: calc(var(--dock-h) + 10px); left: calc((100vw - var(--side-w)) / 2); }
 body.ui2 .pending { bottom: calc(var(--dock-h) + 12px); left: calc((100vw - var(--side-w)) / 2); }
 body.ui2 .toast { top: calc(var(--top-h) + 12px); left: calc((100vw - var(--side-w)) / 2); }
@@ -1738,6 +1745,6 @@ body.ui2.photo-mode .topbar, body.ui2.photo-mode .sidebar, body.ui2.photo-mode .
   body.ui2 .inspector { left: 0; right: 0; width: auto; top: auto; bottom: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px)); max-height: 58vh; border-left: 0; border-top: 1px solid var(--frame-line); border-radius: 14px 14px 0 0; }
   body.ui2 .stats { left: 6px !important; right: 6px !important; width: auto !important; transform: none !important; }
   body.ui2 .goals, body.ui2 .eventlog { left: 6px; right: 6px; width: auto; top: calc(var(--top-h) + 8px); bottom: calc(var(--dock-h) + 8px); height: auto; }
-  body.ui2 .layerbar { right: 8px; left: auto; top: calc(var(--top-h) + 10px); bottom: auto; flex-direction: column; }
+  body.ui2 .layerbar { left: 8px; right: auto; top: auto; bottom: calc(var(--dock-h) + 10px); flex-direction: column; }
   body.ui2 .hint, body.ui2 .pending, body.ui2 .toast, body.ui2 .respanel, body.ui2 .news { left: 50%; }
 }
