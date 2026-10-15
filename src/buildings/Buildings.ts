@@ -21,7 +21,7 @@ import { siteTapeGeometry } from '../models/sitetape';
 import { warehouseGeometry, bikeFactoryGeometry, migrationOfficeGeometry, gazeboGeometry, pondGeometry, clockTowerGeometry, flagpoleGeometry, planterGeometry, archwayGeometry } from '../models/chains2';
 import { tower15Geometry, tower30Geometry, tower50Geometry } from '../models/buildings';
 import { concertHallGeometry, barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
-import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, dairyShopGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
+import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, dairyShopGeometry, garageGeometry, metroGeometry, cctvGeometry, leveeGeometry, embassyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
 import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
 import { box, hash2, merge, shape } from '../utils/voxel';
 
@@ -105,6 +105,10 @@ export interface Building {
   forSale?: number;
   /** The player's town that paid for this building on a neighbour's land (it gets half of what it earns or makes). */
   investor?: number;
+  /** Shares other towns (the player) hold in this business: town id and fraction of the profit. */
+  shares?: { city: number; pct: number }[];
+  /** A bus depot's own route drawn by the player: the stops in order (empty = the buses find their own). */
+  route?: number[];
   /** A fire truck is already on its way. */
   fireCrew?: boolean;
   /** Cemetery: buried records. */
@@ -203,6 +207,11 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'airport': return airportGeometry();
     case 'pharmacy': return pharmacyGeometry();
     case 'dairyshop': return dairyShopGeometry();
+    case 'garage': return garageGeometry();
+    case 'metro': return metroGeometry();
+    case 'cctv': return cctvGeometry();
+    case 'levee': return leveeGeometry();
+    case 'embassy': return embassyGeometry();
     case 'casino': return casinoGeometry();
     case 'concerthall': return concertHallGeometry();
     case 'warehouse': return warehouseGeometry();

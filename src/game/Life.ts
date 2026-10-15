@@ -75,6 +75,10 @@ export interface ActiveBusState {
 }
 
 const TRUCKS_PER_QUARRY = 2;
+/** Cars a multi-storey car park holds on each level. */
+export const GARAGE_CARS = 24;
+/** Fare for one metro ride. */
+export const METRO_FARE = 2;
 const PARK_RADIUS = 20;
 const IMMIGRATION_INTERVAL = DAY_SECONDS / 3;
 const ROAD_UPKEEP = 0.1;
@@ -347,6 +351,16 @@ export class Life {
     return out;
   }
 
+  /** Cars parked inside each multi-storey car park (garage id → cars). */
+  garageUse = new Map<number, number>();
+  /** Cars standing in each open parking lot now. */
+  lotUse = new Map<number, number>();
+  /** Cars parked along the kerb in each town. */
+  kerbUse = new Map<number, number>();
+  /** Passengers waiting at a stop now. */
+  waitingAt(stopId: number) { return this.busWaiters.get(stopId)?.length ?? 0; }
+  /** Count something a business sold (for its books). */
+  countSale(b: Building, item: string, n = 1) { this.tally(b, item, n); }
   private parkCache?: { t: number; out: { x: number; z: number; rot: number; color: THREE.Color }[] };
 
   /**
@@ -365,6 +379,8 @@ export class Life {
     const free = (x: number, z: number) => { for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (taken.has(cell(x + dx * 0.12, z + dz * 0.12))) return false; return true; };
     const put = (p: { x: number; z: number; rot: number }, color: THREE.Color) => { out.push({ ...p, color }); taken.add(cell(p.x, p.z)); };
     const overflow: { h: Building; color: THREE.Color }[] = [];
+    const lotUse = new Map<number, number>();
+    const kerb = new Map<number, number>();
     for (const f of pop.families.values()) {
       if (!f.car || f.car.at === 'moving') continue;
       const color = colorOf(f.car.color);
@@ -374,38 +390,67 @@ export class Life {
         const i = at.get(h.id) ?? 0;
         at.set(h.id, i + 1);
         const slots = BUILDINGS[h.kind].slots.length;
-        if (i < slots) put(buildings.slot(h, i), color);
+        const p = i < slots ? buildings.slot(h, i) : null;
+        if (p && free(p.x, p.z)) put(p, color);
         else overflow.push({ h, color });
       } else if (f.car.lot !== undefined) {
+        // a car out at a parking lot: in its own space (never on another car; one more than the lot holds waits on the kerb)
         const lot = buildings.get(f.car.lot);
-        if (lot) put(buildings.slot(lot, f.car.slot!), color);
+        if (!lot) continue;
+        const p = buildings.slot(lot, f.car.slot!);
+        if (free(p.x, p.z) && (lotUse.get(lot.id) ?? 0) < BUILDINGS[lot.kind].slots.length) { put(p, color); lotUse.set(lot.id, (lotUse.get(lot.id) ?? 0) + 1); }
+        else { const h = buildings.get(f.home); if (h) overflow.push({ h, color }); }
       }
     }
-    // the home's spaces are full: along the kerb of its street, on the home's side, up to two tiles each way
+    // the home's spaces are full: a parking lot or garage nearby, else a straight row along the kerb of its street
+    // (the home's side first, then across), as far down the street as it takes
+    const garages = buildings.list.filter((b) => (b.kind === 'parking' || b.kind === 'garage') && b.built >= 1 && !b.removed);
+    const inGarage = new Map<number, number>();
     for (const { h, color } of overflow) {
-      if (h.access < 0) continue;
+      const lot = garages.filter((g) => Math.abs(g.x - h.x) + Math.abs(g.z - h.z) <= 8).sort((a, b) => Math.abs(a.x - h.x) + Math.abs(a.z - h.z) - (Math.abs(b.x - h.x) + Math.abs(b.z - h.z)));
+      let done = false;
+      for (const g of lot) {
+        if (g.kind === 'garage') {
+          // a multi-storey car park: the car goes inside (up to its floors' room)
+          const n = inGarage.get(g.id) ?? 0;
+          if (n < GARAGE_CARS * (g.level || 1)) { inGarage.set(g.id, n + 1); done = true; break; }
+          continue;
+        }
+        const slots = BUILDINGS[g.kind].slots.length;
+        if ((lotUse.get(g.id) ?? 0) >= slots) continue;
+        for (let i = 0; i < slots && !done; i++) { const p = buildings.slot(g, i); if (!this.spots.has(`${g.id}:${i}`) && free(p.x, p.z)) { put(p, color); done = true; lotUse.set(g.id, (lotUse.get(g.id) ?? 0) + 1); } }
+        if (done) break;
+      }
+      if (done || h.access < 0) continue;
       const ax = h.access % N, az = (h.access / N) | 0;
       const s = BUILDINGS[h.kind].size;
       const bx = h.x + (s - 1) / 2, bz = h.z + (s - 1) / 2;
-      const side = Math.abs(bx - ax) >= Math.abs(bz - az) ? { x: Math.sign(bx - ax), z: 0 } : { x: 0, z: Math.sign(bz - az) };
-      const along = { x: -side.z, z: side.x };
+      const home = Math.abs(bx - ax) >= Math.abs(bz - az) ? { x: Math.sign(bx - ax), z: 0 } : { x: 0, z: Math.sign(bz - az) };
+      const along = { x: -home.z, z: home.x };
       const rot = Math.atan2(along.x, along.z);
-      let done = false;
-      for (const step of [0, 1, -1, 2, -2]) {
-        const tx = ax + along.x * step, tz = az + along.z * step;
-        if (!inBounds(tx, tz)) continue;
-        const k = tz * N + tx;
-        if (!net.type[k] || net.isIntersection(k) || net.isRing(k)) continue;
-        for (const o of [-0.22, 0.22]) {
-          const x = tileToWorld(tx) + side.x * 0.36 + along.x * o, z = tileToWorld(tz) + side.z * 0.36 + along.z * o;
-          if (!free(x, z)) continue;
-          put({ x, z, rot }, color);
-          done = true;
-          break;
+      for (const side of [home, { x: -home.x, z: -home.z }]) {
+        for (let i = 0; i <= 20 && !done; i++) {
+          const step = i % 2 ? (i + 1) / 2 : -i / 2;
+          const tx = ax + along.x * step, tz = az + along.z * step;
+          if (!inBounds(tx, tz)) continue;
+          const k = tz * N + tx;
+          if (!net.type[k] || net.isIntersection(k) || net.isRing(k) || this.c.map.water[k]) continue;
+          // only along a straight piece of the same street
+          for (const o of [-0.22, 0.22]) {
+            const x = tileToWorld(tx) + side.x * 0.36 + along.x * o, z = tileToWorld(tz) + side.z * 0.36 + along.z * o;
+            if (!free(x, z)) continue;
+            put({ x, z, rot }, color);
+            kerb.set(h.city, (kerb.get(h.city) ?? 0) + 1);
+            done = true;
+            break;
+          }
         }
         if (done) break;
       }
     }
+    this.garageUse = inGarage;
+    this.kerbUse = kerb;
+    this.lotUse = lotUse;
     // new cars for sale stand in a row in front of each car market
     const SHOW = ['red', 'blue', 'white', 'black', 'silver', 'green', 'yellow', 'orange'];
     for (const m of buildings.list) {
@@ -756,6 +801,7 @@ export class Life {
     const { pop, eco, buildings, terrain, weather } = this.c;
     pop.day = eco.day;
     this.checkDepleted();
+    this.metroDay();
     this.buySaws();
     for (const f of pop.families.values()) { f.earnY = f.earn ?? {}; f.earn = {}; }
     const cities = [...eco.cities.values()];
@@ -792,7 +838,8 @@ export class Life {
         const owner = flat && flat.owner >= 0 ? pop.families.get(flat.owner) : undefined;
         if (owner) this.earn(owner, amount, 'Rent from flats'); else rentToCity += amount;
       }
-      const interest = city.loan * LOAN.interest;
+      // a good credit rating makes the loan cheaper (×0.6 at 100, ×1.6 at 0)
+      const interest = city.loan * LOAN.interest * (1.6 - (city.credit ?? 60) / 100);
       const upkeep = Math.round(roadShare + interest + buildings.list.reduce((a, b) => (b.city === city.id ? a + BUILDINGS[b.kind].upkeep : a), 0));
       // business tax: turnover of staffed shops, factories, banks… plus market and car dealer sales
       // each business pays 20% tax on its turnover; a family owner keeps a share as profit
@@ -956,8 +1003,11 @@ export class Life {
     terrain.regrow();
     this.rained.clear();
     const month = monthOf(eco.day);
-    this.festival = month === 2 ? 'Navruz' : month === 0 ? 'New Year' : null;
-    if (this.festival) this.events.push(t(this.festival === 'Navruz' ? 'Happy Navruz! Festivities in the parks and squares' : 'Happy New Year! Fireworks over the city tonight'));
+    this.festival = month === 2 ? 'Navruz' : month === 0 ? 'New Year' : month === 8 ? 'Independence Day' : null;
+    if (this.festival) this.events.push(t(this.festival === 'Navruz' ? 'Happy Navruz! Festivities in the parks and squares' : this.festival === 'Independence Day' ? 'Happy Independence Day! Concerts on the squares and fireworks tonight' : 'Happy New Year! Fireworks over the city tonight'));
+    // a holiday brings visitors: every town with a park or a square gets tourists for the festival
+    if (this.festival) for (const city of eco.cities.values()) if (buildings.list.some((b) => b.city === city.id && (b.kind === 'park' || b.kind === 'bigpark' || b.kind === 'townhall'))) city.tourists += 3;
+    this.weatherEvents(seasonOf(month));
     const season = seasonOf(month);
     if (!this.calm && season === 'summer' && weather.drought <= 0 && Math.random() < 0.1) {
       weather.drought = 3;
@@ -1108,11 +1158,12 @@ export class Life {
     const builder = rich.find((f) => this.purse(f, cityId) > cost + 400);
     const home = builder && buildings.get(builder.home);
     if (!builder || !home) return;
-    for (let r = 1; r <= 6; r++) {
+    const zs = this.zonedSpot(kind, home);
+    for (let r = zs ? 0 : 1; r <= 6; r++) {
       for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
-        const x = home.x + dx, z = home.z + dz;
-        if (!buildings.check(kind, x, z).ok) continue;
+        const x = zs && r === 0 ? zs.x : home.x + dx, z = zs && r === 0 ? zs.z : home.z + dz;
+        if (!buildings.check(kind, x, z).ok || !this.zoneOk(kind, x, z, false)) continue;
         if (!this.buyMaterials(builder, cityId, kind, say)) return;
         builder.money -= cost;
         this.privateBuild.set(cityId, eco.day);
@@ -1319,13 +1370,59 @@ export class Life {
   }
 
   /** Find a buildable spot near a family's home and build there. */
+  /** Zoning painted by the player (set by the game): 0 none, 1 homes, 2 shops and offices, 3 factories. */
+  zoneAt?: (x: number, z: number) => number;
+
+  /** Which zone a private building belongs in (0 = anywhere). */
+  private zoneFor(kind: BuildingKind) {
+    if (BUILDINGS[kind].units) return 1;
+    if (kind === 'factory' || kind === 'bikefactory' || kind === 'carfactory') return 3;
+    if (SHOP_PRICE[kind] || VISIT_PRICE[kind] || BUSINESS_KINDS.includes(kind) || kind === 'hotel' || kind === 'gasstation') return 2;
+    return 0;
+  }
+
+  /** Does a private building fit the zoning here (its own zone or unzoned land; never another zone)? */
+  private zoneOk(kind: BuildingKind, x: number, z: number, strict: boolean) {
+    if (!this.zoneAt) return !strict;
+    const want = this.zoneFor(kind);
+    for (const tl of this.c.buildings.footprint(kind, x, z)) {
+      const zz = this.zoneAt(tl.x, tl.z);
+      if (strict ? zz !== want : zz !== 0 && zz !== want) return false;
+    }
+    return true;
+  }
+
+  /** The nearest free spot in the building's own zone around a place (zoned land is used first). */
+  private zonedSpot(kind: BuildingKind, near: Building) {
+    const { buildings } = this.c;
+    if (!this.zoneAt || !this.zoneFor(kind)) return null;
+    for (let r = 1; r <= 16; r++) {
+      for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const x = near.x + dx, z = near.z + dz;
+        if (!this.zoneOk(kind, x, z, true) || !buildings.check(kind, x, z).ok) continue;
+        if (this.streetRoom && !this.streetRoom(near.city, kind, x, z)) continue;
+        return { x, z };
+      }
+    }
+    return null;
+  }
+
   private privateSite(kind: 'house' | 'gasstation' | 'apartment' | 'casino', home: Building, build: (x: number, z: number) => boolean) {
     const { buildings, terrain } = this.c;
+    // zoned land first
+    const zs = this.zonedSpot(kind, home);
+    if (zs) {
+      if (!build(zs.x, zs.z)) return false;
+      terrain.clearTiles(buildings.footprint(kind, zs.x, zs.z).map((tl) => tl.z * N + tl.x));
+      this.rebuildGrid();
+      return true;
+    }
     for (let r = 1; r <= 6; r++) {
       for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const x = home.x + dx, z = home.z + dz;
-        if (!buildings.check(kind, x, z).ok) continue;
+        if (!buildings.check(kind, x, z).ok || !this.zoneOk(kind, x, z, false)) continue;
         if (this.streetRoom && !this.streetRoom(home.city, kind, x, z)) continue;
         if (!build(x, z)) return false;
         terrain.clearTiles(buildings.footprint(kind, x, z).map((tl) => tl.z * N + tl.x));
@@ -1684,6 +1781,66 @@ export class Life {
         onFail: () => { b.stored += LOAD; b.trucks = Math.max(0, b.trucks - 1); },
       });
       if (sent) { b.stored -= LOAD; b.trucks++; this.tally(b, 'Logs sent', LOAD); }
+    }
+  }
+
+  /**
+   * Once a day: with two or more staffed metro stations a town has an underground line. Working people living near a
+   * station ride it to work; every ride pays the fare to the town and they are a little happier (less traffic).
+   */
+  private metroDay() {
+    const { buildings, pop, eco } = this.c;
+    for (const city of eco.cities.values()) {
+      const st = buildings.list.filter((b) => b.kind === 'metro' && b.city === city.id && b.built >= 1 && b.workers > 0);
+      city.metroRiders = 0;
+      if (st.length < 2) continue;
+      let riders = 0;
+      for (const f of pop.families.values()) {
+        const h = buildings.get(f.home);
+        if (!h || h.city !== city.id || !st.some((s) => Math.abs(s.x - h.x) + Math.abs(s.z - h.z) <= 7)) continue;
+        for (const c of pop.members(f)) if (c.job >= 0 && Math.random() < 0.6) { riders++; f.money -= METRO_FARE; }
+      }
+      city.metroRiders = riders;
+      if (riders) eco.add(city, 'money', riders * METRO_FARE, 'Metro fares');
+      for (const s of st) this.tally(s, 'Passengers', riders / st.length);
+    }
+  }
+
+  /** Snow on the roads (set for a day by a snowstorm): traffic drives slower. */
+  snowstorm = 0;
+
+  /**
+   * Weather events: in spring the rivers can rise and flood the homes along the water (a flood wall within 6 tiles
+   * keeps them dry); in winter a snowstorm makes the traffic crawl for a day.
+   */
+  private weatherEvents(season: string) {
+    const { buildings, map, eco, effects, traffic } = this.c;
+    this.snowstorm = 0;
+    traffic.speedScale = 1;
+    if (this.calm) return;
+    if (season === 'winter' && Math.random() < 0.08) {
+      this.snowstorm = 1;
+      traffic.speedScale = 0.5;
+      this.events.push(t('Snowstorm! The roads are covered in snow and the traffic crawls today'));
+    }
+    if (season !== 'spring' || Math.random() > 0.07) return;
+    const walls = buildings.list.filter((b) => b.kind === 'levee' && b.built >= 1);
+    const hit = new Map<number, number>();
+    for (const b of buildings.list) {
+      if (b.built < 1 || b.removed || !BUILDINGS[b.kind].units) continue;
+      let wet = false;
+      for (let dz = -1; dz <= 1 && !wet; dz++) for (let dx = -1; dx <= 1; dx++) if (inBounds(b.x + dx, b.z + dz) && map.water[(b.z + dz) * N + b.x + dx]) { wet = true; break; }
+      if (!wet || walls.some((w) => Math.abs(w.x - b.x) + Math.abs(w.z - b.z) <= 6)) continue;
+      hit.set(b.city, (hit.get(b.city) ?? 0) + 1);
+      effects.puff(b.mesh.position.x, b.mesh.position.z, 0.6, 10, ['#4fa3d1', '#9fd3ff', '#d8e8f2']);
+    }
+    for (const [cityId, n] of hit) {
+      const city = eco.cities.get(cityId);
+      if (!city) continue;
+      eco.add(city, 'money', -n * 60, 'Flood repairs');
+      const old = this.moodBoost.get(cityId);
+      this.moodBoost.set(cityId, { v: (old && old.until >= eco.day ? old.v : 0) - 6, until: eco.day + 3 });
+      this.cityEvent(cityId, t('Flood! The river rose and {n} homes by the water were flooded (repairs ${m}). Flood walls keep homes dry', { n, m: n * 60 }));
     }
   }
 
@@ -2259,6 +2416,9 @@ export class Life {
     const mood: [string, number][] = [['Base mood', 50]];
     const add = (label: string, v: number) => { if (Math.abs(v) >= 0.05) mood.push([label, v]); };
     if (this.festival) add('Festival', 12);
+    if ((city.parkingFee ?? 0) > 0) add('Parking fees', -(city.parkingFee ?? 0) * 1.2);
+    if ((city.metroRiders ?? 0) > 0) add('Metro', Math.min(5, (city.metroRiders ?? 0) / 20));
+    if ((city.thefts ?? 0) > 0) add('Thefts', -Math.min(8, (city.thefts ?? 0) * 1.5));
     if (city.railLink) add('Railway link', 4);
     add('Leisure, letters and sport', this.leisure.bonus(city.id, own));
     // parks, fountains and decorations near the homes
@@ -3064,6 +3224,11 @@ export class Life {
       return b.kind === 'busstop' || b.kind === 'trainstation';
     });
 
+    // a route drawn by the player: its stops in that order (those still standing and reachable)
+    if (depot.route && depot.route.length >= 2) {
+      const own = depot.route.filter((id) => { const s = buildings.get(id); return !!s && !s.removed && s.access >= 0 && traffic.canRoute(depot.access, s.access); });
+      if (own.length >= 2) return [depot.id, ...own];
+    }
     const cached = this.routeCache.get(depot.id);
     if (cached && cached.t > performance.now() - 8000) return cached.stops;
     const stops: number[] = [depot.id];

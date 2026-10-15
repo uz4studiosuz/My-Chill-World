@@ -143,6 +143,11 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'concerthall', name: 'Concert Hall', group: 'Buildings', desc: 'A curved hall with a glass foyer and lights on the square.', make: () => mesh(buildingGeometry('concerthall')) },
   { id: 'barber', name: 'Barber Shop', group: 'Buildings', desc: 'A little shop with a striped pole.', make: () => mesh(buildingGeometry('barber')) },
   { id: 'kiosk', name: 'Coffee Cart', group: 'Buildings', desc: 'Coffee and ice cream under a striped umbrella.', make: () => mesh(buildingGeometry('kiosk')) },
+  { id: 'embassy', name: 'Embassy', group: 'Buildings', desc: 'A white building with columns and the flags of the towns.', make: () => mesh(buildingGeometry('embassy')) },
+  { id: 'garage', name: 'Parking Garage', group: 'Buildings', desc: 'Open concrete decks full of cars, a ramp and a blue P sign.', make: () => mesh(buildingGeometry('garage')) },
+  { id: 'metro', name: 'Metro Station', group: 'Buildings', desc: 'Stairs down to the trains under a glass canopy and a red M.', make: () => mesh(buildingGeometry('metro')) },
+  { id: 'cctv', name: 'Security Camera', group: 'Buildings', desc: 'A camera on a pole watching the street.', make: () => mesh(buildingGeometry('cctv')) },
+  { id: 'levee', name: 'Flood Wall', group: 'Buildings', desc: 'A stone wall with sandbags against the river.', make: () => mesh(buildingGeometry('levee')) },
   { id: 'dairyshop', name: 'Dairy Shop', group: 'Buildings', desc: 'Milk, yogurt and cheese under a cow-print awning.', make: () => mesh(buildingGeometry('dairyshop')) },
   { id: 'pharmacy', name: 'Pharmacy', group: 'Buildings', desc: 'Medicines behind a green cross.', make: () => mesh(buildingGeometry('pharmacy')) },
   { id: 'dairy', name: 'Dairy', group: 'Buildings', desc: 'Milk tanks and a cheese hall.', make: () => mesh(buildingGeometry('dairy')) },
@@ -199,6 +204,14 @@ export const CATALOG: CatalogEntry[] = [
     id: 'pipe', name: 'Water Pipe', group: 'Roads', desc: 'An underground water pipe (shown above ground here).',
     make: () => mesh(merge([box(3, 0.12, 1.4, 0.5, -0.06, 0.5, '#8cb156'), shape('cylinder', 3, 0.16, 0.16, 0.5, 0.1, 0.5, '#5d8fb5', 'x', 12), shape('cylinder', 0.24, 0.06, 0.24, 0.5, 0.2, 0.5, '#d9443b', 'y', 10)])),
   },
+  ...([['zone_res', 'Residential Zone', '#58d36b', 'house'], ['zone_com', 'Commercial Zone', '#4fa3ff', 'shop'], ['zone_ind', 'Industrial Zone', '#f2b33d', 'factory'], ['zone_none', 'Clear Zone', '#aab4be', 'none']] as const).map(([id, name, c, what]) => ({
+    id, name, group: 'Roads' as const, desc: 'A painted zone.',
+    make: () => mesh(merge([box(3, 0.12, 2, 0.5, -0.06, 0.5, '#8cb156'), box(2.6, 0.02, 1.6, 0.5, 0.01, 0.5, c),
+      ...(what === 'house' ? [box(0.5, 0.4, 0.5, 0.5, 0.21, 0.5, '#f4f1ea'), shape('pyramid', 0.6, 0.3, 0.6, 0.5, 0.55, 0.5, '#c4553d')]
+        : what === 'shop' ? [box(0.7, 0.45, 0.5, 0.5, 0.235, 0.5, '#e9eef2'), box(0.74, 0.06, 0.2, 0.5, 0.3, 0.8, '#4fa3ff')]
+        : what === 'factory' ? [box(0.8, 0.4, 0.6, 0.5, 0.21, 0.5, '#9aa3ab'), box(0.12, 0.6, 0.12, 0.75, 0.5, 0.3, '#7d7a73')]
+        : [box(1.2, 0.04, 0.12, 0.5, 0.04, 0.5, '#ff5a4e')])])),
+  })),
   {
     id: 'cable', name: 'Power Cable', group: 'Roads', desc: 'An electric cable on wooden poles.',
     make: () => mesh(merge([box(3, 0.12, 1.4, 0.5, -0.06, 0.5, '#8cb156'),

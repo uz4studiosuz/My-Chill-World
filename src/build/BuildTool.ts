@@ -10,14 +10,17 @@ export type PlaceKind =
   | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
-  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop'
+  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop' | 'garage' | 'metro' | 'cctv' | 'levee' | 'embassy'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
   | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
-export type LineKind = 'road' | 'litroad' | 'path' | 'path_stone' | 'path_brick' | 'path_gravel' | 'path_wood' | 'canal' | 'rail' | 'pipe' | 'cable' | 'tunnel';
+export type LineKind = 'road' | 'litroad' | 'path' | 'path_stone' | 'path_brick' | 'path_gravel' | 'path_wood' | 'canal' | 'rail' | 'pipe' | 'cable' | 'tunnel' | 'zone_res' | 'zone_com' | 'zone_ind' | 'zone_none';
 /** Footpath styles: the tool and the style number kept in the tiles (1 = yellow pavers). */
 export const PATH_STYLE: Partial<Record<string, number>> = { path: 1, path_stone: 2, path_brick: 3, path_gravel: 4, path_wood: 5 };
 export const isPathKind = (t: string) => PATH_STYLE[t] !== undefined;
+/** Zoning brushes: residential, commercial, industrial, and the eraser (painted as a rectangle). */
+export const ZONE_OF: Partial<Record<string, number>> = { zone_res: 1, zone_com: 2, zone_ind: 3, zone_none: 0 };
+export const isZone = (t: string) => ZONE_OF[t] !== undefined;
 export type ToolId = 'pan' | 'bulldoze' | LineKind | PlaceKind;
 
 export interface CheckResult { ok: boolean; reason?: string; money?: number; stone?: number; wood?: number; iron?: number; bridges?: number }
@@ -46,7 +49,7 @@ const OK = new THREE.Color('#5fe08a');
 const BAD = new THREE.Color('#ff5a4f');
 const REMOVE = new THREE.Color('#ff8a3d');
 
-const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || isPathKind(t) || t === 'canal' || t === 'rail' || t === 'pipe' || t === 'cable' || t === 'tunnel';
+const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || isPathKind(t) || t === 'canal' || t === 'rail' || t === 'pipe' || t === 'cable' || t === 'tunnel' || isZone(t);
 const isPlace = (t: ToolId): t is PlaceKind => t !== 'pan' && t !== 'bulldoze' && !isLine(t);
 
 export class BuildTool {
@@ -186,7 +189,7 @@ export class BuildTool {
       return;
     }
     this.preview.hideGhost();
-    this.path = isPathKind(tool) ? diagPath(this.start!, cur) : lPath(this.start!, cur);
+    this.path = isZone(tool) ? rectTiles(this.start!, cur) : isPathKind(tool) ? diagPath(this.start!, cur) : lPath(this.start!, cur);
     if (isLine(tool)) {
       const r = this.host.checkLine(tool, this.path);
       this.preview.show(this.path, r.ok ? OK : BAD);
@@ -196,6 +199,13 @@ export class BuildTool {
       this.preview.show(this.path, REMOVE);
     }
   }
+}
+
+/** Every tile of the rectangle between two corners (zoning paints areas). */
+function rectTiles(a: Tile, b: Tile): Tile[] {
+  const out: Tile[] = [];
+  for (let z = Math.min(a.z, b.z); z <= Math.max(a.z, b.z); z++) for (let x = Math.min(a.x, b.x); x <= Math.max(a.x, b.x); x++) if (inBounds(x, z)) out.push({ x, z });
+  return out;
 }
 
 function cost(r: CheckResult) {

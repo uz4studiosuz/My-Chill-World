@@ -2,6 +2,7 @@
 // Every 3D element lives in its own file in ./chains2/ (one function per file, easy to find and improve).
 export * from './chains2/pharmacy';
 export * from './chains2/dairyShop';
+export * from './chains2/civic3';
 export * from './chains2/dairy';
 export * from './chains2/supermarket';
 export * from './chains2/brickworks';

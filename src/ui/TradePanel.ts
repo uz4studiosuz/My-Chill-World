@@ -27,6 +27,10 @@ export interface TradeHost {
   deals(): { day: string; town: string; tint: string; text: string; money: number }[];
   /** Every other price in the town (cars, homes, bills, shops, wages). */
   priceSheet(): { title: string; rows: [string, string][] }[];
+  /** Long deals: the active ones with a town, and making / ending one. */
+  contracts(id: number): { good: Good; perDay: number; days: number; price: number; selling: boolean; missed: number }[];
+  contract(id: number, g: Good, perDay: number, days: number, selling: boolean): void;
+  endContract(id: number, g: Good): void;
 }
 
 export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[];
@@ -413,8 +417,44 @@ export class TradePanel {
       table.appendChild(row);
     }
     body.appendChild(table);
+    // long deals: a good every day for 30 days at today's price (a little better for the seller)
+    sec(t('Contracts with {city}', { city: n.name }));
+    const active = this.host.contracts(n.id);
+    const cbox = el('div', 'trade-deals');
+    for (const k of active) {
+      const r = el('div', 'trade-deal');
+      r.innerHTML = '<i></i><span></span><button class="btn-mini ghost"></button>';
+      (r.querySelector('i') as HTMLElement).style.background = k.selling ? '#7be08f' : '#6fb6ff';
+      (r.querySelector('span') as HTMLElement).textContent = `${k.selling ? t('You sell') : t('You buy')} ${k.perDay} ${t(GOOD_NAME[k.good]).toLowerCase()}/${t('day')} · $${k.price.toFixed(1)} · ${t('{n} days left', { n: k.days })}${k.missed ? ` · ${t('{n} missed', { n: k.missed })}` : ''}`;
+      const end = r.querySelector('button') as HTMLButtonElement;
+      end.textContent = t('End');
+      end.addEventListener('click', () => { this.host.endContract(n.id, k.good); this.render(); });
+      cbox.appendChild(r);
+    }
+    const mk = el('div', 'trade-btns');
+    mk.style.flexWrap = 'wrap';
+    for (const w of n.buys.slice(0, 4)) {
+      const b = el('button', 'btn-mini sell');
+      const per = w.g === 'food' ? 20 : 5;
+      b.textContent = `${t('Sell')} ${per} ${t(GOOD_NAME[w.g]).toLowerCase()}/${t('day')} · 30 ${t('days')}`;
+      b.title = t('A contract: every day for 30 days at ${p} each', { p: (w.price * 1.05).toFixed(1) });
+      b.disabled = active.some((k) => k.good === w.g);
+      b.addEventListener('click', () => { this.host.contract(n.id, w.g, per, 30, true); this.render(); });
+      mk.appendChild(b);
+    }
+    for (const o of n.sells.slice(0, 3)) {
+      const b = el('button', 'btn-mini buy');
+      const per = o.g === 'food' ? 20 : 5;
+      b.textContent = `${t('Buy')} ${per} ${t(GOOD_NAME[o.g]).toLowerCase()}/${t('day')} · 30 ${t('days')}`;
+      b.title = t('A contract: every day for 30 days at ${p} each', { p: (o.price * 0.95).toFixed(1) });
+      b.disabled = active.some((k) => k.good === o.g);
+      b.addEventListener('click', () => { this.host.contract(n.id, o.g, per, 30, false); this.render(); });
+      mk.appendChild(b);
+    }
+    cbox.appendChild(mk);
+    body.appendChild(cbox);
     const note = el('div', 'rp-note');
-    note.textContent = t('Goods and money move between the treasuries at once; every deal makes you a little friendlier. Friends pay more and ask less.');
+    note.textContent = t('Goods and money move between the treasuries at once; every deal makes you a little friendlier. Friends pay more and ask less.') + ' ' + t('A contract fixes the price for 30 days (5% better than today); five missed days end it.');
     body.appendChild(note);
   }
 

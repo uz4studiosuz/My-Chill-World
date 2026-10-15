@@ -3,7 +3,7 @@ export type BuildingKind =
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
-  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop'
+  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop' | 'garage' | 'metro' | 'cctv' | 'levee' | 'embassy'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
   | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
@@ -119,6 +119,11 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   bakery: def({ kind: 'bakery', name: 'Bakery', size: 1, money: 700, stone: 10, wood: 10, jobs: 3, salary: 12, energy: 2 }),
   sawmill: def({ kind: 'sawmill', name: 'Sawmill', size: 2, money: 1000, stone: 15, iron: 5, jobs: 4, salary: 13, energy: 3 }),
   battery: def({ kind: 'battery', name: 'Battery Storage', size: 1, money: 1600, stone: 10, iron: 20, jobs: 0, salary: 0, upkeep: 2 }),
+  embassy: def({ kind: 'embassy', name: 'Embassy', size: 2, money: 2200, stone: 40, wood: 15, iron: 5, jobs: 3, salary: 18, publicJob: true, upkeep: 5, energy: 2 }),
+  garage: def({ kind: 'garage', name: 'Parking Garage', size: 2, money: 1800, stone: 40, iron: 10, jobs: 1, salary: 10, upkeep: 3, energy: 2, revenue: 30 }),
+  metro: def({ kind: 'metro', name: 'Metro Station', size: 1, money: 2600, stone: 30, iron: 20, jobs: 2, salary: 14, publicJob: true, upkeep: 6, energy: 4 }),
+  cctv: def({ kind: 'cctv', name: 'Security Camera', size: 1, money: 220, iron: 2, upkeep: 1, energy: 0.3, needsRoad: false }),
+  levee: def({ kind: 'levee', name: 'Flood Wall', size: 1, money: 160, stone: 12, needsRoad: false }),
   dairyshop: def({ kind: 'dairyshop', name: 'Dairy Shop', size: 1, money: 600, stone: 8, wood: 6, jobs: 2, salary: 11, energy: 1.5 }),
   kiosk: def({ kind: 'kiosk', name: 'Coffee Cart', size: 1, money: 150, wood: 4, jobs: 1, salary: 8, needsRoad: false, energy: 0.5 }),
   airport: def({ kind: 'airport', name: 'Airport', size: 3, money: 6000, stone: 100, wood: 20, iron: 50, jobs: 10, salary: 22, publicJob: true, upkeep: 14, energy: 8 }),
@@ -274,7 +279,7 @@ export const POWER_PRIORITY: Partial<Record<BuildingKind, number>> = {
 };
 /** Workplaces that need a school diploma or a degree (doctors, teachers, engineers, bankers…). */
 export const DEGREE_JOBS: Partial<Record<BuildingKind, boolean>> = {
-  hospital: true, school: true, university: true, academy: true, bank: true, office: true, pharmacy: true, kindergarten: true,
+  embassy: true, hospital: true, school: true, university: true, academy: true, bank: true, office: true, pharmacy: true, kindergarten: true,
   townhall: true, airport: true, steelmill: true, carfactory: true, coalplant: true, hydro: true, police: true,
 };
 
@@ -344,3 +349,13 @@ export function sellable(kind: BuildingKind): boolean {
   const d = BUILDINGS[kind];
   return BUSINESS_KINDS.includes(kind) || !!SHOP_PRICE[kind] || !!VISIT_PRICE[kind] || d.units > 1 || d.revenue > 0;
 }
+
+/** Town levels by population: a village, a town (100), a city (300), a metropolis (800). */
+export const TOWN_LEVELS = [{ name: 'Village', pop: 0 }, { name: 'Town', pop: 100 }, { name: 'City', pop: 300 }, { name: 'Metropolis', pop: 800 }];
+export const townLevel = (people: number) => TOWN_LEVELS.reduce((a, l, i) => (people >= l.pop ? i : a), 0);
+/** Buildings that open only when the town has grown (the level they need). */
+export const UNLOCK_LEVEL: Partial<Record<BuildingKind, number>> = {
+  cinema: 1, garage: 1, embassy: 1, tower15: 1, carfactory: 1, steelmill: 1, coalplant: 1, bigpark: 1, concerthall: 1,
+  university: 2, stadium: 2, metro: 2, tower30: 2, airport: 2, casino: 2, hydro: 2, military: 2, academy: 2,
+  tower50: 3, themepark: 3,
+};

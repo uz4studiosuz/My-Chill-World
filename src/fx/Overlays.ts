@@ -66,7 +66,29 @@ export class Overlays {
     this.grid.count = 0;
     this.grid.frustumCulled = false;
     this.grid.renderOrder = 6;
-    this.group.add(this.ring, this.grid);
+    this.tiles = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6, depthWrite: false }), 8000);
+    this.tiles.count = 0;
+    this.tiles.frustumCulled = false;
+    this.tiles.renderOrder = 6;
+    this.group.add(this.ring, this.grid, this.tiles);
+  }
+
+  private tiles: THREE.InstancedMesh;
+
+  /** Colour single map tiles (the traffic map colours each road tile). */
+  showTiles(list: { x: number; z: number; color: string }[]) {
+    const m = new THREE.Matrix4();
+    const c = new THREE.Color();
+    let n = 0;
+    for (const tl of list) {
+      if (n >= 8000) break;
+      m.makeScale(0.96, 1, 0.96).setPosition(tl.x, 0.06, tl.z);
+      this.tiles.setColorAt(n, c.set(tl.color));
+      this.tiles.setMatrixAt(n++, m);
+    }
+    this.tiles.count = n;
+    this.tiles.instanceMatrix.needsUpdate = true;
+    if (this.tiles.instanceColor) this.tiles.instanceColor.needsUpdate = true;
   }
 
   private texture(p: Problem) {

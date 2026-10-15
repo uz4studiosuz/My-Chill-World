@@ -1972,3 +1972,48 @@ body.pov-mode .pov-bar { z-index: 40; }
   .bc-row > b { font-size: 12px; text-align: left; }
   .bc-have { grid-column: 2; font-size: 9.5px; }
 }
+
+/* the key of the map layer that is on */
+.map-legend { position: absolute; z-index: 6; left: 62px; bottom: 120px; width: 250px; padding: 10px 12px; border-radius: 14px; pointer-events: auto; display: none;
+  background: rgba(21,24,29,.95); border: 1px solid var(--frame-line, #2c3139); box-shadow: 0 10px 28px rgba(0,0,0,.45); color: var(--text); }
+body.ui2 .map-legend { bottom: calc(var(--dock-h) + 10px); }
+.map-legend.show { display: block; animation: ml-in .18s ease-out; }
+@keyframes ml-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+.ml-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ml-ic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(242,179,61,.15); color: var(--accent); }
+.ml-ic svg { width: 16px; height: 16px; }
+.ml-head b { flex: 1; font-family: var(--font-display); font-size: 14px; }
+.ml-x { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); background: var(--raised); color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.ml-x svg { width: 14px; height: 14px; }
+.ml-list { display: grid; gap: 5px; }
+.ml-row { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
+.ml-row i { width: 16px; height: 16px; border-radius: 5px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
+.ml-tip { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+body.photo-mode .map-legend, body.pov-mode .map-legend { display: none !important; }
+@media (max-width: 640px) { .map-legend { left: 54px; width: min(230px, calc(100vw - 70px)); } }
+
+.goal-chapter { margin: 10px 0 6px; padding: 7px 10px; border-radius: 10px; font-family: var(--font-display); font-size: 13px; background: var(--raised); border: 1px solid var(--line); }
+.goal-chapter.now { border-color: var(--accent); color: var(--accent); }
+.goal-chapter.done { color: #7be08f; }
+.goal-chapter.locked { opacity: .55; }
+
+/* locked build tiles */
+.card.locked { opacity: .55; filter: grayscale(.7); }
+.card.locked::after { content: '🔒 ' attr(data-lock); position: absolute; left: 4px; right: 4px; top: 4px; padding: 2px 4px; border-radius: 6px; background: rgba(0,0,0,.65);
+  color: #fff; font-size: 9.5px; font-weight: 800; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card { position: relative; }
+/* the morning card */
+.day-report { position: absolute; z-index: 7; left: 50%; top: calc(var(--top-h, 52px) + 12px); transform: translate(-50%, -8px); width: min(460px, calc(100vw - 24px)); padding: 10px 12px; border-radius: 16px;
+  background: rgba(21,24,29,.96); border: 1px solid var(--frame-line, #2c3139); box-shadow: 0 14px 34px rgba(0,0,0,.5); color: var(--text); pointer-events: auto; opacity: 0; visibility: hidden; transition: opacity .2s, transform .2s, visibility 0s linear .2s; }
+.day-report.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition: opacity .2s, transform .2s; }
+.dr-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dr-head span { font-size: 20px; }
+.dr-head b { flex: 1; font-family: var(--font-display); font-size: 14.5px; }
+.dr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 5px; }
+.dr-cell { background: var(--raised); border-radius: 10px; padding: 6px 9px; border: 1px solid var(--line); }
+.dr-cell small { display: block; font-size: 10.5px; color: var(--muted); }
+.dr-cell b { font-size: 13.5px; }
+.dr-cell.good b { color: #7be08f; } .dr-cell.bad b { color: #ff9a8e; }
+.dr-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #f5c66b; }
+.dr-foot span { flex: 1; }
+body.pov-mode .day-report, body.photo-mode .day-report { display: none; }

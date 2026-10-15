@@ -9,6 +9,7 @@ export const UPGRADABLE: Partial<Record<BuildingKind, { max: number; gives: stri
   hospital: { max: 3, gives: 'Heals more people' },
   watertower: { max: 3, gives: 'Water for more people' },
   sewage: { max: 3, gives: 'Cleans the water of more people' },
+  garage: { max: 3, gives: 'One more floor: 24 more cars' },
   farm: { max: 3, gives: 'Bigger harvests: a shed, a water tank, then a silo and a tractor' },
   orchard: { max: 3, gives: 'More fruit: beehives and crates, then a cold store' },
   ranch: { max: 3, gives: 'More cows (4 more each level), more milk and meat: a bigger barn and a silo' },

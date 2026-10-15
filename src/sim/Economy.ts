@@ -32,6 +32,18 @@ export interface City {
   priceFactor: number;
   /** The town hall's say on food prices: −0.3 (it pays part of the price) … +0.3 (dearer); 0 = the market alone. */
   foodAdj?: number;
+  /** Thefts in the town yesterday. */
+  thefts?: number;
+  /** Metro rides yesterday. */
+  metroRiders?: number;
+  /** Town level reached (0 village … 3 metropolis). */
+  level?: number;
+  /** Street parking fee per car and day set by the town hall (0 = free). */
+  parkingFee?: number;
+  /** Credit rating 0..100: paying on time and a healthy treasury lower the loan interest. */
+  credit?: number;
+  /** Long deals with a neighbour town: a good every day for a number of days at a fixed price. */
+  contracts?: { town: number; good: string; perDay: number; days: number; price: number; selling: boolean; missed: number }[];
   /** Average pay in the town compared to the usual pay (1 = usual): prices follow it. */
   wageIndex?: number;
   /** Share of homes supplied with water through mains and pipes. */
@@ -106,7 +118,7 @@ export const LEDGER_DAYS = 7;
 
 export interface CitySave {
   id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; grain?: number; flour?: number; planks?: number; milk?: number; bricks?: number; steel?: number; coal?: number; cotton?: number; feed?: number; garments?: number; furniture?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
-  jobPriority?: Record<string, 'high' | 'low'>; jobReq?: Record<string, 0 | 1 | 2>; foodAdj?: number; wageAuto?: boolean; wages?: Record<string, number>; ai?: boolean; tint?: string; relation?: number; style?: string; owes?: City['owes']; arrivals?: City['arrivals']; balance?: Balance; foodYesterday?: { made: number; eaten: number }; campaign?: City['campaign']; promise?: City['promise'];
+  jobPriority?: Record<string, 'high' | 'low'>; jobReq?: Record<string, 0 | 1 | 2>; foodAdj?: number; parkingFee?: number; credit?: number; level?: number; contracts?: City['contracts']; wageAuto?: boolean; wages?: Record<string, number>; ai?: boolean; tint?: string; relation?: number; style?: string; owes?: City['owes']; arrivals?: City['arrivals']; balance?: Balance; foodYesterday?: { made: number; eaten: number }; campaign?: City['campaign']; promise?: City['promise'];
 }
 
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
@@ -266,7 +278,7 @@ export class Economy {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
         id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), grain: Math.round(c.grain), flour: Math.round(c.flour), planks: Math.round(c.planks), milk: Math.round(c.milk), bricks: Math.round(c.bricks), steel: Math.round(c.steel), coal: Math.round(c.coal), cotton: Math.round(c.cotton), feed: Math.round(c.feed), garments: Math.round(c.garments), furniture: Math.round(c.furniture), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
-        jobPriority: c.jobPriority, jobReq: c.jobReq, foodAdj: c.foodAdj, wageAuto: c.wageAuto, wages: c.wages, ai: c.ai, tint: c.tint, style: c.style, owes: c.owes, arrivals: c.arrivals, balance: c.balance, foodYesterday: c.foodYesterday, relation: c.relation === undefined ? undefined : Math.round(c.relation), campaign: c.campaign, promise: c.promise,
+        jobPriority: c.jobPriority, jobReq: c.jobReq, foodAdj: c.foodAdj, parkingFee: c.parkingFee, level: c.level, credit: c.credit === undefined ? undefined : Math.round(c.credit), contracts: c.contracts, wageAuto: c.wageAuto, wages: c.wages, ai: c.ai, tint: c.tint, style: c.style, owes: c.owes, arrivals: c.arrivals, balance: c.balance, foodYesterday: c.foodYesterday, relation: c.relation === undefined ? undefined : Math.round(c.relation), campaign: c.campaign, promise: c.promise,
       })),
     };
   }
@@ -297,6 +309,10 @@ export class Economy {
       city.jobPriority = c.jobPriority ?? {};
       city.jobReq = c.jobReq ?? {};
       city.foodAdj = c.foodAdj ?? 0;
+      city.parkingFee = c.parkingFee ?? 0;
+      city.level = c.level;
+      city.credit = c.credit ?? 60;
+      city.contracts = c.contracts ?? [];
       city.wageAuto = c.wageAuto ?? true;
       city.wages = c.wages ?? {};
       city.ai = c.ai;

@@ -43,6 +43,10 @@ export const ITEMS: ToolItem[] = [
   { tool: 'path_gravel', cat: 'roads', name: 'Gravel Path', desc: 'A narrow gravel path for gardens, parks and the countryside. The cheapest path.', money: Math.max(1, Math.round(PATH_COST / 2)), stone: 0, wood: 0, perTile: true, tag: 'Gardens and countryside', icon: 'path' },
   { tool: 'path_wood', cat: 'roads', name: 'Boardwalk', desc: 'A wooden boardwalk of planks: lovely by lakes, rivers and in parks.', money: PATH_COST, stone: 0, wood: 1, perTile: true, tag: 'By lakes and in parks', icon: 'path' },
   { tool: 'pipe', cat: 'roads', name: 'Water Pipe', desc: 'Underground water pipe — the only way water reaches homes. Run it under the water tower and on under every home: a building joins the water only where a pipe passes under it. It may run under roads, bridges and paths.', money: PIPE_COST.money, stone: 0, wood: 0, iron: PIPE_COST.iron, perTile: true, tag: 'Water to homes', icon: 'water' },
+  { tool: 'zone_res', cat: 'roads', name: 'Residential Zone', desc: 'Paint land for homes: families build their houses and businessmen their blocks of flats here first. Drag a rectangle. Free.', money: 0, stone: 0, wood: 0, tag: 'Homes here', icon: 'house' },
+  { tool: 'zone_com', cat: 'roads', name: 'Commercial Zone', desc: 'Paint land for shops, cafés, offices and hotels: families open their businesses here first. Drag a rectangle. Free.', money: 0, stone: 0, wood: 0, tag: 'Shops here', icon: 'coin' },
+  { tool: 'zone_ind', cat: 'roads', name: 'Industrial Zone', desc: 'Paint land for factories and workshops, away from the homes: private factories are built here. Drag a rectangle. Free.', money: 0, stone: 0, wood: 0, tag: 'Factories here', icon: 'production' },
+  { tool: 'zone_none', cat: 'roads', name: 'Clear Zone', desc: 'Remove the zoning from an area. Drag a rectangle.', money: 0, stone: 0, wood: 0, tag: 'Unzone', icon: 'bulldoze' },
   { tool: 'cable', cat: 'roads', name: 'Power Cable', desc: 'Electric cable from a power plant to the buildings: a building gets power when a cable runs under it or along the road in front of its door; street lamps need a cable under them. Cheap — lay it along the streets.', money: CABLE_COST.money, stone: 0, wood: 0, iron: CABLE_COST.iron, perTile: true, tag: 'Power to buildings', icon: 'energy' },
   { tool: 'canal', cat: 'roads', name: 'Irrigation Canal', desc: 'Dig from a river or lake to a crop farm — farms need water to grow.', money: 8, stone: 0, wood: 0, perTile: true, tag: 'Water for farms', icon: 'canal' },
   b('apartment', 'buildings', '6 families', 'Five floors, six flats. Families pay rent to the owner — the city or a businessman who built it.', 'office'),
@@ -52,13 +56,18 @@ export const ITEMS: ToolItem[] = [
   b('house', 'buildings', 'One family', 'Home for one family (up to 10 people). Needs a road.', 'house'),
   b('watertower', 'buildings', 'Water for 160', 'Clean drinking water. Without it people get sick.', 'watertower'),
   b('park', 'buildings', 'Green space', 'A park with a pond and benches. People recover faster in a green town.', 'orchard'),
-  b('parking', 'buildings', '8 spaces', 'Commuters park here when their workplace is nearby.', 'parking'),
+  b('parking', 'buildings', '8 spaces', 'Commuters park here when their workplace is nearby; cars from full homes nearby park here too.', 'parking'),
+  b('garage', 'buildings', '24 cars a level', 'A multi-storey car park: cars of the homes around it (8 tiles) park inside instead of along the street. Takes parking fees. Upgrade for more floors.', 'parking'),
   b('cemetery', 'buildings', '16 graves', 'Resting place for deceased citizens. Families buy graves. Can be upgraded.', 'cemetery'),
   b('kindergarten', 'services', '24 children', 'Children aged 3–5 play and learn here — a head start for school.', 'heart'),
   b('school', 'services', '40 pupils', 'Children aged 6–17 study here. Educated adults earn 50% more.', 'school'),
   b('university', 'services', '30 students', 'Young adults with a school diploma study for 4 years and become specialists with a degree.', 'school'),
   b('firestation', 'services', 'Firefighters', 'Fire trucks drive to burning buildings nearby and put the fire out.', 'energy'),
   b('busdepot', 'services', 'Public transport', 'People without a car ride the bus on longer trips. Makes the city happier.', 'car'),
+  b('embassy', 'buildings', 'One per town', 'Diplomatic relations: from here you start joint projects with the neighbour towns (you pay half, they build and staff it, the profit is shared equally) and invest on their land. Only one per town.', 'globe'),
+  b('metro', 'services', 'Underground', 'A metro station. Two or more stations of a town are joined underground: people near them leave the car at home, the town takes the fares.', 'rail'),
+  b('cctv', 'services', 'Less crime', 'A security camera: crime drops around it (6 tiles), like a little police station.', 'eye'),
+  b('levee', 'services', 'Against floods', 'A flood wall by a river or lake: homes within 6 tiles do not flood in heavy rain.', 'water'),
   b('busstop', 'services', 'Bus Stop', 'Shelter where passengers board and exit buses.', 'car'),
   b('police', 'services', 'Safety', 'Officers cut down fights, accidents and murders in the city.', 'jobs'),
   b('hospital', 'services', 'Heals people', 'Doctors and nurses treat the sick. Reduces deaths from illness, fights and accidents.', 'heart'),
@@ -173,6 +182,9 @@ export interface HudStats {
   needs?: string[];
   /** People marked as favourites: tap one to follow them. */
   favs?: { id: number; name: string; doing: string }[];
+  /** The town's level (Village, Town, City, Metropolis) and the people needed for the next one. */
+  level?: string;
+  nextLevel?: string;
 }
 
 export interface HudHandlers {
@@ -195,7 +207,7 @@ export interface HudHandlers {
   openBuildings: () => void;
   /** Fly to your own town. */
   goHome: () => void;
-  setLayer: (l: 'power' | 'water' | 'happy') => void;
+  setLayer: (l: 'power' | 'water' | 'happy' | 'traffic' | 'land' | 'crime') => void;
   /** Details of one readout: where it comes from and where it goes. */
   openResource: (key: string) => void;
   toggleSound: () => boolean;
@@ -210,6 +222,22 @@ export interface HudHandlers {
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
+
+/** What the colours of every map layer mean (shown in a key while the layer is on). */
+const LEGENDS: Record<string, { title: string; icon: IconName; items: [string, string][]; tip: string }> = {
+  power: { title: 'Electricity map', icon: 'energy', items: [['#58d36b', 'Powered'], ['#f2b33d', 'On the grid, not enough power'], ['#ff5a4e', 'No cable to a power plant'], ['#ffe066', 'Power plants']],
+    tip: 'Yellow lines are the power cables. Lay a cable along the street to the red buildings; build another plant for the amber ones.' },
+  water: { title: 'Water map', icon: 'water', items: [['#58d36b', 'Clean water'], ['#f2b33d', 'Not enough water'], ['#ff5a4e', 'No water pipe'], ['#4fa3ff', 'Water towers and sewage']],
+    tip: 'Blue lines are the pipes. A home gets water only where a pipe runs under it.' },
+  happy: { title: 'Happiness map', icon: 'heart', items: [['#58d36b', 'Happy (65%+)'], ['#f2b33d', 'So-so (45–65%)'], ['#ff5a4e', 'Unhappy (below 45%)']],
+    tip: 'Tap a home to see why its people feel that way.' },
+  traffic: { title: 'Traffic map', icon: 'car', items: [['#58d36b', 'Free flow'], ['#f2b33d', 'Busy'], ['#ff5a4e', 'Jammed']],
+    tip: 'Red streets need another road beside them, a roundabout, a bus line, a metro or a car park.' },
+  land: { title: 'Land value map', icon: 'coin', items: [['#3a6fd1', 'Very dear (×1.6+)'], ['#6fb6ff', 'Dear (×1.2+)'], ['#aab4be', 'Ordinary'], ['#a0703f', 'Cheap (near factories)']],
+    tip: 'The centre, parks, decorations, water and metro stations raise it; factories and mines lower it. Property tax follows it.' },
+  crime: { title: 'Crime map', icon: 'eye', items: [['#58d36b', 'Safe'], ['#f2b33d', 'Some thefts'], ['#ff5a4e', 'Dangerous']],
+    tip: 'Police stations (with staff) and security cameras make streets safe; jobs and a good income do too.' },
+};
 /** Readouts hidden behind the fold on narrow screens. */
 const SECONDARY = new Set(['stone', 'wood', 'iron', 'food', 'energy', 'water', 'jobs']);
 
@@ -247,7 +275,39 @@ export class Hud {
   private layerBtns = new Map<string, HTMLButtonElement>();
 
   /** Highlight the active map layer button. */
-  setLayer(l: string) { this.layerBtns.forEach((b, k) => b.classList.toggle('active', k === l)); }
+  setLayer(l: string) {
+    this.layerBtns.forEach((b, k) => b.classList.toggle('active', k === l));
+    this.renderLegend(l);
+  }
+
+  private legendEl = el('div', 'map-legend');
+
+  /** The key of the map layer that is on: what each colour means and what to do; it stays until the layer is off. */
+  private renderLegend(l: string) {
+    const L = LEGENDS[l];
+    this.legendEl.classList.toggle('show', !!L);
+    if (!L) return;
+    this.legendEl.replaceChildren();
+    const head = el('div', 'ml-head');
+    head.innerHTML = `<span class="ml-ic">${icon(L.icon)}</span><b></b>`;
+    (head.querySelector('b') as HTMLElement).textContent = t(L.title);
+    const x = el('button', 'ml-x');
+    x.innerHTML = icon('close');
+    x.setAttribute('aria-label', t('Close'));
+    x.addEventListener('click', () => this.h.setLayer(l as 'power'));
+    head.appendChild(x);
+    const list = el('div', 'ml-list');
+    for (const [color, label] of L.items) {
+      const r = el('div', 'ml-row');
+      r.innerHTML = '<i></i><span></span>';
+      (r.querySelector('i') as HTMLElement).style.background = color;
+      (r.querySelector('span') as HTMLElement).textContent = t(label);
+      list.appendChild(r);
+    }
+    const tip = el('div', 'ml-tip');
+    tip.textContent = t(L.tip);
+    this.legendEl.append(head, list, tip);
+  }
 
   /** The town side panel (right column on wide screens, a sheet on phones). */
   private side!: HTMLDivElement;
@@ -265,7 +325,7 @@ export class Hud {
     document.body.classList.add('ui2');
     // map layers: one tap shows electricity, water or happiness over the whole town
     const layers = el('div', 'layerbar');
-    for (const [k, ic, label] of [['power', 'energy', 'Electricity map'], ['water', 'water', 'Water map'], ['happy', 'heart', 'Happiness map']] as const) {
+    for (const [k, ic, label] of [['power', 'energy', 'Electricity map'], ['water', 'water', 'Water map'], ['happy', 'heart', 'Happiness map'], ['traffic', 'car', 'Traffic map'], ['land', 'coin', 'Land value map'], ['crime', 'eye', 'Crime map']] as const) {
       const b = el('button', 'layer-btn');
       b.innerHTML = icon(ic);
       b.title = t(label);
@@ -275,6 +335,7 @@ export class Hud {
       layers.appendChild(b);
     }
     this.root.appendChild(layers);
+    this.root.appendChild(this.legendEl);
 
     const top = el('div', 'topbar');
     const soundBtn = this.iconButton(sound.sfxOn ? 'sound' : 'mute', t('Sound'), () => { soundBtn.innerHTML = icon(h.toggleSound() ? 'sound' : 'mute'); });
@@ -480,7 +541,7 @@ export class Hud {
     try { sideMin = localStorage.getItem('mcw_side_min') === '1'; } catch { /* ignore */ }
     setSide(sideMin);
     sideToggle.addEventListener('click', () => setSide(!document.body.classList.contains('side-min')));
-    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle, this.costEl);
+    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle, this.costEl, this.reportEl);
     parent.appendChild(this.root);
     this.toggleDrawer('buildings');
   }
@@ -633,6 +694,9 @@ export class Hud {
       if (!c) continue;
       c.classList.toggle('poor', this.lastMoney < it.money || this.lastStone < it.stone || this.lastWood < it.wood || this.lastIron < (it.iron ?? 0));
       c.classList.toggle('active', this.tool === it.tool);
+      const lock = this.lockOf?.(it.tool) ?? null;
+      c.classList.toggle('locked', !!lock);
+      if (lock) c.dataset.lock = lock; else delete c.dataset.lock;
       const n = this.countOf(it.tool);
       const badge = c.querySelector('.card-count') as HTMLElement | null;
       if (badge) {
@@ -661,6 +725,45 @@ export class Hud {
   }
 
   private costEl = el('div', 'build-cost');
+  /** Why a building is still locked (the town level it needs), or null. Set by the game. */
+  lockOf?: (tool: string) => string | null;
+  private reportEl = el('div', 'day-report');
+
+  /** The morning card: what happened in the town yesterday (closes by itself after a while). */
+  dayReport(title: string, lines: [string, string, ('good' | 'bad')?][], tip: string) {
+    let on = true;
+    try { on = localStorage.getItem('mcw_dayreport') !== '0'; } catch { /* ignore */ }
+    if (!on) return;
+    const r = this.reportEl;
+    r.replaceChildren();
+    const head = el('div', 'dr-head');
+    head.innerHTML = '<span>☀️</span><b></b>';
+    (head.querySelector('b') as HTMLElement).textContent = title;
+    const x = el('button', 'ml-x');
+    x.innerHTML = icon('close');
+    x.addEventListener('click', () => r.classList.remove('show'));
+    head.appendChild(x);
+    const grid = el('div', 'dr-grid');
+    for (const [k, v, tone] of lines) {
+      const c = el('div', `dr-cell${tone ? ` ${tone}` : ''}`);
+      c.innerHTML = '<small></small><b></b>';
+      (c.querySelector('small') as HTMLElement).textContent = k;
+      (c.querySelector('b') as HTMLElement).textContent = v;
+      grid.appendChild(c);
+    }
+    const foot = el('div', 'dr-foot');
+    const tp = el('span', '');
+    tp.textContent = tip;
+    const off = el('button', 'btn-mini ghost');
+    off.textContent = t('Do not show');
+    off.addEventListener('click', () => { try { localStorage.setItem('mcw_dayreport', '0'); } catch { /* ignore */ } r.classList.remove('show'); this.toast(t('The morning card is off — turn it on again in Settings → Morning card')); });
+    foot.append(tp, off);
+    r.append(head, grid, foot);
+    r.classList.add('show');
+    clearTimeout(this.reportT);
+    this.reportT = window.setTimeout(() => r.classList.remove('show'), 16000);
+  }
+  private reportT = 0;
   private lastBricks = 0;
 
   /** What the chosen building needs and what the town has of it (shown above the dock while building). */
@@ -758,7 +861,9 @@ export class Hud {
 
   /** The town panel: the numbers that matter and what the town needs next. */
   private renderSide(s: HudStats) {
-    if (this.sideTitle.textContent !== s.cityName) this.sideTitle.textContent = s.cityName;
+    const title = s.level ? `${s.cityName} · ${t(s.level)}` : s.cityName;
+    if (this.sideTitle.textContent !== title) this.sideTitle.textContent = title;
+    this.sideTitle.title = s.nextLevel ?? '';
     const row = (label: string, value: string, bad = false, bar?: number) =>
       `<div class="side-row${bad ? ' bad' : ''}"><span>${label}</span><b>${value}</b>${bar !== undefined ? `<i class="side-bar"><i style="width:${Math.round(Math.max(0, Math.min(1, bar)) * 100)}%"></i></i>` : ''}</div>`;
     const html = [

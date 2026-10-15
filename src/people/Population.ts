@@ -209,6 +209,10 @@ export class Population {
 
   /** May this person take a job at this building? (Imams and muezzins of a mosque are men.) */
   /** What the job at this workplace asks (0 anyone, 1 a learnt trade, 2 a university degree): set by the game. */
+  /** How dear the land under a home is (×0.6 … ×2.2): property tax follows it. Set by the game. */
+  landValue: (b: Building) => number = () => 1;
+  /** Does the family still want a car (parking fees and a metro nearby make some do without)? Set by the game. */
+  wantsCar: (f: Family) => boolean = () => true;
   need: (b: Building) => 0 | 1 | 2 = (b) => (DEGREE_JOBS[b.kind] ? 1 : 0);
   fits(c: Citizen, b: Building) { return !(b.kind === 'mosque' && c.sex === 'f') && c.skill >= this.need(b); }
 
@@ -491,7 +495,8 @@ export class Population {
           c.energy = Math.min(100, (c.energy ?? 80) + 10);
         }
       }
-      const propTax = PROPERTY_TAX * (buildings.get(f.home)?.level ?? 1);
+      const ph = buildings.get(f.home);
+      const propTax = PROPERTY_TAX * (ph?.level ?? 1) * (ph ? this.landValue(ph) : 1);
       earned -= propTax;
       r.propertyTax += propTax;
       // bills: electricity for what the home uses (when it has power), water for every person
@@ -520,7 +525,7 @@ export class Population {
       f.income = Math.round(earned);
       f.debtDays = f.money < 0 ? f.debtDays + 1 : 0;
       // a car when there is money for it (the old bike goes back to the factory cheaply), otherwise a bike
-      if (!f.car && opts.carStock > 0 && f.money + (f.bike ? BIKE.buyBack : 0) > CAR_PRICE + 500) {
+      if (!f.car && opts.carStock > 0 && f.money + (f.bike ? BIKE.buyBack : 0) > CAR_PRICE + 500 && this.wantsCar(f)) {
         if (f.bike) { f.bike = false; f.money += BIKE.buyBack; r.bikesSold++; for (const m of people) if (m.age >= 18) this.note(m, 'Sold the old bicycle back to the factory'); }
         opts.carStock--;
         f.money -= CAR_PRICE;

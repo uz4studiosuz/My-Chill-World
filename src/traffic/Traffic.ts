@@ -97,6 +97,8 @@ export class Traffic {
   readonly group = new THREE.Group();
   readonly vehicles: Vehicle[] = [];
   private parked: ParkedCar[] = [];
+  /** Slower traffic in a snowstorm (1 = normal). */
+  speedScale = 1;
   private nextId = 1;
   private holders = new Map<number, { id: number; move: number }[]>();
   private grid = new Map<number, Vehicle[]>();
@@ -357,12 +359,14 @@ export class Traffic {
       }
     }
 
-    let target = v.maxSpeed * (SPEED_FACTOR[this.net.type[v.tiles[v.ti]]] ?? 1);
+    let target = v.maxSpeed * (SPEED_FACTOR[this.net.type[v.tiles[v.ti]]] ?? 1) * this.speedScale;
     target = Math.min(target, Math.max(0.25, (v.len - v.s) * 2.5));
     const stopAt = (d: number) => Math.max(0, (d - v.halfLen - 0.02) * 4);
 
     // leaving a driveway / parking space: wait for a gap
-    if (v.s < v.driveIn && this.mergeBlocked(v)) target = Math.min(target, stopAt(v.driveIn - v.s - 0.15));
+    // leaving a parking space: wait in the space (straight, off the road) until the lane is clear — never squeeze in
+    const waitingToLeave = v.s < v.driveIn && this.mergeBlocked(v);
+    if (waitingToLeave) target = 0;
 
     const ni = v.ti + 1;
     if (ni < v.tiles.length) {
@@ -388,7 +392,7 @@ export class Traffic {
     if (v.speed < target) v.speed = Math.min(target, v.speed + 4 * dt);
     else v.speed = Math.max(target, v.speed - 12 * dt);
 
-    v.stuck = target < 0.02 ? v.stuck + dt : 0;
+    v.stuck = target < 0.02 && !waitingToLeave ? v.stuck + dt : 0;
     if (v.stuck > GIVE_UP) return 'gaveup';
 
     v.s += Math.min(v.speed * dt, Math.max(0, room));
@@ -444,8 +448,6 @@ export class Traffic {
         for (const o of this.grid.get((cz + dz) * N + cx + dx) ?? []) {
           if (o === v || this.onDriveway(o)) continue;
           const d = Math.hypot(o.x - mx, o.z - mz);
-          // after waiting a while, squeeze into a stopped queue (zipper merge)
-          if (v.stuck > 3 && o.speed < 0.05 && d > 0.36) continue;
           if (d < 0.7) return true;
         }
       }
@@ -505,6 +507,17 @@ export class Traffic {
       }
     }
     return room;
+  }
+
+  /** How loaded each road tile is right now: every vehicle counts 1, a stopped one 2 (for the traffic map). */
+  tileLoad() {
+    const out = new Map<number, number>();
+    for (const [k, list] of this.grid) {
+      let n = 0;
+      for (const v of list) if (!this.onDriveway(v)) n += v.speed < 0.15 ? 2 : 1;
+      if (n) out.set(k, n);
+    }
+    return out;
   }
 
   private gapAhead(v: Vehicle) {
