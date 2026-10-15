@@ -60,6 +60,7 @@ import { DecisionPanel } from '../ui/DecisionPanel';
 import { Pipes } from '../paths/Pipes';
 import { FlatBuilder } from '../paths/Footpaths';
 import { ChainView, type ChainNodeState } from '../ui/ChainView';
+import { EmbassyPanel } from '../ui/EmbassyPanel';
 import { GARAGE_CARS, METRO_FARE } from './Life';
 import { DriveMode } from './DriveMode';
 import { CameraRig } from '../camera/CameraRig';
@@ -252,6 +253,8 @@ export class Game implements ToolHost {
   private goodsPick: Good = 'food';
   /** The production chains as a map (full screen). */
   private chainView?: ChainView;
+  /** The embassy's wide window (diplomacy and joint projects). */
+  private embassy?: EmbassyPanel;
   private lights: StreetLights;
   private railway = new Railway();
   private news?: Newspaper;
@@ -547,6 +550,7 @@ export class Game implements ToolHost {
       openLog: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.toggle(); },
       openGuide: () => this.guide?.toggle(),
       openChains: () => this.chainView?.toggle(),
+      openEmbassy: () => { if (this.hasEmbassy()) this.embassy?.toggle(); else this.hud?.toast(t('Build an Embassy first: it handles the deals with the neighbour towns')); },
       openResource: (key) => { this.news?.hide(); this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.resPanel?.toggle(key); },
       openPhoto: () => this.togglePhoto(),
       setLayer: (l) => { this.mapLayer = this.mapLayer === l ? 'none' : l; this.overlayT = 0; this.hud?.setLayer(this.mapLayer); void LAYER_NOTE; },
@@ -663,7 +667,7 @@ export class Game implements ToolHost {
       },
       deal: (id, g, n, selling) => this.dealWithTown(id, g, n, selling),
       deals: () => [...this.eco.cities.values()].filter((c) => c.ai).flatMap((c) => (this.dealings.get(c.id) ?? []).map((d) => ({ ...d, town: c.name, tint: c.tint ?? '#aab4be' })))
-        .sort((a, b) => b.day - a.day).slice(0, 14).map((d) => ({ day: dateLabel(d.day), town: d.town, tint: d.tint, text: d.text, money: d.money })),
+        .sort((a, b) => b.day - a.day).slice(0, 80).map((d) => ({ day: dateLabel(d.day), town: d.town, tint: d.tint, text: d.text, money: d.money })),
       priceSheet: () => this.priceSheet(this.eco.city),
       contracts: (id) => (this.eco.city.contracts ?? []).filter((k) => k.town === id).map((k) => ({ ...k, good: k.good as Good })),
       contract: (id, g, perDay, days, selling) => {
@@ -712,6 +716,24 @@ export class Game implements ToolHost {
     this.cityReport.onClose = () => { const s = this.selection; if (s?.type === 'building' && this.buildings.get(s.id)?.kind === 'townhall') this.select(null); };
     this.resPanel = new ResourcePanel(this.hud.root, (key) => this.resourceView(key));
     this.chainView?.hide();
+    this.embassy?.hide();
+    this.embassy = new EmbassyPanel(this.hud.root, {
+      data: () => this.embassyData(),
+      propose: (id, kind) => { const town = this.eco.cities.get(id); if (town) this.jointProject(town, kind as BuildingKind); this.embassy?.render(); },
+      gift: (id, m) => {
+        const me = this.eco.city, town = this.eco.cities.get(id);
+        if (!town) return;
+        if (me.money < m) return this.hud?.toast(t('Not enough money'));
+        this.eco.add(me, 'money', -m, 'Help to neighbour towns');
+        this.eco.add(town, 'money', m, 'Help from a neighbour town');
+        town.relation = Math.min(100, (town.relation ?? 40) + m / 250);
+        this.deal(id, t('Gave ${m} as help (relations +{r})', { m, r: Math.round(m / 250) }), -m);
+        sound.play('coin');
+        this.embassy?.render();
+      },
+      trade: () => { this.embassy?.hide(); this.trade.newDay(this.eco.day); if (!this.tradePanel?.visible) this.tradePanel?.toggle(); },
+      show: (bid) => { const b = this.buildings.get(bid); if (!b) return; this.embassy?.hide(); this.cam.flyTo(b.mesh.position.x, b.mesh.position.z, 6); this.select({ type: 'building', id: b.id }); },
+    }, this.thumbs);
     this.chainView = new ChainView(this.hud.root, () => this.chainState(), (kind) => { this.cityReport?.hide(); this.stats?.hide(); this.setTool(kind as ToolId); });
     this.decision = new DecisionPanel(this.hud.root);
     this.lifeBook = new LifeBook(this.hud.root, (d) => dateLabel(d));
@@ -3417,6 +3439,7 @@ export class Game implements ToolHost {
         rows.push([`${town.name}`, `${t('Relations')} ${Math.round(town.relation ?? 40)}/100 · ${t(this.friendship(town.relation ?? 40))}`, (town.relation ?? 40) >= 50 ? 'good' : (town.relation ?? 40) < 30 ? 'bad' : undefined]);
         if (k) actions.push({ label: `🤝 ${town.name}: ${t(BUILDINGS[k].name)} · $${Math.round(BUILDINGS[k].money / 2)}`, icon: 'globe', onClick: () => this.jointProject(town, k) });
       }
+      actions.unshift({ label: t('Open the embassy'), icon: 'globe', onClick: () => this.embassy?.open() });
       actions.push({ label: t('Trade and contracts'), icon: 'globe', onClick: () => { this.trade.newDay(this.eco.day); if (!this.tradePanel?.visible) this.tradePanel?.toggle(); } });
       tags.push({ text: t('Joint projects: you pay half, they build and staff it, the profit is shared equally'), tone: 'info' });
     }
@@ -3573,6 +3596,7 @@ export class Game implements ToolHost {
     if (this.petitions?.visible && this.petitionTick % 12 === 0 && !busy) this.petitions.render();
     if (this.resPanel?.visible && this.petitionTick % 4 === 0 && !busy) this.resPanel.render();
     if (this.tradePanel?.visible && this.petitionTick % 4 === 0 && !busy) this.tradePanel.render();
+    if (this.embassy?.visible && this.petitionTick % 8 === 0 && !busy) this.embassy.render();
     if (this.worldPanel?.visible && this.petitionTick % 12 === 0 && !busy) this.worldPanel.render();
     if (this.cityReport?.visible && this.petitionTick % 4 === 0 && !busy) this.cityReport.render();
     const mine = (c: Citizen) => this.cityOfCitizen(c) === e.active;
@@ -5124,6 +5148,39 @@ export class Game implements ToolHost {
     return options.find((k) => this.investable(k) && !own.some((b) => b.kind === k)) ?? options.find((k) => this.investable(k)) ?? null;
   }
 
+  /** What a neighbour town wants built now (its next need and its wish). */
+  private townWants(town: City): BuildingKind[] {
+    const out: BuildingKind[] = [];
+    const w = this.autoCity.wish(town)?.kind;
+    if (w) out.push(w);
+    const j = this.jointKind(town);
+    if (j && !out.includes(j)) out.push(j);
+    const own = this.buildings.list.filter((b) => b.city === town.id && !b.removed);
+    for (const k of ['grocery', 'supermarket', 'bakery', 'factory', 'hotel', 'cinema', 'pharmacy', 'brickworks', 'sawmill'] as BuildingKind[]) if (this.investable(k) && !own.some((b) => b.kind === k) && out.length < 4) out.push(k);
+    return out;
+  }
+
+  /** Everything the embassy window shows. */
+  private embassyData() {
+    const me = this.eco.city;
+    const pops = this.life.populationByCity();
+    const half = (k: BuildingKind) => Math.round(BUILDINGS[k].money / 2);
+    const catOf = (k: string) => ITEMS.find((i) => i.tool === k)?.cat ?? 'business';
+    const options = (Object.keys(BUILDINGS) as BuildingKind[]).filter((k) => this.investable(k) && BUILDINGS[k].buildable && ITEMS.some((i) => i.tool === k))
+      .map((k) => ({ kind: k, name: t(BUILDINGS[k].name), half: half(k), cat: ['business', 'production', 'services'].includes(catOf(k)) ? catOf(k) : 'buildings', jobs: BUILDINGS[k].jobs }));
+    let total = 0;
+    const towns = [...this.eco.cities.values()].filter((c) => c.ai).map((c) => {
+      const joint = this.buildings.list.filter((b) => b.investor === me.id && b.city === c.id && !b.removed).map((b) => {
+        const profit = b.books ? Math.max(0, Math.round((b.books.revenue - b.books.wages - b.books.tax) * 0.5)) : 0;
+        total += profit;
+        return { id: b.id, kind: b.kind, name: t(BUILDINGS[b.kind].name), building: b.built < 1, profit, workers: `${b.workers}/${BUILDINGS[b.kind].jobs}` };
+      });
+      return { id: c.id, name: c.name, tint: c.tint ?? '#aab4be', people: pops.get(c.id) ?? 0, money: c.money, happiness: c.happiness, relation: c.relation ?? 40, friendship: this.friendship(c.relation ?? 40),
+        style: STYLE_NAME[this.autoCity.styleOf(c)], wants: this.townWants(c), joint, contracts: (me.contracts ?? []).filter((k) => k.town === c.id).length };
+    });
+    return { towns, options, money: me.money, total };
+  }
+
   /** A joint project from the embassy: you pay half, the neighbour pays half, builds it and staffs it; the profit is shared. */
   private jointProject(town: City, kind: BuildingKind) {
     const me = this.eco.city;
@@ -5131,7 +5188,8 @@ export class Game implements ToolHost {
     const half = Math.round(d.money / 2);
     if (me.money < half) return this.hud?.toast(t('Not enough money — needs ${n}', { n: half }));
     const rel = town.relation ?? 40;
-    if (rel < 30 || Math.random() > Math.min(0.95, 0.3 + rel / 100)) {
+    const wanted = this.townWants(town).includes(kind);
+    if (rel < 30 || Math.random() > Math.min(0.97, 0.3 + rel / 100 + (wanted ? 0.35 : 0))) {
       town.relation = Math.max(0, rel - 1);
       this.deal(town.id, t('Turned down a joint {name}', { name: t(d.name) }), 0);
       sound.play('error');

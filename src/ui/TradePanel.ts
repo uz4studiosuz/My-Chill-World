@@ -59,6 +59,8 @@ export class TradePanel {
   /** The good whose price chart is shown. */
   private good: Good = 'food';
   private savedScroll = 0;
+  /** Price sheets the player opened (kept open when the window refreshes). */
+  private openSheets = new Set<string>();
 
   constructor(parent: HTMLElement, private trade: Trade, private host: TradeHost) {
     this.root = el('div', 'respanel trade-panel');
@@ -332,11 +334,18 @@ export class TradePanel {
     sec(t('Latest deals'));
     const list = el('div', 'trade-deals');
     if (!deals.length) { const e = el('div', 'rp-note'); e.textContent = t('No deals yet — sell to a town that needs a good, or buy from one that has plenty.'); list.appendChild(e); }
+    // the same deal repeated on one day is one row (×n, money added up)
+    const grouped: (typeof deals[number] & { n: number })[] = [];
     for (const d of deals) {
+      const last = grouped[grouped.length - 1];
+      if (last && last.day === d.day && last.town === d.town && last.text === d.text) { last.n++; last.money += d.money; }
+      else grouped.push({ ...d, n: 1 });
+    }
+    for (const d of grouped.slice(0, 14)) {
       const r = el('div', 'trade-deal');
       r.innerHTML = '<i></i><span></span><b></b>';
       (r.querySelector('i') as HTMLElement).style.background = d.tint;
-      (r.querySelector('span') as HTMLElement).textContent = `${d.day} · ${d.town} · ${d.text}`;
+      (r.querySelector('span') as HTMLElement).textContent = `${d.day} · ${d.town} · ${d.text}${d.n > 1 ? ` ×${d.n}` : ''}`;
       const m = r.querySelector('b') as HTMLElement;
       m.textContent = d.money ? `${d.money > 0 ? '+' : '−'}$${Math.abs(Math.round(d.money)).toLocaleString('en-US')}` : '—';
       m.className = d.money > 0 ? 'pos' : d.money < 0 ? 'neg' : '';
@@ -345,6 +354,9 @@ export class TradePanel {
     body.appendChild(list);
     for (const s of this.host.priceSheet()) {
       const det = el('details', 'trade-more') as HTMLDetailsElement;
+      // stays open across the window's refreshes
+      det.open = this.openSheets.has(s.title);
+      det.addEventListener('toggle', () => { if (det.open) this.openSheets.add(s.title); else this.openSheets.delete(s.title); });
       const sm = el('summary', '');
       sm.textContent = s.title;
       det.appendChild(sm);

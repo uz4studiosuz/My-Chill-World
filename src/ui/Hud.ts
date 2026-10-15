@@ -219,6 +219,8 @@ export interface HudHandlers {
   openPerson?: (id: number) => void;
   /** The production chains as a map. */
   openChains?: () => void;
+  /** The embassy window. */
+  openEmbassy?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -521,7 +523,7 @@ export class Hud {
     const qt = el('div', 'side-title');
     qt.textContent = t('More');
     const quick = el('div', 'side-quick');
-    for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['production', 'Production chains', () => h.openChains?.()], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals],
+    for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['production', 'Production chains', () => h.openChains?.()], ['globe', 'Embassy', () => h.openEmbassy?.()], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals],
       ['list', 'Chronicle', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['book', 'Guide', h.openGuide]] as [IconName, string, () => void][]) {
       const b = el('button', 'side-btn');
       b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
