@@ -53,6 +53,8 @@ export interface Citizen {
   fit?: number;
   /** Works the night shift (better pay). */
   night?: boolean;
+  /** A woodcutter's own chainsaw (bought in a shop): trees come down much faster. */
+  saw?: boolean;
   /** Life story: day, age, English text key and its parameters. */
   story?: StoryEntry[];
   /** A believer (set once they work at or go to the mosque; otherwise decided at birth). */
@@ -206,7 +208,9 @@ export class Population {
   }
 
   /** May this person take a job at this building? (Imams and muezzins of a mosque are men.) */
-  fits(c: Citizen, b: Building) { return !(b.kind === 'mosque' && c.sex === 'f'); }
+  /** What the job at this workplace asks (0 anyone, 1 a learnt trade, 2 a university degree): set by the game. */
+  need: (b: Building) => 0 | 1 | 2 = (b) => (DEGREE_JOBS[b.kind] ? 1 : 0);
+  fits(c: Citizen, b: Building) { return !(b.kind === 'mosque' && c.sex === 'f') && c.skill >= this.need(b); }
 
   canWork(c: Citizen) {
     return c.age >= ADULT_AGE && c.age < RETIRE_AGE && !this.onLeave(c) && !(c.school >= 0 && c.age < UNI_END);
@@ -279,7 +283,8 @@ export class Population {
     for (const b of buildings.list) {
       if (b.built < 1) continue;
       const d = BUILDINGS[b.kind];
-      if (d.jobs) free.set(b.id, d.jobs);
+      // a woodcutter or quarry with nothing left to take does not hire (its people work elsewhere for now)
+      if (d.jobs && !(b.depleted ?? 0)) free.set(b.id, d.jobs);
       if (d.students) seats.set(b.id, seatsOf(b));
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
@@ -315,7 +320,7 @@ export class Population {
         // jobs: the most needed first; among equal ones the emptier workplace wins, so newcomers spread out evenly
         const fill = kind ? 0 : (1 - n / Math.max(1, BUILDINGS[b.kind].jobs)) * 80;
         const pay = kind ? 0 : -BUILDINGS[b.kind].salary * this.wageFactor(b) * 1.5;
-        const diploma = kind || !who ? 0 : DEGREE_JOBS[b.kind] ? (who.skill >= 1 ? -25 : 120) : who.skill >= 1 ? 10 : 0;
+        const diploma = kind || !who ? 0 : this.need(b) ? (who.skill >= this.need(b) ? -25 : 120) : who.skill >= 1 ? 10 : 0;
         const d = (from ? Math.abs(b.x - from.x) + Math.abs(b.z - from.z) : 0) + (kind ? 0 : this.priority(b) * 200 + fill + pay + diploma);
         if (d < bd) { bd = d; best = id; }
       }
@@ -692,7 +697,7 @@ export class Population {
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, night: c.night, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, gambled: c.gambled, lost: c.lost || undefined,
+        story: c.story, night: c.night, saw: c.saw || undefined, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));
   }

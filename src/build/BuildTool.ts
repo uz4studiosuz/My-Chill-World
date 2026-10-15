@@ -10,11 +10,11 @@ export type PlaceKind =
   | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery' | 'roundabout'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
-  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk'
+  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
   | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
-export type LineKind = 'road' | 'litroad' | 'path' | 'path_stone' | 'path_brick' | 'path_gravel' | 'path_wood' | 'canal' | 'rail' | 'pipe' | 'tunnel';
+export type LineKind = 'road' | 'litroad' | 'path' | 'path_stone' | 'path_brick' | 'path_gravel' | 'path_wood' | 'canal' | 'rail' | 'pipe' | 'cable' | 'tunnel';
 /** Footpath styles: the tool and the style number kept in the tiles (1 = yellow pavers). */
 export const PATH_STYLE: Partial<Record<string, number>> = { path: 1, path_stone: 2, path_brick: 3, path_gravel: 4, path_wood: 5 };
 export const isPathKind = (t: string) => PATH_STYLE[t] !== undefined;
@@ -46,7 +46,7 @@ const OK = new THREE.Color('#5fe08a');
 const BAD = new THREE.Color('#ff5a4f');
 const REMOVE = new THREE.Color('#ff8a3d');
 
-const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || isPathKind(t) || t === 'canal' || t === 'rail' || t === 'pipe' || t === 'tunnel';
+const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || isPathKind(t) || t === 'canal' || t === 'rail' || t === 'pipe' || t === 'cable' || t === 'tunnel';
 const isPlace = (t: ToolId): t is PlaceKind => t !== 'pan' && t !== 'bulldoze' && !isLine(t);
 
 export class BuildTool {

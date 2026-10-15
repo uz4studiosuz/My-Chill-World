@@ -40,6 +40,8 @@ export interface AutoHost {
   sanitation(cityId: number): number;
   /** Pupils at a school (or children at a kindergarten, students at a university). */
   pupils(id: number): number;
+  /** Is there something to take here for a woodcutter, quarry or mine? */
+  hasResource(kind: BuildingKind, x: number, z: number): boolean;
   /** Lay water pipes along these tiles (the town's mains under its new streets). */
   layPipes(tiles: Tile[]): void;
   /** Raise a building one level (false: cannot or no money). */
@@ -144,6 +146,22 @@ export class AutoCity {
       const dry = b.kind === 'farm' && !this.h.irrigated(b) && Math.random() < 0.5;
       if (dry) { this.h.digCanal(b); if (!this.h.irrigated(b) && Math.random() < 0.2) { this.h.demolish(b); this.note(city, t('A dry field was given up — a new one will be dug near water')); } continue; }
       if (noRoad) { this.h.demolish(b); this.note(city, t('The {name} had no road — it was pulled down to be built again', { name: t(BUILDINGS[b.kind].name) })); break; }
+      // nothing left to take: the woodcutter, quarry or mine moves to fresh trees or rock
+      if ((b.depleted ?? 0) >= 2) {
+        const hall = buildings.townHall(city.id);
+        const own = buildings.list.filter((o) => o.city === city.id && !o.removed && o.id !== b.id);
+        const spot = hall && this.findSpot(b.kind, hall, own);
+        const kind = b.kind;
+        this.h.demolish(b);
+        if (spot && buildings.check(kind, spot.x, spot.z).ok) {
+          buildings.place(kind, spot.x, spot.z, { city: city.id });
+          this.pipeUnder(kind, spot.x, spot.z);
+          this.h.clearTiles(buildings.footprint(kind, spot.x, spot.z).map((f) => idx(f.x, f.z)));
+          this.h.networkChanged();
+          this.note(city, t('The {name} had nothing left to take — it moved to a new place', { name: t(BUILDINGS[kind].name) }));
+        } else this.note(city, t('The {name} had nothing left to take — it was closed', { name: t(BUILDINGS[kind].name) }));
+        break;
+      }
     }
     const style = this.styleOf(city);
     const people = this.h.people(city.id);
@@ -258,7 +276,8 @@ export class AutoCity {
 
   update(dt: number) {
     this.t += dt;
-    if (this.t < 12) return;
+    // a mayor decides every few seconds (faster growth than before)
+    if (this.t < 6) return;
     this.t = 0;
     const day = this.h.eco.day;
     const newDay = day !== this.lastDay;
@@ -276,9 +295,24 @@ export class AutoCity {
     const hall = buildings.townHall(city.id);
     if (!hall || hall.built < 1) return;
     const own = buildings.list.filter((b) => b.city === city.id && !b.removed);
-    // one building site at a time (two when the town is rich): builders are few
+    // building sites at a time: more as the town grows, has builders and money
     const sites = own.filter((b) => b.built < 1).length;
-    if (sites >= (city.money > 20000 ? 3 : city.money > 8000 ? 2 : 1)) return;
+    const people = this.h.people(city.id);
+    const yards = own.filter((b) => b.kind === 'construction' && b.built >= 1 && b.workers > 0).length;
+    const cap = Math.min(5, 1 + Math.floor(people / 90) + (city.money > 8000 ? 1 : 0) + (city.money > 20000 ? 1 : 0) + Math.max(0, yards - 1));
+    if (sites >= cap) {
+      // too many sites for the builders: a growing town with money opens a second construction company
+      if (yards === 1 && people >= 80 && city.money > 4000 && !own.some((b) => b.kind === 'construction' && b.built < 1)) {
+        const hall2 = buildings.townHall(city.id);
+        const spot = hall2 && this.findSpot('construction', hall2, own);
+        if (spot && this.afford(city, 'construction', 1500) && this.pay(city, 'construction')) {
+          buildings.place('construction', spot.x, spot.z, { city: city.id });
+          this.h.networkChanged();
+          this.note(city, t('A second construction company opened: more building sites at once'));
+        }
+      }
+      return;
+    }
     let want = this.need(city, own);
     if (want && want !== 'roads' && this.blocked(city, want)) want = null;
     // the basics are done: the next thing of everything a town has in time
@@ -362,6 +396,7 @@ export class AutoCity {
     if (!count('cemetery') && people >= 60) return 'cemetery';
     if (!count('police') && people >= 70) return 'police';
     if (!count('pharmacy') && people >= 75) return 'pharmacy';
+    if (!count('dairyshop') && people >= 80 && (count('ranch') || city.milk > 30)) return 'dairyshop';
     if (!count('mosque') && people >= 85) return 'mosque';
     if (!count('teahouse') && people >= 90) return 'teahouse';
     if (!count('clothes') && people >= 95) return 'clothes';
@@ -487,6 +522,7 @@ export class AutoCity {
       if (!this.leavesRoom(hall.city, kind, x, z)) continue;
       if (kind === 'busstop' && own.some((b) => b.kind === 'busstop' && Math.abs(b.x - x) + Math.abs(b.z - z) < 7)) continue;
       if (kind === 'farm' && !this.h.isWatered(x, z, 3) && map.arid[idx(x, z)] > 0.5) continue;
+      if ((kind === 'woodcutter' || kind === 'quarry' || kind === 'coalmine' || kind === 'ironmine') && !this.h.hasResource(kind, x, z)) continue;
       if (kind === 'farm' && !this.h.isWatered(x, z, 3) && !this.nearWater(x, z, 14)) continue;
       best = { x, z };
       bd = score;

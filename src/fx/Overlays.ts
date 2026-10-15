@@ -3,11 +3,12 @@ import type { Building } from '../buildings/Buildings';
 import { BUILDINGS } from '../buildings/BuildingTypes';
 
 /** A problem shown above a building. */
-export type Problem = 'power' | 'water' | 'food' | 'workers' | 'road' | 'cold' | 'trash' | 'sick';
+export type Problem = 'power' | 'water' | 'food' | 'workers' | 'road' | 'cold' | 'trash' | 'sick' | 'notrees' | 'norock';
 
 const ICON: Record<Problem, [string, string]> = {
   power: ['⚡', '#f2b33d'], water: ['💧', '#4fa3d1'], food: ['🍞', '#e8a13a'], workers: ['👷', '#6fb6ff'],
   road: ['🚧', '#f07167'], cold: ['❄️', '#9fd3ff'], trash: ['🗑️', '#8e96a1'], sick: ['🤒', '#f07167'],
+  notrees: ['🌲', '#f07167'], norock: ['⛰️', '#f07167'],
 };
 
 /**

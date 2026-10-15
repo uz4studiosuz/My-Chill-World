@@ -23,6 +23,10 @@ export interface TradeHost {
   towns(): { id: number; name: string; tint: string; mine: boolean }[];
   /** Daily price of a good in a town (oldest first, today last). */
   history(id: number, g: Good): number[];
+  /** The latest deals with the neighbour towns (newest first; money + you got, − you paid). */
+  deals(): { day: string; town: string; tint: string; text: string; money: number }[];
+  /** Every other price in the town (cars, homes, bills, shops, wages). */
+  priceSheet(): { title: string; rows: [string, string][] }[];
 }
 
 export interface Neighbour { id: number; name: string; tint: string; people: number; money: number; relation: number; wants: { g: Good; price: number }[]; offers: { g: Good; price: number; have: number }[];
@@ -87,6 +91,7 @@ export class TradePanel {
     sub.textContent = linked ? t('Train station / airport: goods travel cheaply') : t('No train station or airport: caravans take 10%');
     titles.append(h, val, sub);
     const x = el('button', 'info-x');
+    x.classList.add('trade-x');
     x.innerHTML = icon('close');
     x.setAttribute('aria-label', t('Close'));
     x.addEventListener('click', () => this.hide());
@@ -109,6 +114,20 @@ export class TradePanel {
     };
     chip('best', t('Best price'));
     for (const n of towns) chip(n.id, n.name, n.tint);
+    // what was traded today and yesterday
+    const sum = el('div', 'trade-sum');
+    const cell = (label: string, v: number, cls: string, sub: string) => {
+      const c = el('div', `trade-sum-c ${cls}`);
+      c.innerHTML = '<small></small><b></b><i></i>';
+      (c.querySelector('small') as HTMLElement).textContent = label;
+      (c.querySelector('b') as HTMLElement).textContent = `$${Math.round(v).toLocaleString('en-US')}`;
+      (c.querySelector('i') as HTMLElement).textContent = sub;
+      sum.appendChild(c);
+    };
+    cell(t('Sold today'), this.trade.today.sold, 'pos', `${t('yesterday')} $${Math.round(this.trade.yesterday.sold).toLocaleString('en-US')}`);
+    cell(t('Bought today'), this.trade.today.bought, 'neg', `${t('yesterday')} $${Math.round(this.trade.yesterday.bought).toLocaleString('en-US')}`);
+    cell(t('Balance today'), this.trade.today.sold - this.trade.today.bought, this.trade.today.sold >= this.trade.today.bought ? 'pos' : 'neg', linked ? t('Railway / airport') : t('Caravans'));
+    body.appendChild(sum);
     body.appendChild(pick);
     // price chart of the chosen good: your town and the others, day by day
     const sel = this.town === 'best' ? undefined : towns.find((n) => n.id === this.town);
@@ -132,7 +151,8 @@ export class TradePanel {
     const hint = el('div', 'rp-note');
     hint.textContent = t('Tap a good to see its price. A town pays more for what it has little of and sells cheap what it has a lot of.');
     body.appendChild(hint);
-    if (sel) { this.townTable(body, sec, city, sel); this.finish(head, body, scroll, lines); return; }
+    this.board(body, sec, all);
+    if (sel) { this.townTable(body, sec, city, sel); this.extras(body, sec); this.finish(head, body, scroll, lines); return; }
     sec(t('Goods'));
     const table = el('div', 'trade-table');
     table.appendChild(tradeHead());
@@ -256,7 +276,83 @@ export class TradePanel {
     const note = el('div', 'rp-note');
     note.textContent = t('You trade with the other towns on the map: they pay more for what they lack and sell what they have too much of. There are no merchants — when no town needs a good, nobody buys it.') + ' ' + t('Today: sold ${a}, bought ${b}', { a: Math.round(this.trade.today.sold), b: Math.round(this.trade.today.bought) });
     body.appendChild(note);
+    this.extras(body, sec);
     this.finish(head, body, scroll, lines);
+  }
+
+  /** Price board: every good in every town today (your town first), with the change over the week. */
+  private board(body: HTMLElement, sec: (s: string) => void, all: { id: number; name: string; tint: string; mine: boolean }[]) {
+    sec(t('Prices today in every town'));
+    const wrap = el('div', 'price-board');
+    const table = el('table', '');
+    const head = el('tr', '');
+    head.appendChild(el('th', ''));
+    const towns = [...all].sort((a, b) => Number(b.mine) - Number(a.mine));
+    for (const c of towns) {
+      const th = el('th', '');
+      th.innerHTML = `<i style="background:${c.mine ? '#f2b33d' : c.tint}"></i>`;
+      th.append(c.mine ? t('Your town') : c.name);
+      head.appendChild(th);
+    }
+    table.appendChild(head);
+    for (const g of GOODS) {
+      const tr = el('tr', g === this.good ? 'picked' : '');
+      const name = el('td', 'pb-good');
+      name.textContent = t(GOOD_NAME[g]);
+      tr.appendChild(name);
+      const vals = towns.map((c) => this.host.history(c.id, g));
+      const others = towns.map((c, i) => (c.mine ? NaN : vals[i][vals[i].length - 1] ?? 0)).filter((v) => !isNaN(v) && v > 0);
+      const lo = Math.min(...others), hi = Math.max(...others);
+      towns.forEach((c, i) => {
+        const v = vals[i], now = v[v.length - 1] ?? 0;
+        const td = el('td', `${c.mine ? 'mine' : ''}${!c.mine && now === lo && others.length > 1 ? ' lo' : ''}${!c.mine && now === hi && others.length > 1 ? ' hi' : ''}`);
+        const tr2 = this.trend(v);
+        td.innerHTML = `<b></b><small class="${tr2.startsWith('▲') ? 'up' : tr2.startsWith('▼') ? 'down' : ''}"></small>`;
+        (td.querySelector('b') as HTMLElement).textContent = now ? `$${now.toFixed(1)}` : '—';
+        (td.querySelector('small') as HTMLElement).textContent = tr2 || '•';
+        tr.appendChild(td);
+      });
+      tr.addEventListener('click', () => { this.good = g; this.render(); });
+      table.appendChild(tr);
+    }
+    wrap.appendChild(table);
+    body.appendChild(wrap);
+    const n = el('div', 'rp-note');
+    n.textContent = t('Green: the cheapest town to buy from. Amber: the town that pays the most. ▲▼ the change over the last week.');
+    body.appendChild(n);
+  }
+
+  /** The latest deals and every other price of the town (cars, homes, bills, shops, wages). */
+  private extras(body: HTMLElement, sec: (s: string) => void) {
+    const deals = this.host.deals();
+    sec(t('Latest deals'));
+    const list = el('div', 'trade-deals');
+    if (!deals.length) { const e = el('div', 'rp-note'); e.textContent = t('No deals yet — sell to a town that needs a good, or buy from one that has plenty.'); list.appendChild(e); }
+    for (const d of deals) {
+      const r = el('div', 'trade-deal');
+      r.innerHTML = '<i></i><span></span><b></b>';
+      (r.querySelector('i') as HTMLElement).style.background = d.tint;
+      (r.querySelector('span') as HTMLElement).textContent = `${d.day} · ${d.town} · ${d.text}`;
+      const m = r.querySelector('b') as HTMLElement;
+      m.textContent = d.money ? `${d.money > 0 ? '+' : '−'}$${Math.abs(Math.round(d.money)).toLocaleString('en-US')}` : '—';
+      m.className = d.money > 0 ? 'pos' : d.money < 0 ? 'neg' : '';
+      list.appendChild(r);
+    }
+    body.appendChild(list);
+    for (const s of this.host.priceSheet()) {
+      const det = el('details', 'trade-more') as HTMLDetailsElement;
+      const sm = el('summary', '');
+      sm.textContent = s.title;
+      det.appendChild(sm);
+      for (const [k, v] of s.rows) {
+        const r = el('div', 'trade-more-row');
+        r.innerHTML = '<span></span><b></b>';
+        (r.querySelector('span') as HTMLElement).textContent = k;
+        (r.querySelector('b') as HTMLElement).textContent = v;
+        det.appendChild(r);
+      }
+      body.appendChild(det);
+    }
   }
 
   /** Price change over the last week, as a coloured arrow and percent. */

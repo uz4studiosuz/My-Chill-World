@@ -1,6 +1,6 @@
 import { ToolId } from '../build/BuildTool';
 import { IS_TOUCH } from '../config';
-import { BUILDINGS, BuildingKind, PIPE_COST, PATH_COST, TUNNEL_COST, extraCost } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, PIPE_COST, CABLE_COST, PATH_COST, TUNNEL_COST, extraCost } from '../buildings/BuildingTypes';
 import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
@@ -32,8 +32,8 @@ const b = (tool: BuildingKind & ToolId, cat: Category, tag: string, desc: string
 };
 
 export const ITEMS: ToolItem[] = [
-  { tool: 'tunnel', cat: 'roads', name: 'Tunnel', desc: 'A road straight through a mountain: draw it across the rock. Dearer than a road, but much shorter than going round.', money: TUNNEL_COST.money, stone: TUNNEL_COST.stone, wood: 0, perTile: true, tag: 'Through mountains', icon: 'roads' },
-  { tool: 'road', cat: 'roads', name: 'Road', desc: 'Two-lane road with sidewalks, no street lamps. Over water it becomes a bridge.', ...ROAD_COST[2], wood: 0, perTile: true, tag: 'Cars, power, water', icon: 'road' },
+  { tool: 'tunnel', cat: 'roads', name: 'Tunnel', desc: 'Bores a passage through a mountain (no road yet): draw it across the rock, the builders dig it tile by tile. Then lay a road, a lit street or a railway through it.', money: TUNNEL_COST.money, stone: TUNNEL_COST.stone, wood: 0, perTile: true, tag: 'Through mountains', icon: 'roads' },
+  { tool: 'road', cat: 'roads', name: 'Road', desc: 'Two-lane road with sidewalks, no street lamps. Over water it becomes a bridge; through a mountain it needs a tunnel first. Builders lay it tile by tile.', ...ROAD_COST[2], wood: 0, perTile: true, tag: 'Cars, power, water', icon: 'road' },
   { tool: 'litroad', cat: 'roads', name: 'Lit Street', desc: 'Road with street lamps that shine at night. Lamps use a little electricity. Drag over an existing road to add lamps.', money: ROAD_COST[2].money + 10, stone: ROAD_COST[2].stone, wood: 0, perTile: true, tag: 'Lamps at night', icon: 'energy' },
   { tool: 'roundabout', cat: 'roads', name: 'Roundabout', desc: 'Place it on a junction — roads connect to the middle of each side.', ...ROUNDABOUT_COST, wood: 0, tag: '3×3 · no lights', icon: 'roundabout' },
   { tool: 'rail', cat: 'roads', name: 'Railway', desc: 'Lay tracks between two Train Stations: a train then carries goods and passengers between the cities.', money: 14, stone: 0, wood: 0, iron: 1, perTile: true, tag: 'Trains', icon: 'rail' },
@@ -43,6 +43,7 @@ export const ITEMS: ToolItem[] = [
   { tool: 'path_gravel', cat: 'roads', name: 'Gravel Path', desc: 'A narrow gravel path for gardens, parks and the countryside. The cheapest path.', money: Math.max(1, Math.round(PATH_COST / 2)), stone: 0, wood: 0, perTile: true, tag: 'Gardens and countryside', icon: 'path' },
   { tool: 'path_wood', cat: 'roads', name: 'Boardwalk', desc: 'A wooden boardwalk of planks: lovely by lakes, rivers and in parks.', money: PATH_COST, stone: 0, wood: 1, perTile: true, tag: 'By lakes and in parks', icon: 'path' },
   { tool: 'pipe', cat: 'roads', name: 'Water Pipe', desc: 'Underground water pipe — the only way water reaches homes. Run it under the water tower and on under every home: a building joins the water only where a pipe passes under it. It may run under roads, bridges and paths.', money: PIPE_COST.money, stone: 0, wood: 0, iron: PIPE_COST.iron, perTile: true, tag: 'Water to homes', icon: 'water' },
+  { tool: 'cable', cat: 'roads', name: 'Power Cable', desc: 'Electric cable from a power plant to the buildings: a building gets power when a cable runs under it or along the road in front of its door; street lamps need a cable under them. Cheap — lay it along the streets.', money: CABLE_COST.money, stone: 0, wood: 0, iron: CABLE_COST.iron, perTile: true, tag: 'Power to buildings', icon: 'energy' },
   { tool: 'canal', cat: 'roads', name: 'Irrigation Canal', desc: 'Dig from a river or lake to a crop farm — farms need water to grow.', money: 8, stone: 0, wood: 0, perTile: true, tag: 'Water for farms', icon: 'canal' },
   b('apartment', 'buildings', '6 families', 'Five floors, six flats. Families pay rent to the owner — the city or a businessman who built it.', 'office'),
   b('tower15', 'buildings', '15 families', 'Eight floors, fifteen flats. Families pay rent to the owner.', 'office'),
@@ -71,6 +72,7 @@ export const ITEMS: ToolItem[] = [
   b('stadium', 'services', 'Football', 'Every other day the city team plays a match. Fans fill the stands — a win makes the whole city happier.', 'ball'),
   b('bakery', 'business', 'Bread', 'Bakes flour from the mill into bread: much more food than raw grain. Vans deliver the bread to the shops.', 'food'),
   b('supermarket', 'business', 'Big shop', 'A big shop that sells bread, cheese and everything else. Counts as a food shop for homes.', 'food'),
+  b('dairyshop', 'business', 'Milk and cheese', 'Sells the milk of the ranches as milk, yogurt and cheese: people eat it as food, and the milk in the stores goes down.', 'food'),
   b('kiosk', 'business', 'Coffee', 'A coffee and ice-cream cart. People stop by on their walks.', 'food'),
   b('cinema', 'business', 'Films at night', 'An open-air cinema: in the evening people sit on benches and watch a film on the big screen.', 'film'),
   b('grocery', 'business', 'Food shop', 'Families buy their everyday food here. A family may buy the shop or build one with its savings.', 'food'),
@@ -159,12 +161,18 @@ const BASE_HINTS: Partial<Record<ToolId, string>> = {
 export interface HudStats {
   money: number; iron: number; daily: number; stone: number; wood: number; food: number; foodDaily: number;
   powered: number; water: number; population: number; workers: number; workforce: number;
+  /** Jobs nobody fills yet in the town's workplaces. */
+  vacancies: number;
+  /** Bricks in the stores (homes are built of them). */
+  bricks?: number;
   /** Families living in town, and how many families all its homes can take. */
   households: number; homeUnits: number;
   dateText: string; seasonIcon: string; timeOfDay: number; broke: boolean;
   cityName: string; cities: number; happiness: number;
   /** What the town needs next (the side panel lists it). */
   needs?: string[];
+  /** People marked as favourites: tap one to follow them. */
+  favs?: { id: number; name: string; doing: string }[];
 }
 
 export interface HudHandlers {
@@ -195,6 +203,10 @@ export interface HudHandlers {
   confirmBuild: () => void;
   cancelBuild: () => void;
   rotateBuild?: () => void;
+  /** Fly to a person and follow them. */
+  openPerson?: (id: number) => void;
+  /** The production chains as a map. */
+  openChains?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -245,6 +257,8 @@ export class Hud {
   private dock!: HTMLDivElement;
   private tabSearch!: HTMLInputElement;
   private needsKey = '';
+  private sideFavs!: HTMLDivElement;
+  private favKey = '';
 
   constructor(parent: HTMLElement, private h: HudHandlers, private thumbs: Map<string, string>) {
     this.root = el('div', 'hud');
@@ -267,35 +281,10 @@ export class Hud {
     // one compact navigation block; on small screens the less used panels move into a "more" menu
     const nav = el('div', 'navgroup');
     const more = el('div', 'navmenu');
-    const panels: [IconName, string, () => void, boolean][] = [
-      // always visible: statistics and letters; everything else lives in the "more" menu
-      // statistics live in the town hall window now; the newspaper waits behind its own button with a counter
-      ['news', 'Newspaper', h.openNews, false], ['mail', 'Letters', h.openPetitions, false], ['office', 'All buildings', h.openBuildings, false], ['stats', 'Statistics', h.openStats, true],
-      ['globe', 'Trade', h.openTrade, true], ['buildings', 'World: all towns', h.openWorld, true], ['trophy', 'Goals', h.openGoals, true],
-      ['list', 'Chronicle', h.openLog, true], ['car', 'Drive a car', h.openDrive, true], ['camera', 'Photo mode', h.openPhoto, true], ['book', 'Guide', h.openGuide, true],
-    ];
+    // the panels (newspaper, letters, all buildings, statistics…) live in the town panel on the right
     nav.appendChild(this.iconButton('menu', t('Menu'), h.openMenu));
-    for (const [ic, label, fn, secondary] of panels) {
-      const b = this.iconButton(ic, t(label), fn);
-      this.navBtn.set(ic, b);
-      if (secondary) b.classList.add('nav-sec');
-      nav.appendChild(b);
-      if (secondary) {
-        const item = el('button', 'navmenu-item');
-        item.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
-        item.addEventListener('click', () => { more.classList.remove('show'); fn(); });
-        more.appendChild(item);
-      }
-    }
-    soundBtn.classList.add('nav-snd');
-    const moreBtn = this.iconButton('dots', t('More'), () => more.classList.toggle('show'));
-    moreBtn.classList.add('nav-more');
-    nav.append(soundBtn, moreBtn);
-    const sndItem = el('button', 'navmenu-item');
-    sndItem.innerHTML = `${icon('sound')}<span>${t('Sound')}</span>`;
-    sndItem.addEventListener('click', () => { soundBtn.click(); });
-    more.appendChild(sndItem);
-    nav.appendChild(more);
+    soundBtn.classList.add('nav-snd-keep');
+    nav.append(soundBtn, more);
     document.addEventListener('pointerdown', (e) => { if (!nav.contains(e.target as Node)) more.classList.remove('show'); }, true);
     const chips = el('div', 'chips');
     // grouped, colour-coded resource readouts: city · materials · utilities · people · time
@@ -304,7 +293,7 @@ export class Hud {
       [['money', 'r_money', 'Town money (balance per day)'], ['stone', 'r_stone', 'Stone'], ['wood', 'r_wood', 'Wood (building material and fuel)'],
         ['iron', 'r_iron', 'Iron (for industry and big buildings)'], ['food', 'r_food', 'Food (everyone eats 1 per day)'], ['allres', 'list', 'All resources and the stores']],
       [['energy', 'r_energy', 'Energy supplied'], ['water', 'r_water', 'Drinking water supplied']],
-      [['pop', 'r_people', 'Population'], ['homes', 'house', 'Households / families the homes can take'], ['happy', 'r_happy', 'Happiness'], ['jobs', 'r_jobs', 'Employed / workforce']],
+      [['pop', 'r_people', 'Population'], ['happy', 'r_happy', 'Happiness']],
       [['day', 'calendar', 'Date and time']],
     ];
     for (const group of GROUPS) {
@@ -385,6 +374,7 @@ export class Hud {
     // the town panel: on phones a button opens it as a sheet
     const townBtn = this.iconButton('buildings', t('Town'), () => this.side.classList.toggle('open'));
     townBtn.classList.add('town-btn');
+    this.townBtn = townBtn;
     // the bar reads left to right: resources · time and speed · panels · menu
     top.append(corner, townBtn);
     nav.classList.add('nav-right');
@@ -454,19 +444,30 @@ export class Hud {
     sx.addEventListener('click', () => this.side.classList.remove('open'));
     sh.append(this.sideTitle, sx);
     this.sideStats = el('div', 'side-stats');
+    this.sideFavs = el('div', 'side-favs');
     const nt = el('div', 'side-title');
     nt.textContent = t('What the town needs');
     this.sideNeeds = el('div', 'side-needs');
+    const top3 = el('div', 'side-actions');
+    for (const [ic, label, fn] of [['news', 'Newspaper', h.openNews], ['mail', 'Letters', h.openPetitions], ['office', 'All buildings', h.openBuildings]] as [IconName, string, () => void][]) {
+      const b = el('button', 'side-act');
+      b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
+      b.title = t(label);
+      b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); fn(); });
+      this.navBtn.set(ic, b);
+      top3.appendChild(b);
+    }
     const qt = el('div', 'side-title');
-    qt.textContent = t('Town hall');
+    qt.textContent = t('More');
     const quick = el('div', 'side-quick');
-    for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['office', 'All buildings', h.openBuildings], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals], ['list', 'Chronicle', h.openLog]] as [IconName, string, () => void][]) {
+    for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['production', 'Production chains', () => h.openChains?.()], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals],
+      ['list', 'Chronicle', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['book', 'Guide', h.openGuide]] as [IconName, string, () => void][]) {
       const b = el('button', 'side-btn');
       b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
       b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); fn(); });
       quick.appendChild(b);
     }
-    this.side.append(sh, this.sideStats, nt, this.sideNeeds, qt, quick);
+    this.side.append(sh, top3, this.sideStats, this.sideFavs, nt, this.sideNeeds, qt, quick);
     // a handle on the panel's edge folds it away (remembered between visits)
     const sideToggle = el('button', 'side-toggle');
     const setSide = (min: boolean) => {
@@ -479,15 +480,25 @@ export class Hud {
     try { sideMin = localStorage.getItem('mcw_side_min') === '1'; } catch { /* ignore */ }
     setSide(sideMin);
     sideToggle.addEventListener('click', () => setSide(!document.body.classList.contains('side-min')));
-    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle);
+    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle, this.costEl);
     parent.appendChild(this.root);
     this.toggleDrawer('buildings');
   }
 
   private navBtn = new Map<IconName, HTMLButtonElement>();
+  private townBtn?: HTMLButtonElement;
+  private badges = new Map<string, number>();
 
   /** A small counter on a top-bar button (e.g. unanswered letters). */
   setBadge(name: IconName, n: number) {
+    this.badges.set(name, n);
+    // phones: the town button (it opens the panel) shows them all together
+    const all = [...this.badges.values()].reduce((a, v) => a + Math.max(0, v), 0);
+    if (this.townBtn) {
+      let tb = this.townBtn.querySelector('.nav-badge') as HTMLSpanElement | null;
+      if (all <= 0) tb?.remove();
+      else { if (!tb) { tb = el('span', 'nav-badge'); this.townBtn.appendChild(tb); } tb.textContent = all > 9 ? '9+' : `${all}`; }
+    }
     const b = this.navBtn.get(name);
     if (!b) return;
     let badge = b.querySelector('.nav-badge') as HTMLSpanElement | null;
@@ -606,7 +617,8 @@ export class Hud {
     btn.addEventListener('mouseenter', showDesc);
     btn.addEventListener('focus', showDesc);
     const count = el('span', 'card-count');
-    btn.append(img, name, tag, cost, count);
+    void cost;
+    btn.append(img, name, tag, count);
     btn.addEventListener('click', () => {
       this.h.setTool(it.tool);
       showDesc();
@@ -645,6 +657,36 @@ export class Hud {
     });
     this.refreshCards();
     this.setHint(null);
+    this.renderCost();
+  }
+
+  private costEl = el('div', 'build-cost');
+  private lastBricks = 0;
+
+  /** What the chosen building needs and what the town has of it (shown above the dock while building). */
+  private renderCost() {
+    const it = ITEMS.find((i) => i.tool === this.tool);
+    const need: [IconName | '', string, number, number, string?][] = [];
+    if (it) {
+      if (it.money) need.push(['coin', t('Money'), it.money, this.lastMoney]);
+      if (it.stone) need.push(['stone', t('Stone'), it.stone, this.lastStone]);
+      if (it.wood) need.push(['wood', t('Wood'), it.wood, this.lastWood]);
+      if (it.iron) need.push(['iron', t('Iron'), it.iron, this.lastIron]);
+      if (it.bricks) need.push(['', t('Bricks'), it.bricks, this.lastBricks, '▦']);
+    }
+    if (!it || !need.length) { this.costEl.classList.remove('show'); return; }
+    const thumb = this.thumbs.get(it.tool);
+    const key = `${it.tool}|${need.map((n) => `${n[2]}:${Math.floor(n[3])}`).join(',')}`;
+    if (this.costEl.dataset.key === key) { this.costEl.classList.add('show'); return; }
+    this.costEl.dataset.key = key;
+    const ok = need.every((n) => n[3] >= n[2]);
+    this.costEl.innerHTML = `<div class="bc-head">${thumb ? `<i style="background-image:url(${thumb})"></i>` : `<i>${icon(it.icon)}</i>`}<div><b></b><small></small></div></div>
+      <div class="bc-list">${need.map(([ic, , n, have, sym]) => `<div class="bc-row ${have >= n ? 'ok' : 'no'}"><span class="bc-ic">${ic ? icon(ic) : sym}</span><span class="bc-l"></span><b>${n.toLocaleString('en-US')}${it.perTile ? `<small>/${t('tile')}</small>` : ''}</b><small class="bc-have">${t('have {n}', { n: Math.floor(have).toLocaleString('en-US') })}</small></div>`).join('')}</div>`;
+    (this.costEl.querySelector('.bc-head b') as HTMLElement).textContent = t(it.name);
+    (this.costEl.querySelector('.bc-head small') as HTMLElement).textContent = ok ? t('You have everything to build it') : t('Not enough — the red ones are missing');
+    this.costEl.querySelectorAll('.bc-l').forEach((e, i) => { e.textContent = need[i][1]; });
+    this.costEl.classList.toggle('poor', !ok);
+    this.costEl.classList.add('show');
   }
 
   private speed = 1;
@@ -699,11 +741,8 @@ export class Hud {
     this.chip.food.classList.toggle('warn', s.food < s.population * 2);
     this.chip.wood.classList.toggle('warn', s.wood < 15);
     this.stat.pop.textContent = fmt(s.population);
-    this.stat.homes.textContent = `${fmt(s.households)}/${fmt(s.homeUnits)}`;
-    this.chip.homes.classList.toggle('warn', s.households >= s.homeUnits);
     this.stat.happy.textContent = `${Math.round(s.happiness)}%`;
     this.chip.happy.classList.toggle('warn', s.happiness < 45);
-    this.stat.jobs.textContent = `${s.workers}/${s.workforce}`;
     const mins = Math.floor(s.timeOfDay * 24 * 60);
     this.stat.day.textContent = `${s.seasonIcon} ${s.dateText} · ${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
     this.dayBar.style.width = `${Math.round(s.timeOfDay * 100)}%`;
@@ -711,6 +750,8 @@ export class Hud {
     this.lastStone = s.stone;
     this.lastWood = s.wood;
     this.lastIron = s.iron;
+    this.lastBricks = s.bricks ?? 0;
+    this.renderCost();
     if (this.drawerCat) this.refreshCards();
     this.renderSide(s);
   }
@@ -722,14 +763,36 @@ export class Hud {
       `<div class="side-row${bad ? ' bad' : ''}"><span>${label}</span><b>${value}</b>${bar !== undefined ? `<i class="side-bar"><i style="width:${Math.round(Math.max(0, Math.min(1, bar)) * 100)}%"></i></i>` : ''}</div>`;
     const html = [
       row(t('Population'), fmt(s.population)),
-      row(t('Families'), `${fmt(s.households)} / ${fmt(s.homeUnits)}`, s.households >= s.homeUnits),
+      row(t('Households / home places'), `${fmt(s.households)} / ${fmt(s.homeUnits)}`, s.households >= s.homeUnits, s.homeUnits ? s.households / s.homeUnits : 1),
       row(t('Happiness'), `${Math.round(s.happiness)}%`, s.happiness < 45, s.happiness / 100),
-      row(t('Employed'), `${s.workers} / ${s.workforce}`, false, s.workforce ? s.workers / s.workforce : 1),
+      row(t('Working / jobs'), `${fmt(s.workers)} / ${fmt(s.workers + s.vacancies)}`, s.vacancies > 0 && s.vacancies > s.workers * 0.25, s.workers + s.vacancies ? s.workers / (s.workers + s.vacancies) : 1),
+      row(t('Open jobs'), fmt(s.vacancies), s.vacancies > s.workers * 0.25 && s.vacancies > 4),
+      row(t('Workforce (able to work)'), fmt(s.workforce)),
       row(t('Electricity'), `${Math.round(s.powered * 100)}%`, s.powered < 0.8, s.powered),
       row(t('Water'), `${Math.round(s.water * 100)}%`, s.water < 0.9, s.water),
       row(t('Money per day'), `${s.daily >= 0 ? '+' : '−'}$${fmt(Math.abs(s.daily))}`, s.daily < 0),
     ].join('');
     if (this.sideStats.innerHTML !== html) this.sideStats.innerHTML = html;
+    // favourite people: who they are and what they do now; a tap follows them
+    const favs = s.favs ?? [];
+    const fk = favs.map((f) => `${f.id}:${f.doing}`).join('|');
+    if (fk !== this.favKey) {
+      this.favKey = fk;
+      this.sideFavs.replaceChildren();
+      if (favs.length) {
+        const ft = el('div', 'side-title');
+        ft.textContent = `★ ${t('Favourites')}`;
+        this.sideFavs.appendChild(ft);
+        for (const f of favs) {
+          const b = el('button', 'side-fav');
+          b.innerHTML = '<b></b><small></small>';
+          (b.querySelector('b') as HTMLElement).textContent = f.name;
+          (b.querySelector('small') as HTMLElement).textContent = f.doing;
+          b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); this.h.openPerson?.(f.id); });
+          this.sideFavs.appendChild(b);
+        }
+      }
+    }
     const needs = s.needs ?? [];
     const key = needs.join('|');
     if (key === this.needsKey) return;

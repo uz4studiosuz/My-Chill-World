@@ -31,6 +31,8 @@ export interface WorldTown {
   history: { day: number; pop: number; money: number; happy: number }[];
   /** Everything that happened between this town and yours: deals, gifts, letters (newest first). */
   dealings: { day: number; text: string; money: number }[];
+  /** Figures compared town by town (the same list, in the same order, for every town). */
+  metrics: { label: string; value: number; text: string; better: 'high' | 'low' }[];
 }
 
 const MOOD: Record<string, [string, string]> = {
@@ -133,6 +135,7 @@ export class WorldPanel {
     }
     box.append(tt, table);
     body.appendChild(box);
+    this.matrix(body, towns);
     // bars: people and treasury
     const bars = (title: string, pick: (tw: WorldTown) => number, fmt: (n: number) => string) => {
       const b = el('div', 'srows');
@@ -169,6 +172,70 @@ export class WorldPanel {
     chart(t('People'), (h) => h.pop, (n) => short(n));
     chart(t('Treasury'), (h) => h.money, (n) => `$${short(n)}`);
     chart(t('Happiness'), (h) => h.happy, (n) => `${Math.round(n)}%`);
+  }
+
+  /**
+   * Every figure side by side: one row per figure, one column per town; the best town of each row is green, the
+   * weakest red. Above it, how many rows each town leads.
+   */
+  private matrix(body: HTMLElement, towns: WorldTown[]) {
+    const rows = towns[0]?.metrics ?? [];
+    if (!rows.length || towns.length < 2) return;
+    const wins = new Map<number, number>();
+    const best = rows.map((m, i) => {
+      const vals = towns.map((tw) => tw.metrics[i]?.value ?? 0);
+      const hi = Math.max(...vals), lo = Math.min(...vals);
+      const top = m.better === 'high' ? hi : lo, bottom = m.better === 'high' ? lo : hi;
+      if (hi !== lo) towns.forEach((tw, j) => { if (vals[j] === top) wins.set(tw.id, (wins.get(tw.id) ?? 0) + 1); });
+      return { top, bottom, same: hi === lo };
+    });
+    const box = el('div', 'srows');
+    box.style.gridColumn = '1 / -1';
+    const tt = el('div', 'srows-title');
+    tt.textContent = t('Detailed comparison');
+    box.appendChild(tt);
+    // who leads in how many figures
+    const lead = el('div', 'cmp-lead');
+    for (const tw of [...towns].sort((a, b) => (wins.get(b.id) ?? 0) - (wins.get(a.id) ?? 0))) {
+      const c = el('div', `cmp-chip${tw.mine ? ' mine' : ''}`);
+      c.innerHTML = '<i></i><span></span><b></b>';
+      (c.querySelector('i') as HTMLElement).style.background = tw.tint;
+      (c.querySelector('span') as HTMLElement).textContent = tw.name;
+      (c.querySelector('b') as HTMLElement).textContent = t('best in {n}', { n: wins.get(tw.id) ?? 0 });
+      lead.appendChild(c);
+    }
+    box.appendChild(lead);
+    const wrap = el('div', 'cmp-wrap');
+    const table = el('table', 'cmp-table');
+    const head = el('tr', '');
+    head.appendChild(el('th', ''));
+    for (const tw of towns) {
+      const th = el('th', tw.mine ? 'mine' : '');
+      th.innerHTML = '<i></i>';
+      (th.querySelector('i') as HTMLElement).style.background = tw.tint;
+      th.append(tw.name);
+      head.appendChild(th);
+    }
+    table.appendChild(head);
+    rows.forEach((m, i) => {
+      const tr = el('tr', '');
+      const name = el('td', 'cmp-name');
+      name.textContent = m.label;
+      tr.appendChild(name);
+      for (const tw of towns) {
+        const v = tw.metrics[i];
+        const td = el('td', `${tw.mine ? 'mine' : ''}${!best[i].same && v?.value === best[i].top ? ' best' : !best[i].same && v?.value === best[i].bottom ? ' worst' : ''}`);
+        td.textContent = v?.text ?? '—';
+        tr.appendChild(td);
+      }
+      table.appendChild(tr);
+    });
+    wrap.appendChild(table);
+    box.appendChild(wrap);
+    const n = el('div', 'snote');
+    n.textContent = t('Green: the best town in that figure; red: the weakest. Per person figures make big and small towns comparable.');
+    box.appendChild(n);
+    body.appendChild(box);
   }
 
   /** One town in detail. */

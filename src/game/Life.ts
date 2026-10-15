@@ -44,6 +44,8 @@ export interface LifeContext {
   isLit?: (k: number) => boolean;
   /** Water pipe tiles. */
   pipes?: Uint8Array;
+  /** Electric cables (the power grid). */
+  cables?: Uint8Array;
 }
 
 export interface BusPassenger {
@@ -477,41 +479,84 @@ export class Life {
 
   // ---------- power grid & water ----------
 
-  /** Which buildings are connected by road to a staffed power plant. Call after any network/building change. */
+  /**
+   * The power grid: electric cables joined tile to tile. A building is on it when a cable runs under it or along
+   * the road tile in front of its door; a grid is live when a working power plant is on it. Call after any change.
+   */
   rebuildGrid() {
-    const { net, buildings } = this.c;
+    const { buildings } = this.c;
+    const cab = this.c.cables;
     const comp = new Int32Array(N * N).fill(-1);
     let id = 0;
-    for (let k = 0; k < comp.length; k++) {
-      if (!net.type[k] || comp[k] >= 0) continue;
+    if (cab) for (let k = 0; k < comp.length; k++) {
+      if (!cab[k] || comp[k] >= 0) continue;
       const stack = [k];
       comp[k] = id;
       while (stack.length) {
         const cur = stack.pop()!;
         const x = cur % N, z = (cur / N) | 0;
         for (const d of DIRS) {
-          if (!(net.conn[cur] & d.bit)) continue;
-          const nk = (z + d.dz) * N + x + d.dx;
-          if (comp[nk] < 0 && net.type[nk]) { comp[nk] = id; stack.push(nk); }
+          const nx = x + d.dx, nz = z + d.dz;
+          if (!inBounds(nx, nz)) continue;
+          const nk = nz * N + nx;
+          if (comp[nk] < 0 && cab[nk]) { comp[nk] = id; stack.push(nk); }
         }
       }
       id++;
     }
     this.comp = comp;
+    // the road networks (for the neighbour towns)
+    const { net } = this.c;
+    const roadComp = new Int32Array(N * N).fill(-1);
+    let rid = 0;
+    for (let k = 0; k < roadComp.length; k++) {
+      if (!net.type[k] || roadComp[k] >= 0) continue;
+      const stack = [k];
+      roadComp[k] = rid;
+      while (stack.length) {
+        const cur = stack.pop()!;
+        const x = cur % N, z = (cur / N) | 0;
+        for (const d of DIRS) {
+          if (!(net.conn[cur] & d.bit)) continue;
+          const nk = (z + d.dz) * N + x + d.dx;
+          if (roadComp[nk] < 0 && net.type[nk]) { roadComp[nk] = rid; stack.push(nk); }
+        }
+      }
+      rid++;
+    }
+    this.bComp.clear();
+    for (const b of buildings.list) {
+      if (b.removed) continue;
+      const s = BUILDINGS[b.kind].size;
+      let c = -1;
+      for (let z = b.z; z < b.z + s && c < 0; z++) for (let x = b.x; x < b.x + s; x++) if (inBounds(x, z) && comp[z * N + x] >= 0) { c = comp[z * N + x]; break; }
+      if (c < 0 && b.access >= 0) c = comp[b.access];
+      // neighbour towns run their own cables along their streets: their grid follows the roads
+      if (c < 0 && b.access >= 0 && this.c.eco.cities.get(b.city)?.ai) c = 1_000_000 + roadComp[b.access];
+      if (c >= 0) this.bComp.set(b.id, c);
+    }
     const live = new Set<number>();
-    for (const p of buildings.list) if (BUILDINGS[p.kind].power && p.built >= 1 && p.access >= 0 && (p.workers > 0 || CLEAN_POWER[p.kind])) live.add(comp[p.access]);
+    for (const p of buildings.list) if (BUILDINGS[p.kind].power && p.built >= 1 && (p.workers > 0 || CLEAN_POWER[p.kind]) && this.bComp.has(p.id)) live.add(this.bComp.get(p.id)!);
+    this.liveComps = live;
     this.gridIds.clear();
-    for (const b of buildings.list) if (b.access >= 0 && live.has(comp[b.access])) this.gridIds.add(b.id);
+    for (const b of buildings.list) if (live.has(this.bComp.get(b.id) ?? -1)) this.gridIds.add(b.id);
   }
+
+  /** Grid of every building (the cable network it is joined to). */
+  private bComp = new Map<number, number>();
+  private liveComps = new Set<number>();
+  /** Is this tile's cable joined to a working power plant (street lamps)? */
+  cableLive(k: number) { return !!this.comp && this.comp[k] >= 0 && this.liveComps.has(this.comp[k]); }
+  /** Is the building joined to a cable at all (even a dead one)? */
+  onCable(b: Building) { return this.bComp.has(b.id); }
 
   onGrid(b: Building) { return this.gridIds.has(b.id); }
 
   /** Buildings that use electricity on the same road-connected grid as this one (what a plant feeds). */
   gridMates(b: Building) {
-    const comp = this.comp;
-    if (!comp || b.access < 0) return [];
-    const c = comp[b.access];
-    return this.c.buildings.list.filter((o) => o.access >= 0 && comp[o.access] === c && BUILDINGS[o.kind].energy > 0 && o.built >= 1);
+    const c = this.bComp.get(b.id);
+    if (c === undefined) return [];
+    return this.c.buildings.list.filter((o) => this.bComp.get(o.id) === c && BUILDINGS[o.kind].energy > 0 && o.built >= 1);
   }
 
   private updateEnergy(dt: number) {
@@ -567,7 +612,9 @@ export class Life {
       b.powered = this.gridIds.has(b.id) && left >= e;
       if (b.powered) { left -= e; got.set(b.city, (got.get(b.city) ?? 0) + e); }
     }
+    // street lamps (on a cable) take their share too, so they count as supplied
     this.lampsLit = left > 0;
+    for (const [id, n] of this.lampDemand) if (left >= n) { left -= n; got.set(id, (got.get(id) ?? 0) + n); }
     if (left > 0 && this.batteryCap > 0) this.batteryCharge = Math.min(this.batteryCap, this.batteryCharge + left * step);
     this.batteryCharge = Math.min(this.batteryCharge, this.batteryCap);
     for (const city of eco.cities.values()) {
@@ -667,6 +714,8 @@ export class Life {
   private newDay() {
     const { pop, eco, buildings, terrain, weather } = this.c;
     pop.day = eco.day;
+    this.checkDepleted();
+    this.buySaws();
     for (const f of pop.families.values()) { f.earnY = f.earn ?? {}; f.earn = {}; }
     const cities = [...eco.cities.values()];
     const roadShare = this.roadUpkeep() / Math.max(1, cities.length);
@@ -714,7 +763,7 @@ export class Life {
         const wages = b.wagesToday ?? 0;
         b.wagesToday = 0;
         let tillProfit = 0, tillTax = 0, tillSales = 0;
-        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'gasstation' || b.kind === 'hotel' || b.kind === 'kiosk' || b.kind === 'bakery' || b.kind === 'supermarket' || b.kind === 'pharmacy' || VISIT_PRICE[b.kind]) {
+        if (b.kind === 'market' || b.kind === 'grocery' || b.kind === 'clothes' || b.kind === 'gasstation' || b.kind === 'hotel' || b.kind === 'kiosk' || b.kind === 'bakery' || b.kind === 'supermarket' || b.kind === 'pharmacy' || b.kind === 'dairyshop' || VISIT_PRICE[b.kind]) {
           turnover = b.sales ?? 0;
           b.sales = 0;
           // sales already taxed at the till are not taxed twice
@@ -801,7 +850,7 @@ export class Life {
       }
       // ranch calf breeding
       for (const b of buildings.ofKind('ranch')) {
-        if (b.city === city.id && b.workers > 0 && city.food > 50 && (b.cattleCount ?? 4) < 4) {
+        if (b.city === city.id && b.workers > 0 && city.food > 50 && (b.cattleCount ?? 4) < 4 * (b.level || 1)) {
           b.cattleCount = (b.cattleCount ?? 0) + 1;
           b.cattleHunger = 0;
           say(t('A new calf was born in the ranch!'));
@@ -904,6 +953,19 @@ export class Life {
     // nobody can build without a working construction company
     const canBuild = buildings.list.some((b) => b.kind === 'construction' && b.city === cityId && b.built >= 1 && b.workers > 0);
 
+    // 0) a building the town hall put up for sale: the richest family that can pay buys it
+    for (const b of buildings.list) {
+      if (b.city !== cityId || !b.forSale || b.owner >= 0 || b.removed) continue;
+      const buyer = families.find((f) => f.money > b.forSale! + 300);
+      if (!buyer) continue;
+      const price = b.forSale;
+      buyer.money -= price;
+      eco.add(city, 'money', price, 'Buildings sold to families');
+      b.owner = buyer.id;
+      b.forSale = undefined;
+      say(t('The {family} family bought the {name} from the town hall for ${price}', { family: buyer.surname, name: t(BUILDINGS[b.kind].name), price }));
+      return;
+    }
     // 1) buy a finished business the city still owns
     if (Math.random() < 0.35) {
       const forSale = buildings.list.filter((b) => b.city === cityId && b.built >= 1 && b.owner < 0 && BUSINESS_KINDS.includes(b.kind));
@@ -988,6 +1050,7 @@ export class Life {
       ['grocery', count('grocery') < Math.floor(people / 50) + 1],
       ['clothes', count('clothes') < Math.floor(people / 80) + 1],
       ['kiosk', count('kiosk') < Math.floor(people / 60)],
+      ['dairyshop', (has('ranch') || town.milk > 30) && count('dairyshop') < Math.floor(people / 140) + 1],
       ['bakery', (has('mill') || town.flour > 20) && count('bakery') < Math.floor(people / 120) + 1],
       ['teahouse', people >= 60 && count('teahouse') < Math.floor(people / 120) + 1],
       ['barber', people >= 50 && count('barber') < Math.floor(people / 100) + 1],
@@ -1491,6 +1554,8 @@ export class Life {
       let f = d.food * Math.min(1, b.workers / d.jobs);
       if (b.kind === 'farm') f *= (growingSeason(month) ? (b.irrigated ? 1 : 0.15) : 0) * (this.c.weather.drought > 0 ? 0.4 : 1);
       if (b.kind === 'farm' || b.kind === 'orchard' || b.kind === 'ranch') f *= this.c.map.growth(b.z * N + b.x);
+      // an upgraded field or orchard gives more (an upgraded ranch keeps more cows instead)
+      if (b.kind === 'farm' || b.kind === 'orchard') f *= levelMult(b);
       if (b.kind === 'fishery') f *= seasonOf(month) === 'winter' ? 0.3 : 1;
       if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : month === 3 || month === 4 || month === 10 ? 0.4 : 0;
       if (b.kind === 'ranch') f *= (seasonOf(month) === 'winter' ? 0.7 : 1) * ((b.cattleCount ?? 4) / 4) * (b.cornFed ? 1.3 : 1);
@@ -1523,8 +1588,9 @@ export class Life {
     }
     this.chains(share);
 
+    this.haulWood();
     for (const b of buildings.ofKind('quarry')) {
-      const th = buildings.townHall(b.city);
+      const th = this.depot(b);
       if (b.built < 1) continue;
       if (this.c.map.mountainsNear(b.x, b.z, 3) === 0) continue; // the rock is gone
       const dug = QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share;
@@ -1540,7 +1606,7 @@ export class Life {
       const sent = traffic.spawn({
         kind: 'truck', from: b.access, to: th.access, loaded: true,
         fromPos: buildings.door(b), toPos: buildings.door(th), color: new THREE.Color('#ffffff'),
-        purpose: 'Delivering stone', driverName: 'Truck driver', fromName: 'Stone Quarry', destName: 'Town Hall',
+        purpose: 'Delivering stone', driverName: 'Truck driver', fromName: 'Stone Quarry', destName: BUILDINGS[th.kind].name,
         onArrive: () => { const own = eco.cities.get(b.city); if (own) eco.add(own, 'stone', QUARRY.truckLoad, 'Quarries (trucks)'); this.truckBack(b); },
         onFail: () => { b.stored += QUARRY.truckLoad; b.trucks = Math.max(0, b.trucks - 1); },
       });
@@ -1548,8 +1614,60 @@ export class Life {
     }
   }
 
+  /** Where a workplace brings what it makes: the nearest working warehouse of its town (it hands the goods on), else the town hall. */
+  private depot(b: Building) {
+    const { buildings } = this.c;
+    const stores = buildings.list.filter((w) => w.kind === 'warehouse' && w.city === b.city && w.built >= 1 && !w.removed);
+    if (stores.length) return stores.reduce((a, w) => (dist(w, b) < dist(a, b) ? w : a));
+    return buildings.townHall(b.city);
+  }
+
+  /**
+   * The woodpiles by the woodcutters' huts: with a road a truck loads the logs at the roadside and takes them to
+   * the warehouse; without one the woodcutters carry them there on foot. The wood counts when it arrives.
+   */
+  private haulWood() {
+    const { buildings, traffic, eco } = this.c;
+    const LOAD = 6;
+    for (const b of buildings.ofKind('woodcutter')) {
+      if (b.built < 1 || b.removed || (b.stored ?? 0) < LOAD) continue;
+      const to = this.depot(b);
+      if (!to) continue;
+      if (b.access < 0 || to.access < 0 || !traffic.canRoute(b.access, to.access)) { this.sendPorter(b, to, 'wood', LOAD); continue; }
+      if (b.trucks >= 1) continue;
+      const sent = traffic.spawn({
+        kind: 'truck', from: b.access, to: to.access, loaded: true, cargo: 'logs',
+        fromPos: buildings.door(b), toPos: buildings.door(to),
+        purpose: 'Taking logs to the warehouse', driverName: 'Truck driver', fromName: BUILDINGS.woodcutter.name, destName: BUILDINGS[to.kind].name,
+        onArrive: () => { const own = eco.cities.get(b.city); if (own) eco.add(own, 'wood', LOAD, 'Woodcutters'); this.truckBack(b); },
+        onFail: () => { b.stored += LOAD; b.trucks = Math.max(0, b.trucks - 1); },
+      });
+      if (sent) { b.stored -= LOAD; b.trucks++; this.tally(b, 'Logs sent', LOAD); }
+    }
+  }
+
+  /** Once a day: a woodcutter with savings may buy a chainsaw in a shop of the town (trees come down much faster). */
+  private buySaws() {
+    const { pop, buildings } = this.c;
+    for (const c of pop.citizens.values()) {
+      if (c.saw || c.job < 0 || Math.random() > 0.2) continue;
+      const job = buildings.get(c.job);
+      if (job?.kind !== 'woodcutter') continue;
+      const f = pop.families.get(c.family);
+      const PRICE = 150;
+      if (!f || f.money < PRICE + 250) continue;
+      const shop = buildings.list.find((s) => s.city === job.city && s.built >= 1 && s.workers > 0 && (s.kind === 'market' || s.kind === 'supermarket' || s.kind === 'grocery'));
+      if (!shop) continue;
+      f.money -= PRICE;
+      shop.sales = (shop.sales ?? 0) + PRICE;
+      this.tally(shop, 'Chainsaws');
+      c.saw = true;
+      this.c.pop.note(c, 'Bought a chainsaw at the {place}: trees come down much faster now', { place: BUILDINGS[shop.kind].name });
+    }
+  }
+
   /** Miners carry stone over footpaths (or open ground) when no road connects the quarry. */
-  private sendPorter(b: Building, th: Building) {
+  private sendPorter(b: Building, th: Building, res: 'stone' | 'wood' = 'stone', load = QUARRY.truckLoad) {
     const { pop, buildings, eco } = this.c;
     let active = 0;
     for (const id of this.porters) if (pop.citizens.get(id)?.job === b.id) active++;
@@ -1562,22 +1680,23 @@ export class Life {
     const from = outside ? { x: worker.walker!.x, z: worker.walker!.z } : buildings.door(b);
     const fromTile = outside ? tileAt(from) : buildings.frontTile(b);
     this.porters.add(worker.id);
-    b.stored -= QUARRY.truckLoad;
-    worker.activity = 'Carrying stone';
+    b.stored -= load;
+    worker.activity = res === 'wood' ? 'Carrying logs to the warehouse' : 'Carrying stone';
     const finish = () => {
       this.porters.delete(worker.id);
       if (!this.alive(worker)) return;
       // back at the quarry: on to the rock face again while the shift lasts
       if (worker.state === 'away' && worker.at === b.id && this.c.eco.timeOfDay < worker.returnAt && BUILDINGS[b.kind].work === 'miner') { this.mineLoop(worker, b); return; }
+      if (worker.state === 'away' && worker.at === b.id && this.c.eco.timeOfDay < worker.returnAt && b.kind === 'woodcutter') { this.woodcutterLoop(worker, b); return; }
       if (worker.walker) { this.c.walkers.dismiss(worker.walker); worker.walker = undefined; }
       if (worker.state === 'away') worker.activity = 'At work';
     };
     this.walk(worker, from, fromTile, th, () => {
       if (!this.alive(worker)) { this.porters.delete(worker.id); return; }
       const own = eco.cities.get(b.city);
-      if (own) this.c.eco.add(own, 'stone', QUARRY.truckLoad, 'Quarries (on foot)');
+      if (own) this.c.eco.add(own, res, load, res === 'wood' ? 'Woodcutters' : 'Quarries (on foot)');
       if (worker.walker) worker.walker.carry = 'none';
-      worker.activity = 'Walking back to the quarry';
+      worker.activity = res === 'wood' ? 'Walking back to the forest' : 'Walking back to the quarry';
       if (b.removed) return finish();
       this.walk(worker, buildings.door(th), buildings.frontTile(th), b, finish);
     }, 'log');
@@ -1652,7 +1771,7 @@ export class Life {
         city.foodMade += n * CHAIN2.foodPerMilk;
         this.chainTruck(dy, n * CHAIN2.foodPerMilk, ['supermarket', 'grocery', 'market'], 'dairy');
       }
-      if (!dairies.length && city.milk > 0) {
+      if (city.milk > 0 && (!dairies.length || city.milk > 250)) {
         // no dairy: the milk is drunk fresh
         const n = Math.min(city.milk, 60 * share);
         eco.add(city, 'milk', -n, 'Drunk fresh (no dairy)');
@@ -1878,7 +1997,10 @@ export class Life {
   private prices(city: City, say: (msg: string) => void) {
     this.updateWageIndex(city);
     const days = city.food / Math.max(1, this.mouths.get(city.id) ?? 1);
-    const want = (days < 1 ? 1.8 : days < 2 ? 1.4 : days < 4 ? 1.1 : days > 10 ? 0.85 : 1) * this.priceLevel(city.id);
+    const adj = city.foodAdj ?? 0;
+    const want = (days < 1 ? 1.8 : days < 2 ? 1.4 : days < 4 ? 1.1 : days > 10 ? 0.85 : 1) * this.priceLevel(city.id) * (1 + adj);
+    // cheaper food set by the town hall: the treasury pays the difference to the shops every day
+    if (adj < 0) this.c.eco.add(city, 'money', -Math.round((this.mouths.get(city.id) ?? 0) * -adj * 2), 'Food subsidy');
     const before = city.priceFactor;
     city.priceFactor += (want - before) * 0.5;
     if (before < 1.3 && city.priceFactor >= 1.3) say(t('Food got more expensive: the stores are almost empty'));
@@ -2718,6 +2840,17 @@ export class Life {
     const town = this.c.eco.cities.get(b.city);
     // clothes from the factory sell best; raw cotton a little; furniture sells in the markets
     let item = food ? 'Food baskets' : b.kind === 'pharmacy' ? 'Medicine' : b.kind === 'clothes' ? 'Clothes' : 'Purchases';
+    if (b.kind === 'dairyshop') {
+      // milk, yogurt and cheese: the milk of the ranches becomes the family's food
+      if (!town || town.milk < 1) return;
+      const n = Math.min(town.milk, 3);
+      this.c.eco.add(town, 'milk', -n, 'Dairy shops');
+      this.c.eco.add(town, 'food', n * CHAIN2.foodPerMilk, 'Milk products (dairy shops)');
+      town.foodMade += n * CHAIN2.foodPerMilk;
+      spend = Math.round(spend * (town.priceFactor ?? 1));
+      item = pick(['Milk', 'Yogurt', 'Cheese', 'Butter']);
+      c.hunger = Math.min(100, c.hunger + 10);
+    }
     if (b.kind === 'clothes' && town && town.garments >= 1) { this.c.eco.add(town, 'garments', -1, 'Clothing stores'); spend = Math.round(spend * 1.8); item = 'Factory clothes'; }
     else if (b.kind === 'clothes' && town && town.cotton >= 1) { this.c.eco.add(town, 'cotton', -1, 'Clothing stores'); spend = Math.round(spend * 1.3); item = 'Cotton cloth'; }
     if ((b.kind === 'market' || b.kind === 'supermarket') && town && town.furniture >= 1 && f.money > 80 && Math.random() < 0.25) { this.c.eco.add(town, 'furniture', -1, 'Sold in the markets'); spend += 30; this.tally(b, 'Furniture'); }
@@ -3361,16 +3494,16 @@ export class Life {
       const w = c.walker;
       if (!w || !atWork()) { this.reservedTrees.delete(tree); return; }
       c.activity = 'Chopping a tree';
-      walkers.holdFor(w, 1.5, 'chop', () => {
+      c.activity = c.saw ? 'Cutting a tree with a chainsaw' : 'Chopping a tree';
+      walkers.holdFor(w, c.saw ? 0.6 : 1.5, 'chop', () => {
         const down = terrain.chopPart(tree);
         this.reservedTrees.delete(tree);
         effects.puff(treeCenter.x, treeCenter.z, 0.25, down ? 10 : 5, ['#8a5a35', '#6faa45', '#c9a36b']);
-        const plants = buildings.ofKind('powerplant').filter((p) => p.city === hut.city);
-        const drop = plants.length ? plants.reduce((a, b) => (dist(a, hut) < dist(b, hut) ? a : b)) : hut;
+        // the log goes onto the woodpile by the hut (beside its road): a truck takes the pile to the warehouse
+        const drop = hut;
         c.activity = 'Carrying a log';
         this.walk(c, { x: w.x, z: w.z }, tileAt(w), drop, () => {
-          const own = eco.cities.get(hut.city);
-          if (own) this.c.eco.add(own, 'wood', WOOD_PER_LOG, 'Woodcutters');
+          hut.stored = (hut.stored ?? 0) + WOOD_PER_LOG * (c.saw ? 1.5 : 1);
           if (c.walker) c.walker.carry = 'none';
           if (!atWork()) return;
           if (c.walker) c.walker.leaving = false;
@@ -3419,6 +3552,28 @@ export class Life {
       }
     }
     return null;
+  }
+
+  /**
+   * Once a day: woodcutters with no trees left in reach and quarries and mines with no rock left to dig stop hiring —
+   * their workers take other jobs for now and come back when the trees have grown again.
+   */
+  private checkDepleted() {
+    const { buildings, terrain, pop } = this.c;
+    let changed = false;
+    for (const b of buildings.list) {
+      if (b.built < 1 || b.removed) continue;
+      if (b.kind !== 'woodcutter' && b.kind !== 'quarry' && b.kind !== 'coalmine' && b.kind !== 'ironmine') continue;
+      const empty = b.kind === 'woodcutter' ? terrain.nearestTree(b.x, b.z, 10, new Set()) < 0 : !this.mineFace(b);
+      const was = (b.depleted ?? 0) > 0;
+      b.depleted = empty ? (b.depleted ?? 0) + 1 : 0;
+      if (empty !== was) changed = true;
+      if (empty && !was) {
+        const city = this.c.eco.cities.get(b.city);
+        if (city && !city.ai) this.cityEvent(city.id, t(b.kind === 'woodcutter' ? 'The woodcutter has no trees left nearby: its workers took other jobs for now' : 'The {name} has no rock left to dig: its workers took other jobs for now', { name: t(BUILDINGS[b.kind].name) }));
+      }
+    }
+    if (changed) pop.assign(buildings);
   }
 
   private mineLoop(c: Citizen, site: Building) {

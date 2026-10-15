@@ -37,9 +37,9 @@ export interface WorldSave {
   sandbox?: boolean;
   cleared: number[];
   stumps?: [number, number][];
-  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number; crop?: string; cropManual?: boolean; built?: number; level?: number; owner?: number; parent?: number; rot?: number; wageF?: number; total?: { revenue: number; items: Record<string, number>; days: number }; books?: { revenue: number; wages: number; tax: number; profit: number; items?: Record<string, number> }; sold?: Record<string, number>; sales?: number }[];
+  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number; crop?: string; cropManual?: boolean; built?: number; level?: number; owner?: number; parent?: number; rot?: number; wageF?: number; forSale?: number; investor?: number; total?: { revenue: number; items: Record<string, number>; days: number }; books?: { revenue: number; wages: number; tax: number; profit: number; items?: Record<string, number> }; sold?: Record<string, number>; sales?: number }[];
   /** Roads ordered and still being laid by the builders. */
-  roadJobs?: { tiles: [number, number][]; done: number; lit: boolean; city: number; money: number; stone: number }[];
+  roadJobs?: { tiles: [number, number][]; done: number; lit: boolean; city: number; money: number; stone: number; kind?: string; style?: number; wood?: number; iron?: number }[];
   population: PopulationSave;
   cam: { x: number; z: number; yaw: number; view: number };
   time?: number;
@@ -55,6 +55,13 @@ export interface WorldSave {
   pipes2?: boolean;
   /** Homes and towers join the water through a pipe under them (older saves get those pipes once). */
   pipes3?: boolean;
+  /** Electric cables (power runs through them only); older saves get cables under their roads once. */
+  cables?: number[];
+  cables1?: boolean;
+  /** People marked as favourites. */
+  favourites?: number[];
+  /** Tunnels bored through the mountains (roads and railways may run through them). */
+  bores?: number[];
   trade?: { relation: number[] };
   worldHistory?: [number, { day: number; pop: number; money: number; happy: number }[]][];
   dealings?: [number, { day: number; text: string; money: number }[]][];

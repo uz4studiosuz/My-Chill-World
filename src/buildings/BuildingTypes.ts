@@ -3,7 +3,7 @@ export type BuildingKind =
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
-  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk'
+  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
   | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
@@ -119,6 +119,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   bakery: def({ kind: 'bakery', name: 'Bakery', size: 1, money: 700, stone: 10, wood: 10, jobs: 3, salary: 12, energy: 2 }),
   sawmill: def({ kind: 'sawmill', name: 'Sawmill', size: 2, money: 1000, stone: 15, iron: 5, jobs: 4, salary: 13, energy: 3 }),
   battery: def({ kind: 'battery', name: 'Battery Storage', size: 1, money: 1600, stone: 10, iron: 20, jobs: 0, salary: 0, upkeep: 2 }),
+  dairyshop: def({ kind: 'dairyshop', name: 'Dairy Shop', size: 1, money: 600, stone: 8, wood: 6, jobs: 2, salary: 11, energy: 1.5 }),
   kiosk: def({ kind: 'kiosk', name: 'Coffee Cart', size: 1, money: 150, wood: 4, jobs: 1, salary: 8, needsRoad: false, energy: 0.5 }),
   airport: def({ kind: 'airport', name: 'Airport', size: 3, money: 6000, stone: 100, wood: 20, iron: 50, jobs: 10, salary: 22, publicJob: true, upkeep: 14, energy: 8 }),
   stadium: def({ kind: 'stadium', name: 'Football Stadium', size: 3, money: 3000, stone: 60, wood: 20, iron: 15, jobs: 6, salary: 15, publicJob: true, upkeep: 8, energy: 6 }),
@@ -241,6 +242,8 @@ export const PENSION = 4;
 export const FLU = { outbreak: 0.2, days: 3, spread: 0.12 };
 /** Water reaches homes through mains under the roads and through pipes; per pipe tile cost. */
 export const PIPE_COST = { money: 6, iron: 1 };
+/** An electric cable, per tile (cheap: copper on wooden poles or in the ground). */
+export const CABLE_COST = { money: 4, iron: 0 };
 /** Garbage: per person per day, a full bin, what a truck collects per stop, recycling yield. */
 export const TRASH = { perPerson: 0.35, full: 6, ironPerTrash: 0.12, moneyPerTrash: 0.5, range: 22 };
 /** Military base: how far its patrols reach, how much safer the city gets. */
@@ -288,12 +291,12 @@ export const CARS = { perDay: 3, iron: 6, truckLoad: 2, factoryMax: 8, marketMax
 /** Fuel: a trip uses ~8%, below this the car must be refuelled; price per percent of tank. */
 export const FUEL = { low: 40, empty: 12, price: 0.15 };
 /** What a visit to a shop costs (min, max). */
-export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], clothes: [6, 16], market: [3, 10], kiosk: [2, 5], bakery: [2, 6], supermarket: [5, 14], pharmacy: [4, 12] };
+export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], clothes: [6, 16], market: [3, 10], kiosk: [2, 5], bakery: [2, 6], supermarket: [5, 14], pharmacy: [4, 12], dairyshop: [3, 9] };
 /** Shops: what each person spends there per day. */
 export const SHOP_SPEND = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 export type ShopKind = keyof typeof SHOP_SPEND;
 /** Businesses a family can own: they collect a share of the turnover as profit. */
-export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office', 'casino', 'teahouse', 'barber', 'gym', 'themepark'];
+export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'dairyshop', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office', 'casino', 'teahouse', 'barber', 'gym', 'themepark'];
 /** Owner's share of the turnover (after the 20% business tax). */
 /** Share of a business's profit (after tax and the staff's wages) that the owning family keeps. */
 export const OWNER_SHARE = 0.5;
@@ -320,13 +323,24 @@ export const TREE_PARTS = 3;
 export const WOOD_PER_LOG = 3;
 
 /**
- * Bricks and steel a building needs besides money, stone, wood and iron: every home is built of bricks,
- * and whatever needs iron needs steel beams too.
+ * Bricks a building needs besides money, stone, wood and iron: every home is built of bricks (steel is kept at 0).
  */
 export function extraCost(kind: BuildingKind): { bricks: number; steel: number } {
   const d = BUILDINGS[kind];
   if (!d) return { bricks: 0, steel: 0 };
   const bricks = d.units > 0 ? Math.max(6, Math.round(d.stone * 0.6)) : 0;
-  const steel = d.iron > 0 ? Math.ceil(d.iron / 2) : 0;
+  // iron is enough for iron buildings: steel is no longer asked for
+  const steel = 0;
   return { bricks, steel };
+}
+
+/** What a job asks of a worker by default: 1 = a learnt trade or a diploma for the degree jobs, else 0 (anyone). */
+export function defaultJobReq(kind: BuildingKind): 0 | 1 | 2 {
+  return DEGREE_JOBS[kind] ? 1 : 0;
+}
+
+/** Can the town hall sell this kind of building to a family (shops, businesses, places people pay to visit, blocks of flats)? */
+export function sellable(kind: BuildingKind): boolean {
+  const d = BUILDINGS[kind];
+  return BUSINESS_KINDS.includes(kind) || !!SHOP_PRICE[kind] || !!VISIT_PRICE[kind] || d.units > 1 || d.revenue > 0;
 }

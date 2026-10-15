@@ -21,9 +21,9 @@ import { siteTapeGeometry } from '../models/sitetape';
 import { warehouseGeometry, bikeFactoryGeometry, migrationOfficeGeometry, gazeboGeometry, pondGeometry, clockTowerGeometry, flagpoleGeometry, planterGeometry, archwayGeometry } from '../models/chains2';
 import { tower15Geometry, tower30Geometry, tower50Geometry } from '../models/buildings';
 import { concertHallGeometry, barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
-import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
+import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, dairyShopGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
 import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
-import { box, hash2, merge } from '../utils/voxel';
+import { box, hash2, merge, shape } from '../utils/voxel';
 
 export interface Point { x: number; z: number }
 
@@ -99,6 +99,12 @@ export interface Building {
   dug?: number;
   /** Pay of the staff set by the owning family (×the usual pay), instead of the town hall's. */
   wageF?: number;
+  /** Days a woodcutter, quarry or mine has found nothing left to take nearby (0 = it has work). */
+  depleted?: number;
+  /** Price the town hall asks for this city-owned building (it is up for sale to the families). */
+  forSale?: number;
+  /** The player's town that paid for this building on a neighbour's land (it gets half of what it earns or makes). */
+  investor?: number;
   /** A fire truck is already on its way. */
   fireCrew?: boolean;
   /** Cemetery: buried records. */
@@ -196,6 +202,7 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'roadsign': return signGeometry();
     case 'airport': return airportGeometry();
     case 'pharmacy': return pharmacyGeometry();
+    case 'dairyshop': return dairyShopGeometry();
     case 'casino': return casinoGeometry();
     case 'concerthall': return concertHallGeometry();
     case 'warehouse': return warehouseGeometry();
@@ -479,6 +486,14 @@ export class Buildings {
       let g = this.geoCache.get(key);
       if (!g) { g = bakeShade(houseGeometry(variant, level)); this.geoCache.set(key, g); }
       (b.mesh.children[0] as THREE.Mesh).geometry = g;
+      return;
+    }
+    if ((b.kind === 'farm' || b.kind === 'orchard' || b.kind === 'ranch') && level >= 2) {
+      const deco = new THREE.Mesh(bakeShade(farmLevelDeco(b.kind, level, BUILDINGS[b.kind].size)), (b.mesh.children[0] as THREE.Mesh).material);
+      deco.name = 'levelDeco';
+      deco.castShadow = true;
+      deco.receiveShadow = true;
+      b.mesh.add(deco);
       return;
     }
     if (UPGRADABLE[b.kind] && level >= 2) {
@@ -825,4 +840,41 @@ function drawLabel(progress: number, text: string, ok: boolean) {
 function easeOutBack(t: number) {
   const c1 = 1.70158, c3 = c1 + 1;
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+/**
+ * What an upgraded field, orchard or ranch gets on its land, in one corner: level 2 a shed and a water tank (field),
+ * beehives and fruit crates (orchard) or a second barn and a trough (ranch); level 3 adds a silo and a tractor,
+ * a cold store, or a big barn with a silo.
+ */
+function farmLevelDeco(kind: BuildingKind, level: number, size: number): THREE.BufferGeometry {
+  const c = -size / 2 + 0.36;
+  const parts: THREE.BufferGeometry[] = [];
+  const shed = (x: number, z: number, w: number, d: number, h: number, wall: string, roof: string) => [
+    box(w, h, d, x, h / 2, z, wall), shape('wedge', w + 0.04, h * 0.5, d / 2 + 0.02, x, h + h * 0.25, z + d / 4, roof), (() => { const g = shape('wedge', w + 0.04, h * 0.5, d / 2 + 0.02, 0, 0, 0, roof); g.rotateY(Math.PI); g.translate(x, h + h * 0.25, z - d / 4); return g; })(),
+    box(w * 0.4, h * 0.6, 0.01, x, h * 0.3, z + d / 2 + 0.005, '#5c3a21'),
+  ];
+  if (kind === 'farm') {
+    parts.push(...shed(c, c, 0.42, 0.34, 0.24, '#b5462f', '#6b6f75'));
+    parts.push(shape('cylinder', 0.09, 0.2, 0.09, c + 0.38, 0.22, c, '#a7b2bd', 'y', 10), ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => box(0.012, 0.12, 0.012, c + 0.38 + sx * 0.06, 0.06, c + sz * 0.06, '#5d6670')));
+    if (level >= 3) {
+      parts.push(shape('cylinder', 0.13, 0.55, 0.13, c, 0.275, c + 0.42, '#d8d2c4', 'y', 12), shape('dome', 0.13, 0.08, 0.13, c, 0.55, c + 0.42, '#9aa3ab'));
+      // a green tractor
+      parts.push(box(0.16, 0.08, 0.1, c + 0.42, 0.1, c + 0.42, '#3f8f3a'), box(0.07, 0.08, 0.09, c + 0.38, 0.18, c + 0.42, '#2f3d4a'),
+        shape('cylinder', 0.09, 0.03, 0.09, c + 0.36, 0.07, c + 0.36, '#26292e', 'z', 10), shape('cylinder', 0.09, 0.03, 0.09, c + 0.36, 0.07, c + 0.48, '#26292e', 'z', 10),
+        shape('cylinder', 0.05, 0.025, 0.05, c + 0.48, 0.05, c + 0.37, '#26292e', 'z', 8), shape('cylinder', 0.05, 0.025, 0.05, c + 0.48, 0.05, c + 0.47, '#26292e', 'z', 8));
+    }
+  } else if (kind === 'orchard') {
+    for (let i = 0; i < 3; i++) parts.push(box(0.09, 0.1, 0.09, c + i * 0.14, 0.05, c, '#f2c84b'), box(0.1, 0.02, 0.1, c + i * 0.14, 0.11, c, '#8a5a35'));
+    for (let i = 0; i < 4; i++) parts.push(box(0.1, 0.06, 0.08, c + (i % 2) * 0.12, 0.03 + Math.floor(i / 2) * 0.06, c + 0.2, '#b07a4a'), box(0.08, 0.02, 0.06, c + (i % 2) * 0.12, 0.065 + Math.floor(i / 2) * 0.06, c + 0.2, '#d9443b'));
+    if (level >= 3) parts.push(box(0.4, 0.26, 0.3, c + 0.12, 0.13, c + 0.5, '#e9eef2'), box(0.42, 0.03, 0.32, c + 0.12, 0.275, c + 0.5, '#5d6670'), box(0.12, 0.08, 0.06, c + 0.12, 0.33, c + 0.5, '#9aa3ab'), box(0.12, 0.18, 0.01, c + 0.12, 0.09, c + 0.655, '#3b78c2'));
+  } else {
+    parts.push(...shed(c, c, 0.46, 0.36, 0.26, '#8a3b2a', '#4a4f57'));
+    parts.push(box(0.36, 0.06, 0.1, c + 0.5, 0.03, c, '#7d7a73'), box(0.32, 0.02, 0.07, c + 0.5, 0.061, c, '#4fa3d1'));
+    if (level >= 3) {
+      parts.push(...shed(c, c + 0.52, 0.6, 0.44, 0.34, '#b5462f', '#4a4f57'));
+      parts.push(shape('cylinder', 0.12, 0.6, 0.12, c + 0.46, 0.3, c + 0.52, '#9aa3ab', 'y', 12), shape('dome', 0.12, 0.08, 0.12, c + 0.46, 0.6, c + 0.52, '#c9cdd2'));
+    }
+  }
+  return merge(parts);
 }

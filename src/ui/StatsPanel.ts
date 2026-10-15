@@ -10,6 +10,10 @@ export interface StatSection {
   rows?: [string, string, boolean?][];
   bars?: [string, number, string][];
   note?: string;
+  /** Buttons under the block (e.g. make food cheaper or dearer). */
+  actions?: { label: string; onClick: () => void; off?: boolean; on?: boolean }[];
+  /** Production chains as game cards: each step lit when it works, a star when the whole chain runs. */
+  cards?: { emoji: string; title: string; steps: { label: string; state: 'ok' | 'idle' | 'none' }[]; onClick?: () => void }[];
 }
 
 export interface StatsSnapshot {
@@ -377,6 +381,44 @@ export class StatsPanel {
       if (sec.kpis) { if (sec.title) this.heading(sec.title); this.kpis(sec.kpis); }
       if (sec.bars?.length) this.bars(sec.kpis ? '' : sec.title, sec.bars);
       if (sec.rows?.length) this.rows(sec.kpis || sec.bars?.length ? '' : sec.title, sec.rows);
+      if (sec.cards?.length) {
+        if (!sec.kpis && sec.title) this.heading(sec.title);
+        const grid = el('div', 'chain-cards');
+        for (const c of sec.cards) {
+          const ok = c.steps.filter((s) => s.state === 'ok').length;
+          const done = ok === c.steps.length;
+          const card = el('div', `chain-card${done ? ' done' : ok ? ' part' : ''}`);
+          card.innerHTML = '<div class="cc-head"><span class="cc-emoji"></span><b></b><i class="cc-star"></i></div><div class="cc-steps"></div><div class="cc-bar"><i></i></div><small class="cc-note"></small>';
+          (card.querySelector('.cc-emoji') as HTMLElement).textContent = c.emoji;
+          (card.querySelector('b') as HTMLElement).textContent = c.title;
+          (card.querySelector('.cc-star') as HTMLElement).textContent = done ? '★' : '☆';
+          const steps = card.querySelector('.cc-steps') as HTMLElement;
+          c.steps.forEach((s, i) => {
+            if (i) { const a = el('span', 'cc-arrow'); a.textContent = '›'; steps.appendChild(a); }
+            const p = el('span', `cc-step ${s.state}`);
+            p.textContent = s.label;
+            p.title = s.state === 'ok' ? t('working') : s.state === 'idle' ? t('no workers') : t('missing');
+            steps.appendChild(p);
+          });
+          (card.querySelector('.cc-bar i') as HTMLElement).style.width = `${Math.round((ok / c.steps.length) * 100)}%`;
+          const miss = c.steps.find((s) => s.state !== 'ok');
+          (card.querySelector('.cc-note') as HTMLElement).textContent = done ? t('The whole chain works') : miss ? (miss.state === 'idle' ? t('{name}: no workers', { name: miss.label }) : t('Missing: {name}', { name: miss.label })) : '';
+          if (c.onClick) { card.classList.add('link'); card.addEventListener('click', c.onClick); }
+          grid.appendChild(card);
+        }
+        this.body.appendChild(grid);
+      }
+      if (sec.actions?.length) {
+        const row = el('div', 'sactions');
+        for (const a of sec.actions) {
+          const b = el('button', `btn-mini${a.on ? ' on' : ''}`);
+          b.textContent = a.label;
+          b.disabled = !!a.off;
+          b.addEventListener('click', () => { a.onClick(); this.render(); });
+          row.appendChild(b);
+        }
+        this.body.appendChild(row);
+      }
       if (sec.note) { const n = el('div', 'snote'); n.textContent = sec.note; this.body.appendChild(n); }
     }
     this.body.scrollTop = scroll;

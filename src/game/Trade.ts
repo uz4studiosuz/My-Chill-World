@@ -29,10 +29,13 @@ export class Trade {
   private day = -1;
   /** What was sold and bought today (for the panel). */
   today = { sold: 0, bought: 0 };
+  /** What was sold and bought yesterday. */
+  yesterday = { sold: 0, bought: 0 };
 
   newDay(day: number) {
     if (this.day === day) return;
     this.day = day;
+    this.yesterday = this.today;
     this.today = { sold: 0, bought: 0 };
     for (const p of this.partners) {
       for (const g of GOODS) this.factor.set(`${p.name}:${g}`, (p.wants.includes(g) ? 1.25 + Math.random() * 0.25 : 0.85 + Math.random() * 0.25));

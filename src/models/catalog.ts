@@ -143,6 +143,7 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'concerthall', name: 'Concert Hall', group: 'Buildings', desc: 'A curved hall with a glass foyer and lights on the square.', make: () => mesh(buildingGeometry('concerthall')) },
   { id: 'barber', name: 'Barber Shop', group: 'Buildings', desc: 'A little shop with a striped pole.', make: () => mesh(buildingGeometry('barber')) },
   { id: 'kiosk', name: 'Coffee Cart', group: 'Buildings', desc: 'Coffee and ice cream under a striped umbrella.', make: () => mesh(buildingGeometry('kiosk')) },
+  { id: 'dairyshop', name: 'Dairy Shop', group: 'Buildings', desc: 'Milk, yogurt and cheese under a cow-print awning.', make: () => mesh(buildingGeometry('dairyshop')) },
   { id: 'pharmacy', name: 'Pharmacy', group: 'Buildings', desc: 'Medicines behind a green cross.', make: () => mesh(buildingGeometry('pharmacy')) },
   { id: 'dairy', name: 'Dairy', group: 'Buildings', desc: 'Milk tanks and a cheese hall.', make: () => mesh(buildingGeometry('dairy')) },
   { id: 'supermarket', name: 'Supermarket', group: 'Buildings', desc: 'A big shop with a glass front and trolleys.', make: () => mesh(buildingGeometry('supermarket')) },
@@ -197,6 +198,13 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: 'pipe', name: 'Water Pipe', group: 'Roads', desc: 'An underground water pipe (shown above ground here).',
     make: () => mesh(merge([box(3, 0.12, 1.4, 0.5, -0.06, 0.5, '#8cb156'), shape('cylinder', 3, 0.16, 0.16, 0.5, 0.1, 0.5, '#5d8fb5', 'x', 12), shape('cylinder', 0.24, 0.06, 0.24, 0.5, 0.2, 0.5, '#d9443b', 'y', 10)])),
+  },
+  {
+    id: 'cable', name: 'Power Cable', group: 'Roads', desc: 'An electric cable on wooden poles.',
+    make: () => mesh(merge([box(3, 0.12, 1.4, 0.5, -0.06, 0.5, '#8cb156'),
+      ...[-0.6, 0.5, 1.6].flatMap((x) => [box(0.08, 1.1, 0.08, x, 0.55, 0.5, '#7a5a3c'), box(0.5, 0.05, 0.06, x, 1.02, 0.5, '#5c3a21')]),
+      box(2.4, 0.025, 0.025, 0.5, 0.98, 0.32, '#26292e'), box(2.4, 0.025, 0.025, 0.5, 0.98, 0.68, '#26292e'),
+      shape('cylinder', 0.2, 0.08, 0.2, 0.5, 0.06, 0.5, '#f2c230', 'y', 10)])),
   },
   {
     id: 'tunnel', name: 'Tunnel', group: 'Roads', desc: 'A road into a mountain through a stone portal.',
