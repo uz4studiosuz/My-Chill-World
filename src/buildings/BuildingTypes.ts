@@ -318,3 +318,15 @@ export const ENERGY_PER_WOOD = 5;
 /** A tree is felled in this many parts; each part is one log. */
 export const TREE_PARTS = 3;
 export const WOOD_PER_LOG = 3;
+
+/**
+ * Bricks and steel a building needs besides money, stone, wood and iron: every home is built of bricks,
+ * and whatever needs iron needs steel beams too.
+ */
+export function extraCost(kind: BuildingKind): { bricks: number; steel: number } {
+  const d = BUILDINGS[kind];
+  if (!d) return { bricks: 0, steel: 0 };
+  const bricks = d.units > 0 ? Math.max(6, Math.round(d.stone * 0.6)) : 0;
+  const steel = d.iron > 0 ? Math.ceil(d.iron / 2) : 0;
+  return { bricks, steel };
+}

@@ -2797,4 +2797,12 @@ export const UZ: Record<string, string> = {
   "dearer when scarce": "kam bo'lsa qimmatlashadi",
   "Who makes food": "Kim ovqat yetishtiradi",
   "Nobody — build a farm": "Hech kim — dala quring",
+  "{n} bricks": "{n} g'isht",
+  "{n} steel": "{n} po'lat",
+  "{n} homes have no water pipe: lay water pipes from a water tower to them": "{n} ta uyga suv quvuri ulanmagan: suv minorasidan ularga quvur yotqizing",
+  "Who uses water": "Kim suv ishlatadi",
+  "{n} without a pipe": "{n} tasi quvursiz",
+  "Underground water pipe — the only way water reaches homes. Lay it from a water tower to every home; it may run under roads, bridges and paths.": "Yer osti suv quvuri — suv uylarga faqat u orqali boradi. Suv minorasidan har bir uyga yotqizing; u yo'l, ko'prik va yo'laklar ostidan o'tishi mumkin.",
+  "Bricks are running out — every home needs them: build a brickworks (it needs a quarry) or buy bricks in Trade": "G'isht tugayapti — har bir uyga kerak: g'isht zavodi quring (unga karyer kerak) yoki Savdodan g'isht oling",
+  "Steel is running out — buildings with iron need it: build a steel mill (it needs an iron mine) or buy steel in Trade": "Po'lat tugayapti — temir kerak binolarga u ham kerak: po'lat zavodi quring (unga temir koni kerak) yoki Savdodan po'lat oling",
 };

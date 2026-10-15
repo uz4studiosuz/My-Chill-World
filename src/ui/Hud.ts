@@ -1,6 +1,6 @@
 import { ToolId } from '../build/BuildTool';
 import { IS_TOUCH } from '../config';
-import { BUILDINGS, BuildingKind, PIPE_COST, PATH_COST, TUNNEL_COST } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, PIPE_COST, PATH_COST, TUNNEL_COST, extraCost } from '../buildings/BuildingTypes';
 import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
 import { el, icon, IconName } from './dom';
 import { t } from '../i18n/i18n';
@@ -18,6 +18,8 @@ export interface ToolItem {
   stone: number;
   wood: number;
   iron?: number;
+  bricks?: number;
+  steel?: number;
   perTile?: boolean;
   tag: string;
   icon: IconName;
@@ -25,7 +27,8 @@ export interface ToolItem {
 
 const b = (tool: BuildingKind & ToolId, cat: Category, tag: string, desc: string, ic: IconName): ToolItem => {
   const d = BUILDINGS[tool];
-  return { tool, cat, name: d.name, desc, money: d.money, stone: d.stone, wood: d.wood, iron: d.iron, tag, icon: ic };
+  const ex = extraCost(tool);
+  return { tool, cat, name: d.name, desc, money: d.money, stone: d.stone, wood: d.wood, iron: d.iron, bricks: ex.bricks, steel: ex.steel, tag, icon: ic };
 };
 
 export const ITEMS: ToolItem[] = [
@@ -39,7 +42,7 @@ export const ITEMS: ToolItem[] = [
   { tool: 'path_brick', cat: 'roads', name: 'Brick Walkway', desc: 'A red brick walkway with light edging: warm and tidy between shops and homes.', money: PATH_COST, stone: 1, wood: 0, perTile: true, tag: 'Between shops and homes', icon: 'path' },
   { tool: 'path_gravel', cat: 'roads', name: 'Gravel Path', desc: 'A narrow gravel path for gardens, parks and the countryside. The cheapest path.', money: Math.max(1, Math.round(PATH_COST / 2)), stone: 0, wood: 0, perTile: true, tag: 'Gardens and countryside', icon: 'path' },
   { tool: 'path_wood', cat: 'roads', name: 'Boardwalk', desc: 'A wooden boardwalk of planks: lovely by lakes, rivers and in parks.', money: PATH_COST, stone: 0, wood: 1, perTile: true, tag: 'By lakes and in parks', icon: 'path' },
-  { tool: 'pipe', cat: 'roads', name: 'Water Pipe', desc: 'Underground pipe. Water runs under roads anyway; pipes bring it to homes and towers that are not on a road.', money: PIPE_COST.money, stone: 0, wood: 0, iron: PIPE_COST.iron, perTile: true, tag: 'Water to homes', icon: 'water' },
+  { tool: 'pipe', cat: 'roads', name: 'Water Pipe', desc: 'Underground water pipe — the only way water reaches homes. Lay it from a water tower to every home; it may run under roads, bridges and paths.', money: PIPE_COST.money, stone: 0, wood: 0, iron: PIPE_COST.iron, perTile: true, tag: 'Water to homes', icon: 'water' },
   { tool: 'canal', cat: 'roads', name: 'Irrigation Canal', desc: 'Dig from a river or lake to a crop farm — farms need water to grow.', money: 8, stone: 0, wood: 0, perTile: true, tag: 'Water for farms', icon: 'canal' },
   b('apartment', 'buildings', '6 families', 'Five floors, six flats. Families pay rent to the owner — the city or a businessman who built it.', 'office'),
   b('tower15', 'buildings', '15 families', 'Eight floors, fifteen flats. Families pay rent to the owner.', 'office'),
@@ -595,6 +598,8 @@ export class Hud {
     if (it.stone) parts.push(`<span>${icon('stone')}${it.stone}</span>`);
     if (it.wood) parts.push(`<span>${icon('wood')}${it.wood}</span>`);
     if (it.iron) parts.push(`<span>${icon('iron')}${it.iron}</span>`);
+    if (it.bricks) parts.push(`<span class="c-brick" title="${t('Bricks')}">▦${it.bricks}</span>`);
+    if (it.steel) parts.push(`<span class="c-steel" title="${t('Steel')}">⌶${it.steel}</span>`);
     cost.innerHTML = parts.length ? parts.join('') + (it.perTile ? `<i>/${t('tile')}</i>` : '') : `<span>${t('Free')}</span>`;
     btn.title = t(it.desc);
     const showDesc = () => { if (this.descEl) this.descEl.textContent = t(it.desc); };

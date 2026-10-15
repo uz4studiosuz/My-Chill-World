@@ -107,10 +107,10 @@ export interface CitySave {
 
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
 
-export interface Grant { money: number; stone: number; wood: number; food: number; iron: number }
-export const START_GRANT: Grant = { money: 5000, stone: 120, wood: 120, food: 600, iron: 30 };
+export interface Grant { money: number; stone: number; wood: number; food: number; iron: number; bricks?: number; steel?: number }
+export const START_GRANT: Grant = { money: 5000, stone: 120, wood: 120, food: 600, iron: 30, bricks: 160, steel: 40 };
 /** What a freshly founded city starts with (the founding cost is paid by the active city). */
-export const NEW_CITY_GRANT: Grant = { money: 1800, stone: 50, wood: 50, food: 200, iron: 10 };
+export const NEW_CITY_GRANT: Grant = { money: 1800, stone: 50, wood: 50, food: 200, iron: 10, bricks: 60, steel: 10 };
 
 const blankBalance = (): Balance => ({ incomeTax: 0, foodSales: 0, propertyTax: 0, businessTax: 0, utilities: 0, publicWages: 0, upkeep: 0, net: 0 });
 
@@ -119,7 +119,7 @@ function blankCity(id: number, name: string, founded: number, g: Grant = { money
     id, name, founded, ...g, energyDemand: 0, energyCapacity: 0, powered: 1, water: 1,
     foodMade: 0, foodYesterday: { made: 0, eaten: 0 }, balance: blankBalance(), deaths: 0, brokeDays: 0, loan: 0, happiness: 65, taxRate: 0.25, mayor: -1, elected: 0,
     jobPriority: {}, wageAuto: true, wages: {}, pollution: 0, tourists: 0, smart: false, railLink: false,
-    ledger: blankLedger(), ledgerDays: [], mood: [], grain: 0, flour: 0, planks: 0, stored: 0, milk: 0, bricks: 0, steel: 0, coal: 0, cotton: 0, feed: 0, garments: 0, furniture: 0, priceFactor: 1, piped: 1,
+    ledger: blankLedger(), ledgerDays: [], mood: [], grain: 0, flour: 0, planks: 0, stored: 0, milk: 0, bricks: g.bricks ?? 0, steel: g.steel ?? 0, coal: 0, cotton: 0, feed: 0, garments: 0, furniture: 0, priceFactor: 1, piped: 1,
   };
 }
 

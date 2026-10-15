@@ -1767,3 +1767,7 @@ body.ui2 .inspector.show ~ .side-toggle { display: none; }
   body.ui2 .layerbar { left: 8px; right: auto; top: auto; bottom: calc(var(--dock-h) + 10px); flex-direction: column; }
   body.ui2 .hint, body.ui2 .pending, body.ui2 .toast, body.ui2 .respanel, body.ui2 .news { left: 50%; }
 }
+
+/* bricks and steel on the build tiles */
+.cost .c-brick { color: #e0866d; }
+.cost .c-steel { color: #9fb3c4; }

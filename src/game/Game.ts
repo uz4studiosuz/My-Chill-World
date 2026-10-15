@@ -15,7 +15,7 @@ import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building, rotToDir, SIDES } from '../buildings/Buildings';
 import { box, merge, shape } from '../utils/voxel';
-import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST } from '../buildings/BuildingTypes';
+import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST, extraCost } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel, calendarYear } from '../sim/Calendar';
@@ -378,6 +378,7 @@ export class Game implements ToolHost {
       say: () => { /* big neighbour news stay in the neighbours' chronicle */ },
       happiness: (id) => this.eco.cities.get(id)?.happiness ?? 50,
       linkRoad: (c) => this.linkTown(c),
+      layPipes: (tiles) => { this.pipes.add(tiles); this.pipes.rebuild(); },
       sanitation: (id) => this.life.sanitation.get(id) ?? 1,
       expandCemetery: (b) => !!this.upgradeCemetery(b),
       upgrade: (b) => this.upgradeBuilding(b, true),
@@ -424,6 +425,9 @@ export class Game implements ToolHost {
     this.life.calm = this.calm;
     if (opts.save) this.loadSave(opts.save);
     else this.buildStarterTown(opts.create?.towns ?? 2);
+    // pipes now carry the water (roads no longer do): a world from before, or a new one, gets pipes under its roads once
+    if (!opts.save?.pipes2) this.pipesUnderRoads();
+    if (opts.save && !opts.save.pipes2) for (const c of this.eco.cities.values()) if (!c.ai) { c.bricks += 120; c.steel += 30; }
     this.wantTutorial = !!opts.create && Tutorial.wanted();
 
     this.waterLife = new WaterLife(this.map,
@@ -944,7 +948,7 @@ export class Game implements ToolHost {
       let fresh = 0;
       for (const tl of path) {
         const k = idx(tl.x, tl.z);
-        if (this.map.water[k] || this.map.height[k] > 0) return { ok: false, reason: t('Pipes need dry, flat land') };
+        if ((this.map.water[k] || this.map.height[k] > 0) && !this.net.type[k]) return { ok: false, reason: t('Pipes need dry, flat land') };
         if (!this.pipes.tiles[k]) fresh++;
       }
       const money = fresh * PIPE_COST.money, iron = fresh * PIPE_COST.iron;
@@ -1202,8 +1206,10 @@ export class Game implements ToolHost {
     if (kind === 'townhall' && this.buildings.halls().some((h) => Math.max(Math.abs(h.x - tl.x), Math.abs(h.z - tl.z)) < CITY_MIN_DISTANCE)) {
       return { ok: false, reason: t('Too close to another Town Hall') };
     }
-    if (!this.eco.canAfford(def.money, def.stone, def.wood, def.iron)) {
-      return { ok: false, reason: t('Needs {cost}', { cost: costText(def.money, def.stone, def.wood, def.iron) }) };
+    // homes need bricks and anything with iron needs steel too (made at the brickworks and the steel mill, or bought)
+    const ex = this.moving ? { bricks: 0, steel: 0 } : extraCost(kind as BuildingKind);
+    if (!this.eco.canAfford(def.money, def.stone, def.wood, def.iron) || this.eco.city.bricks < ex.bricks || this.eco.city.steel < ex.steel) {
+      return { ok: false, reason: t('Needs {cost}', { cost: costText(def.money, def.stone, def.wood, def.iron) + materialText(ex.bricks, ex.steel) }) };
     }
     // builders come from a construction company — without one nothing can be built (except the company and a Town Hall)
     if (kind !== 'townhall' && kind !== 'construction' && !this.buildings.list.some((b) => b.kind === 'construction' && b.city === this.eco.active)) {
@@ -1247,6 +1253,9 @@ export class Game implements ToolHost {
       return;
     }
     this.eco.spend(def.money, def.stone, def.wood, def.iron);
+    const ex = extraCost(kind as BuildingKind);
+    if (ex.bricks) this.eco.add(this.eco.city, 'bricks', -ex.bricks, 'Construction');
+    if (ex.steel) this.eco.add(this.eco.city, 'steel', -ex.steel, 'Construction');
     // a Town Hall founds a new city; everything else belongs to the city being built for
     let owner = this.eco.active;
     let founded: City | null = null;
@@ -2759,6 +2768,7 @@ export class Game implements ToolHost {
     const money = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
     const cost: [string, string][] = [[t('Money'), money(d.money)]];
     if (d.stone) cost.push([t('Stone'), `${d.stone}`]);
+    { const ex = extraCost(b.kind); if (ex.bricks) cost.push([t('Bricks'), `${ex.bricks}`]); if (ex.steel) cost.push([t('Steel'), `${ex.steel}`]); }
     if (d.wood) cost.push([t('Wood'), `${d.wood}`]);
     if (d.iron) cost.push([t('Iron'), `${d.iron}`]);
     cost.push([t('Size'), `${d.size}×${d.size}`], [t('Needs a road'), d.needsRoad ? t('Yes') : t('No')], [t('Build time'), t('{n} hours', { n: Math.round(BUILD_DAYS[d.size] * 24 * 10) / 10 })]);
@@ -3200,6 +3210,17 @@ export class Game implements ToolHost {
               [t('Connected homes'), `${Math.round(city.piped * 100)}%`, t('mains under roads and pipes'), city.piped > 0.95],
               [t('Sewage treated'), sew ? `${Math.min(sew.treated, sew.people)} / ${sew.people}` : '—', t('one plant per 300 people over 60'), (this.life.sanitation.get(city.id) ?? 1) > 0.98],
             ] } as StatSection,
+            { title: t('Who uses water'), rows: (() => {
+              const use = new Map<string, { people: number; homes: number; dry: number }>();
+              for (const b of own) {
+                if (!BUILDINGS[b.kind].units || b.built < 1) continue;
+                const n = [...this.pop.families.values()].filter((f) => f.home === b.id).reduce((a, f) => a + f.members.length, 0);
+                const e = use.get(BUILDINGS[b.kind].name) ?? { people: 0, homes: 0, dry: 0 };
+                e.people += n; e.homes++; if ((this.life.homeWater.get(b.id) ?? 0) === 0) e.dry++;
+                use.set(BUILDINGS[b.kind].name, e);
+              }
+              return [...use.entries()].sort((a, b) => b[1].people - a[1].people).map(([k, e]) => [t(k), `${t('{n} people', { n: e.people })} · ${e.homes}${e.dry ? ` · ${t('{n} without a pipe', { n: e.dry })}` : ''}`, e.dry === 0] as [string, string, boolean]);
+            })() } as StatSection,
             { title: t('Water towers'), rows: towers.length ? towers.map((w) => [`${t(BUILDINGS.watertower.name)} #${w.id} · ${t('Level')} ${w.level || 1}`,
               `${t('{n} people', { n: Math.round(give(w)) })} / ${waterOf(w)} · ${w.workers}/${BUILDINGS.watertower.jobs}${w.powered ? '' : ` · ${t('No power')}`}`, give(w) >= waterOf(w)] as [string, string, boolean]) : [[t('None — build one'), '—', false]] } as StatSection,
           ];
@@ -4357,7 +4378,9 @@ export class Game implements ToolHost {
     if (has('coalplant') && city.coal < 10 && !has('coalmine')) say('The coal power plant has no coal: build a coal mine');
     if (has('powerplant') && city.wood < 10) say('The wood power plant is out of wood: build a woodcutter');
     // water and waste water
-    if (city.water < 0.99) say('Not enough water: build a water tower');
+    const dry = own.filter((b) => b.built >= 1 && BUILDINGS[b.kind].units && (this.life.homeWater.get(b.id) ?? 0) === 0).length;
+    if (dry) say('{n} homes have no water pipe: lay water pipes from a water tower to them', { n: dry });
+    else if (city.water < 0.99) say('Not enough water: build a water tower');
     const sew = this.life.sewageCap.get(city.id);
     if (sew && sew.people > sew.treated) say('Waste water of {n} people is not treated: build a sewage treatment plant', { n: sew.people - sew.treated });
     // food
@@ -4382,6 +4405,8 @@ export class Game implements ToolHost {
     if ((has('steelmill') || has('carfactory') || has('bikefactory')) && city.iron < 10 && !has('ironmine')) say('The factories need iron: build an iron mine');
     if (city.wood < 30 && !has('woodcutter')) say('Wood is running out: build a woodcutter');
     if (city.stone < 30 && !has('quarry')) say('Stone is running out: build a stone quarry');
+    if (city.bricks < 30 && !has('brickworks')) say('Bricks are running out — every home needs them: build a brickworks (it needs a quarry) or buy bricks in Trade');
+    if (city.steel < 10 && !has('steelmill')) say('Steel is running out — buildings with iron need it: build a steel mill (it needs an iron mine) or buy steel in Trade');
     // services
     if (pop >= 60 && !count('landfill') && !count('recycling')) say('Garbage piles up: build a landfill');
     const full = built.filter((b) => b.kind === 'cemetery').every((b) => (b.graves?.length ?? 0) >= MAX_GRAVES_PER_CEMETERY * b.level * 0.85);
@@ -4393,6 +4418,14 @@ export class Game implements ToolHost {
     if (pop >= 100 && !has('firestation')) say('Build a fire station before a fire spreads');
     if (city.happiness < 50) say('People are unhappy: parks, decorations and shops make them happier');
     return out;
+  }
+
+  /** Lay water pipes under every road tile (once, when pipes became the only water mains). */
+  private pipesUnderRoads() {
+    const tiles: Tile[] = [];
+    for (let k = 0; k < this.net.type.length; k++) if (this.net.type[k] && !this.pipes.tiles[k]) tiles.push({ x: k % N, z: (k / N) | 0 });
+    this.pipes.add(tiles);
+    this.pipes.rebuild();
   }
 
   /** Score for the records table. */
@@ -4627,6 +4660,9 @@ export class Game implements ToolHost {
       if (side.length > 1) { this.net.buildPath(side, ROAD_TWO_LANE); roads.push(...side); }
     }
     this.terrain.clearTiles(roads.map((tl) => idx(tl.x, tl.z)));
+    // a new village is founded with water mains under its streets
+    this.pipes.add(roads);
+    this.pipes.rebuild();
 
     const put = (kind: BuildingKind, x: number, z: number) => {
       if (!this.buildings.check(kind, x, z).ok) return null;
@@ -4827,7 +4863,7 @@ export class Game implements ToolHost {
       roundabouts: this.net.roundabouts,
       footpaths: this.footpaths.serialize(),
       canals: this.canals.serialize(),
-      pipes: this.pipes.serialize(),
+      pipes: this.pipes.serialize(), pipes2: true,
       trade: this.trade.save(),
       worldHistory: [...this.worldHistory.entries()],
       dealings: [...this.dealings.entries()],
@@ -4860,6 +4896,11 @@ export class Game implements ToolHost {
 
 function barColor(v: number) {
   return v > 0.6 ? '#7be08f' : v > 0.3 ? '#f2b33d' : '#ff6b5e';
+}
+
+/** Bricks and steel added to a cost text (empty when none are needed). */
+function materialText(bricks: number, steel: number) {
+  return (bricks ? `, ${t('{n} bricks', { n: bricks })}` : '') + (steel ? `, ${t('{n} steel', { n: steel })}` : '');
 }
 
 function costText(money: number, stone: number, wood: number, iron = 0) {

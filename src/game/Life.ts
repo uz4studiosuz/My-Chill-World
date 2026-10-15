@@ -577,13 +577,14 @@ export class Life {
   }
 
   /**
-   * Water flows from the towers through the mains under the roads and through pipes. A home gets water when it
-   * touches that network; each connected network shares the water of its towers among its people.
+   * Water flows from the towers through the pipes only (lay them from a tower to the homes; they may run under roads).
+   * A home gets water when it touches a pipe network with a tower; every town shares only its own towers' water
+   * among its own people, even where the pipes of two towns meet.
    */
   private updateWater() {
     const { buildings, eco, net, pop } = this.c;
     const pipes = this.c.pipes;
-    const isMain = (k: number) => net.type[k] !== 0 || (pipes ? pipes[k] === 1 : false);
+    const isMain = (k: number) => (pipes ? pipes[k] === 1 : net.type[k] !== 0);
     const comp = new Int32Array(N * N).fill(-1);
     let id = 0;
     for (let k = 0; k < comp.length; k++) {
@@ -610,12 +611,15 @@ export class Life {
       }
       return -1;
     };
+    // keyed by network and town: a neighbour's tower does not water your homes
+    const key = (c: number, city: number) => c * 64 + city;
     const cap = new Map<number, number>(), need = new Map<number, number>();
     for (const w of buildings.list) {
       if (w.kind !== 'watertower' || w.built < 1) continue;
       const c = compOf(w);
       if (c < 0) continue;
-      cap.set(c, (cap.get(c) ?? 0) + waterOf(w) * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3));
+      const k = key(c, w.city);
+      cap.set(k, (cap.get(k) ?? 0) + waterOf(w) * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3));
     }
     const living = new Map<number, number>();
     for (const f of pop.families.values()) living.set(f.home, (living.get(f.home) ?? 0) + f.members.length);
@@ -624,14 +628,14 @@ export class Life {
       if (!BUILDINGS[h.kind].units) continue;
       const c = compOf(h);
       homeComp.set(h.id, c);
-      if (c >= 0) need.set(c, (need.get(c) ?? 0) + (living.get(h.id) ?? 0));
+      if (c >= 0) need.set(key(c, h.city), (need.get(key(c, h.city)) ?? 0) + (living.get(h.id) ?? 0));
     }
     this.homeWater.clear();
     const totals = new Map<number, { people: number; served: number; homes: number; connected: number }>();
     for (const h of buildings.list) {
       if (!BUILDINGS[h.kind].units) continue;
       const c = homeComp.get(h.id) ?? -1;
-      const share = c < 0 ? 0 : Math.min(1, (cap.get(c) ?? 0) / Math.max(1, need.get(c) ?? 0));
+      const share = c < 0 ? 0 : Math.min(1, (cap.get(key(c, h.city)) ?? 0) / Math.max(1, need.get(key(c, h.city)) ?? 0));
       this.homeWater.set(h.id, share);
       const n = living.get(h.id) ?? 0;
       const tt = totals.get(h.city) ?? { people: 0, served: 0, homes: 0, connected: 0 };

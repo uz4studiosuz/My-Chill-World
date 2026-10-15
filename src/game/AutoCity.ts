@@ -1,4 +1,4 @@
-import { BUILDINGS, BuildingKind, TRADE_PRICE, MAX_GRAVES_PER_CEMETERY } from '../buildings/BuildingTypes';
+import { BUILDINGS, BuildingKind, TRADE_PRICE, MAX_GRAVES_PER_CEMETERY, extraCost } from '../buildings/BuildingTypes';
 import { seatsOf, waterOf } from '../buildings/Upgrades';
 import type { Building, Buildings } from '../buildings/Buildings';
 import type { City, Economy } from '../sim/Economy';
@@ -40,6 +40,8 @@ export interface AutoHost {
   sanitation(cityId: number): number;
   /** Pupils at a school (or children at a kindergarten, students at a university). */
   pupils(id: number): number;
+  /** Lay water pipes along these tiles (the town's mains under its new streets). */
+  layPipes(tiles: Tile[]): void;
   /** Raise a building one level (false: cannot or no money). */
   upgrade(b: Building): boolean;
   /** Add a plot to a cemetery (false: no room or no money). */
@@ -434,6 +436,8 @@ export class AutoCity {
     const d = BUILDINGS[kind];
     let money = d.money;
     for (const r of ['stone', 'wood', 'iron'] as const) money += Math.max(0, d[r] - city[r]) * TRADE_PRICE[r] * 1.25;
+    const ex = extraCost(kind);
+    money += Math.max(0, ex.bricks - city.bricks) * TRADE_PRICE.bricks * 1.25 + Math.max(0, ex.steel - city.steel) * TRADE_PRICE.steel * 1.25;
     return money;
   }
 
@@ -448,6 +452,14 @@ export class AutoCity {
     }
     for (const r of ['stone', 'wood', 'iron'] as const) if (d[r]) eco.add(city, r, -d[r], 'Construction');
     eco.add(city, 'money', -d.money, 'Construction');
+    // bricks and steel from its own stock; what is missing is imported for money
+    const ex = extraCost(kind);
+    for (const [r, n] of [['bricks', ex.bricks], ['steel', ex.steel]] as const) {
+      if (!n) continue;
+      const own = Math.min(n, Math.floor(city[r]));
+      if (own) eco.add(city, r, -own, 'Construction');
+      if (n - own) eco.add(city, 'money', -(n - own) * TRADE_PRICE[r] * 1.25, 'Imported building materials');
+    }
     return true;
   }
 
@@ -595,6 +607,7 @@ export class AutoCity {
       } else return;
     }
     net.buildPath(pick, ROAD_TWO_LANE);
+    this.h.layPipes(pick);
     net.clearUndo();
     eco.add(city, 'money', -cost * ROAD_COST[2].money, 'Roads');
     eco.add(city, 'stone', -cost * ROAD_COST[2].stone, 'Roads');
