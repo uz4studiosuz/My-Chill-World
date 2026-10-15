@@ -1568,3 +1568,176 @@ button.chip:hover { background: var(--raised); }
 .news-needs { margin: 10px 0 4px; padding: 10px 12px; border-radius: 12px; background: rgba(242, 179, 61, .1); border: 1px solid rgba(242, 179, 61, .35); }
 .news-needs b { display: block; font-family: var(--font-display); font-size: 13px; color: #f2b33d; margin-bottom: 6px; }
 .news-needs ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12.5px; line-height: 1.35; }
+
+/* =====================================================================
+   UI 2 — the game frame: a top bar, a town panel on the right and a build dock at the bottom.
+   The map fills the space between them; windows open inside that space.
+   ===================================================================== */
+body.ui2 {
+  --top-h: 52px;
+  --side-w: 300px;
+  --dock-h: 186px;
+  --frame: #15181d;
+  --frame-line: #2c3139;
+}
+body.ui2.dock-min { --dock-h: 46px; }
+
+/* ---- top bar ---- */
+body.ui2 .topbar {
+  top: 0; left: 0; right: 0; height: calc(var(--top-h) + env(safe-area-inset-top, 0px)); padding: env(safe-area-inset-top, 0px) 10px 0;
+  display: flex; flex-direction: row; align-items: center; gap: 8px; background: var(--frame); border-bottom: 1px solid var(--frame-line); pointer-events: auto; z-index: 7;
+}
+body.ui2 .topbar .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 0 1 auto; }
+body.ui2 .topbar .chips::-webkit-scrollbar { display: none; }
+body.ui2 .top-spacer { flex: 1; }
+body.ui2 .corner { position: static; flex-direction: row; align-items: center; gap: 6px; }
+body.ui2 .corner .ver { display: none; }
+body.ui2 .navgroup { position: relative; }
+body.ui2 .navgroup .navmenu { left: auto; right: 0; }
+body.ui2 .town-btn { display: none; }
+
+/* ---- town panel (right column) ---- */
+body.ui2 .sidebar {
+  position: absolute; top: calc(var(--top-h) + env(safe-area-inset-top, 0px)); right: 0; bottom: 0; width: var(--side-w);
+  background: var(--frame); border-left: 1px solid var(--frame-line); color: var(--text); pointer-events: auto; z-index: 5;
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 12px calc(var(--safe-bottom) + 8px); overflow-y: auto; scrollbar-width: none;
+}
+body.ui2 .sidebar::-webkit-scrollbar { display: none; }
+.side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.side-head b { font-family: var(--font-display); font-weight: 600; font-size: 20px; color: var(--text); }
+.side-x { display: none; }
+.side-title { font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--accent); margin-top: 6px; padding-bottom: 5px; border-bottom: 1px solid var(--frame-line); }
+.side-stats { display: flex; flex-direction: column; gap: 2px; }
+.side-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 10px; padding: 5px 2px; font-size: 13px; }
+.side-row span { color: var(--muted); font-weight: 700; }
+.side-row b { font-family: var(--font-display); font-weight: 500; }
+.side-row.bad b { color: var(--bad); }
+.side-bar { grid-column: 1 / -1; display: block; height: 5px; background: var(--raised); border-radius: 3px; overflow: hidden; }
+.side-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.side-row.bad .side-bar i { background: var(--bad); }
+.side-needs { display: flex; flex-direction: column; gap: 5px; }
+.side-need { font-size: 12.5px; line-height: 1.35; padding: 7px 9px 7px 10px; background: var(--base); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; }
+.side-need.ok { border-left-color: var(--good); color: var(--muted); }
+.side-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.side-btn { display: flex; align-items: center; gap: 7px; padding: 8px 9px; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; color: var(--text); font: 600 12.5px var(--font-ui); cursor: pointer; text-align: left; }
+.side-btn:hover { background: var(--raised-hi); border-color: var(--accent); }
+.side-btn svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.side-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- build dock (bottom, left of the town panel) ---- */
+body.ui2 .dock {
+  position: absolute; left: 0; right: var(--side-w); bottom: 0; height: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px));
+  display: flex; background: var(--frame); border-top: 1px solid var(--frame-line); pointer-events: auto; z-index: 5; padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.dock-tools { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; border-right: 1px solid var(--frame-line); }
+body.ui2 .dock-tools .tbtn { width: 64px; height: 50px; border-radius: 6px; border: 1px solid var(--line); background: var(--base); font-size: 10.5px; gap: 2px; }
+body.ui2 .dock-tools .tbtn svg { width: 19px; height: 19px; }
+body.ui2 .dock-tools .tbtn.active { background: var(--accent); border-color: var(--accent); }
+.dock-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+body.ui2 .dock .toolbar {
+  position: static; transform: none; max-width: none; border: 0; border-bottom: 1px solid var(--frame-line); border-radius: 0; background: transparent;
+  padding: 6px 8px 0; gap: 2px; align-items: flex-end; overflow-x: auto; flex: none;
+}
+body.ui2 .dock .toolbar .sep { display: none; }
+body.ui2 .dock .toolbar .tbtn {
+  width: auto; height: 32px; flex-direction: row; gap: 6px; padding: 0 12px; border: 1px solid var(--frame-line); border-bottom: 0;
+  border-radius: 6px 6px 0 0; background: var(--base); font-size: 13px; color: var(--muted); margin-bottom: -1px;
+}
+body.ui2 .dock .toolbar .tbtn svg { width: 16px; height: 16px; }
+body.ui2 .dock .toolbar .tbtn.open { background: var(--frame); color: var(--text); border-color: var(--frame-line); border-bottom: 1px solid var(--frame); }
+body.ui2 .dock .toolbar .tbtn.open svg { color: var(--accent); }
+body.ui2 .dock .toolbar .tbtn.active:not(.open) { background: var(--base); color: var(--accent); }
+body.ui2 .dock .toolbar .tbtn.active:not(.open) svg { color: var(--accent); }
+.tab-search { margin-left: auto; align-self: center; flex: none; width: 190px; height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--base); color: var(--text); font: 600 12.5px var(--font-ui); outline: none; margin-bottom: 4px; }
+.tab-search:focus { border-color: var(--accent); }
+.dock-fold { flex: none; align-self: center; width: 30px; height: 28px; margin: 0 0 4px 4px; border-radius: 6px; border: 1px solid var(--line); background: var(--base); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.dock-fold svg { width: 16px; height: 16px; }
+body.ui2 .dock .drawer {
+  position: static; transform: none; opacity: 1; pointer-events: auto; width: auto; max-width: none; flex: 1; min-height: 0; display: flex; flex-direction: column;
+  padding: 8px 8px 4px; border: 0; border-radius: 0; background: transparent; visibility: visible;
+}
+body.ui2 .dock .drawer .cards {
+  display: flex; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; overflow-x: auto; overflow-y: hidden; width: auto; max-height: none; flex: 1; scrollbar-width: thin; padding-bottom: 4px;
+}
+body.ui2 .dock .drawer .card {
+  flex: none; width: 92px; padding: 5px 4px 6px; gap: 2px; border-radius: 6px; border: 1px solid var(--line); background: var(--base); position: relative;
+}
+body.ui2 .dock .drawer .card:hover { border-color: #515a66; background: var(--raised); }
+body.ui2 .dock .drawer .card.active { border-color: var(--accent); background: rgba(242, 169, 59, 0.12); }
+body.ui2 .dock .drawer .card > * { flex-shrink: 0; }
+body.ui2 .dock .drawer .card-img { width: 54px; height: 54px; margin: 0 auto 1px; border-radius: 4px; background-size: cover; }
+body.ui2 .dock .drawer .card b { font-size: 11.5px; min-height: 0; display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+body.ui2 .dock .drawer .card .tag { display: none; }
+body.ui2 .dock .drawer .card .cost { margin-top: 2px; gap: 2px; }
+body.ui2 .dock .drawer .card .cost span { padding: 1px 4px; font-size: 10px; background: var(--raised); }
+body.ui2 .dock .drawer .card .cost svg { width: 10px; height: 10px; }
+body.ui2 .dock .drawer .card-count { position: absolute; top: 3px; right: 4px; font: 700 10px var(--font-ui); color: var(--muted); }
+body.ui2 .dock .drawer-desc { margin: 2px 2px 0; padding: 4px 2px 0; min-height: 0; border-top: 1px solid var(--frame-line); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
+body.ui2 .dock.min .drawer { display: none; }
+body.ui2 .dock.min .dock-tools { flex-direction: row; padding: 6px; }
+body.ui2 .dock.min .dock-tools .tbtn { height: 32px; width: 40px; }
+body.ui2 .dock.min .dock-tools .tbtn span { display: none; }
+
+/* ---- what floats over the map stays inside it ---- */
+body.ui2 .inspector { left: auto; right: 0; top: calc(var(--top-h) + env(safe-area-inset-top, 0px)); bottom: 0; width: var(--side-w); max-height: none; border-radius: 0; border: 0; border-left: 1px solid var(--frame-line); background: var(--frame); z-index: 6; }
+body.ui2 .stats { left: calc((100vw - var(--side-w)) / 2) !important; top: calc(var(--top-h) + 10px) !important; bottom: calc(var(--dock-h) + 10px) !important; width: min(1080px, calc(100vw - var(--side-w) - 24px)) !important; }
+body.ui2 .goals { right: calc(var(--side-w) + 10px); top: calc(var(--top-h) + 10px); bottom: calc(var(--dock-h) + 10px); }
+body.ui2 .respanel, body.ui2 .news { top: calc(var(--top-h) + 10px); left: calc((100vw - var(--side-w)) / 2); max-height: calc(100vh - var(--top-h) - var(--dock-h) - 20px); overflow-y: auto; }
+body.ui2 .layerbar { right: calc(var(--side-w) + 10px); top: calc(var(--top-h) + 10px); transform: none; }
+body.ui2 .hint { bottom: calc(var(--dock-h) + 10px); left: calc((100vw - var(--side-w)) / 2); }
+body.ui2 .pending { bottom: calc(var(--dock-h) + 12px); left: calc((100vw - var(--side-w)) / 2); }
+body.ui2 .toast { top: calc(var(--top-h) + 12px); left: calc((100vw - var(--side-w)) / 2); }
+body.ui2 .tutorial { top: calc(var(--top-h) + 10px); left: 10px; }
+body.ui2.photo-mode .topbar, body.ui2.photo-mode .sidebar, body.ui2.photo-mode .dock { display: none; }
+
+/* ---- tablets: a narrower town panel ---- */
+@media (max-width: 1100px) {
+  body.ui2 { --side-w: 250px; }
+  body.ui2 .tab-search { width: 140px; }
+}
+
+/* ---- phones: the town panel becomes a sheet, the dock a compact strip ---- */
+@media (max-width: 760px) {
+  body.ui2 { --top-h: 90px; --side-w: 0px; --dock-h: 156px; }
+  body.ui2.dock-min { --dock-h: 44px; }
+  /* two rows: the resources scroll on the first, time, town and menu sit on the second */
+  body.ui2 .topbar { flex-direction: row; justify-content: flex-start; align-items: center; flex-wrap: wrap; align-content: center; row-gap: 5px; gap: 4px; padding-left: 6px; padding-right: 6px; }
+  body.ui2 .topbar .chips { flex: 1 1 100%; order: 0; }
+  body.ui2 .topbar .corner, body.ui2 .topbar .navgroup { position: static !important; top: auto !important; left: auto !important; right: auto !important; transform: none !important; }
+  body.ui2 .topbar .corner { order: 1; margin-right: auto; }
+  body.ui2 .topbar .town-btn { order: 2; }
+  body.ui2 .topbar .navgroup { order: 3; }
+  body.ui2 .topbar .corner .rbtn, body.ui2 .topbar .corner > .speeds:not(.mobile-speed) { display: none; }
+  body.ui2 .dock .toolbar .tbtn svg { width: 18px; height: 18px; }
+  body.ui2 .top-spacer { display: none; }
+  body.ui2 .town-btn { display: flex; }
+  body.ui2 .navgroup .nav-sec, body.ui2 .navgroup .nav-snd { display: none; }
+  body.ui2 .navgroup > .rbtn:nth-child(4) { display: none; }
+  body.ui2 .navgroup .rbtn { width: 32px; }
+  body.ui2 .corner .speeds { display: none; }
+  body.ui2 .mobile-speed { display: flex; }
+  body.ui2 .sidebar {
+    top: auto; left: 0; right: 0; width: auto; bottom: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px)); max-height: 62vh;
+    border-left: 0; border-top: 1px solid var(--frame-line); border-radius: 14px 14px 0 0; transform: translateY(110%); visibility: hidden;
+    transition: transform 0.2s ease-out, visibility 0s linear 0.2s; z-index: 6;
+  }
+  body.ui2 .sidebar.open { transform: none; visibility: visible; transition: transform 0.2s ease-out; }
+  body.ui2 .side-x { display: flex; }
+  body.ui2 .dock { right: 0; }
+  body.ui2 .dock-tools { padding: 6px 4px; gap: 3px; }
+  body.ui2 .dock-tools .tbtn { width: 50px; height: 42px; font-size: 9.5px; }
+  body.ui2 .dock .toolbar { padding: 4px 4px 0; }
+  body.ui2 .dock .toolbar .tbtn { height: 30px; padding: 0 9px; font-size: 12px; }
+  body.ui2 .dock .toolbar .tbtn span { display: none; }
+  body.ui2 .dock .toolbar .tbtn.open span { display: inline; }
+  body.ui2 .tab-search { width: 110px; }
+  body.ui2 .dock .drawer { padding: 6px 4px 2px; }
+  body.ui2 .dock .drawer .card { width: 78px; }
+  body.ui2 .dock .drawer .card-img { width: 48px; height: 48px; }
+  body.ui2 .dock .drawer-desc { display: none; }
+  body.ui2 .inspector { left: 0; right: 0; width: auto; top: auto; bottom: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px)); max-height: 58vh; border-left: 0; border-top: 1px solid var(--frame-line); border-radius: 14px 14px 0 0; }
+  body.ui2 .stats { left: 6px !important; right: 6px !important; width: auto !important; transform: none !important; }
+  body.ui2 .goals, body.ui2 .eventlog { left: 6px; right: 6px; width: auto; top: calc(var(--top-h) + 8px); bottom: calc(var(--dock-h) + 8px); height: auto; }
+  body.ui2 .layerbar { right: 8px; left: auto; top: calc(var(--top-h) + 10px); bottom: auto; flex-direction: column; }
+  body.ui2 .hint, body.ui2 .pending, body.ui2 .toast, body.ui2 .respanel, body.ui2 .news { left: 50%; }
+}

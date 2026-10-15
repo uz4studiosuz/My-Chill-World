@@ -156,6 +156,8 @@ export interface HudStats {
   households: number; homeUnits: number;
   dateText: string; seasonIcon: string; timeOfDay: number; broke: boolean;
   cityName: string; cities: number; happiness: number;
+  /** What the town needs next (the side panel lists it). */
+  needs?: string[];
 }
 
 export interface HudHandlers {
@@ -228,8 +230,18 @@ export class Hud {
   /** Highlight the active map layer button. */
   setLayer(l: string) { this.layerBtns.forEach((b, k) => b.classList.toggle('active', k === l)); }
 
+  /** The town side panel (right column on wide screens, a sheet on phones). */
+  private side!: HTMLDivElement;
+  private sideStats!: HTMLDivElement;
+  private sideNeeds!: HTMLDivElement;
+  private sideTitle!: HTMLElement;
+  private dock!: HTMLDivElement;
+  private tabSearch!: HTMLInputElement;
+  private needsKey = '';
+
   constructor(parent: HTMLElement, private h: HudHandlers, private thumbs: Map<string, string>) {
     this.root = el('div', 'hud');
+    document.body.classList.add('ui2');
     // map layers: one tap shows electricity, water or happiness over the whole town
     const layers = el('div', 'layerbar');
     for (const [k, ic, label] of [['power', 'energy', 'Electricity map'], ['water', 'water', 'Water map'], ['happy', 'heart', 'Happiness map']] as const) {
@@ -278,7 +290,6 @@ export class Hud {
     more.appendChild(sndItem);
     nav.appendChild(more);
     document.addEventListener('pointerdown', (e) => { if (!nav.contains(e.target as Node)) more.classList.remove('show'); }, true);
-    top.append(nav);
     const chips = el('div', 'chips');
     // grouped, colour-coded resource readouts: city · materials · utilities · people · time
     const GROUPS: [string, IconName, string][][] = [
@@ -315,6 +326,8 @@ export class Hud {
     fold.addEventListener('click', () => chips.classList.toggle('open'));
     chips.appendChild(fold);
     top.appendChild(chips);
+    const spacer = el('div', 'top-spacer');
+    top.appendChild(spacer);
 
     const corner = el('div', 'corner');
     const speeds = el('div', 'speeds');
@@ -362,6 +375,13 @@ export class Hud {
     mob.append(this.playBtn, this.stepBtn, home('sbtn home-btn'), mUndo);
     window.addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey) h.goHome(); });
     corner.append(speeds, mob, rot, ver);
+    // the town panel: on phones a button opens it as a sheet
+    const townBtn = this.iconButton('buildings', t('Town'), () => this.side.classList.toggle('open'));
+    townBtn.classList.add('town-btn');
+    // the bar reads left to right: resources · time and speed · panels · menu
+    top.append(corner, townBtn);
+    nav.classList.add('nav-right');
+    top.appendChild(nav);
 
     this.drawer = el('div', 'drawer');
 
@@ -401,8 +421,48 @@ export class Hud {
     noBtn.addEventListener('click', h.cancelBuild);
     this.pendingEl.append(this.pendingText, this.rotBtn, okBtn, noBtn);
 
-    this.root.append(top, corner, this.hint, this.toastEl, this.pendingEl, this.drawer, bar);
+    // search sits on the tab row
+    this.tabSearch = el('input', 'tab-search') as HTMLInputElement;
+    this.tabSearch.type = 'search';
+    this.tabSearch.placeholder = t('Search buildings…');
+    this.tabSearch.addEventListener('input', () => { this.searchText = this.tabSearch.value; this.toggleDrawer(this.drawerCat ?? 'buildings', true); });
+    this.tabSearch.addEventListener('keydown', (e) => e.stopPropagation());
+    const dockFold = el('button', 'dock-fold');
+    dockFold.innerHTML = icon('down');
+    dockFold.title = t('Hide the build panel');
+    dockFold.addEventListener('click', () => { this.dock.classList.toggle('min'); document.body.classList.toggle('dock-min', this.dock.classList.contains('min')); dockFold.innerHTML = icon(this.dock.classList.contains('min') ? 'up' : 'down'); });
+    bar.append(this.tabSearch, dockFold);
+    this.dock = el('div', 'dock');
+    const tools = el('div', 'dock-tools');
+    tools.append(this.moveBtn, this.removeBtn, this.undoBtn);
+    const main = el('div', 'dock-main');
+    main.append(bar, this.drawer);
+    this.dock.append(tools, main);
+    // the town side panel
+    this.side = el('div', 'sidebar');
+    const sh = el('div', 'side-head');
+    this.sideTitle = el('b', '');
+    const sx = el('button', 'info-x side-x');
+    sx.innerHTML = icon('close');
+    sx.addEventListener('click', () => this.side.classList.remove('open'));
+    sh.append(this.sideTitle, sx);
+    this.sideStats = el('div', 'side-stats');
+    const nt = el('div', 'side-title');
+    nt.textContent = t('What the town needs');
+    this.sideNeeds = el('div', 'side-needs');
+    const qt = el('div', 'side-title');
+    qt.textContent = t('Town hall');
+    const quick = el('div', 'side-quick');
+    for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['office', 'All buildings', h.openBuildings], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals], ['list', 'Chronicle', h.openLog]] as [IconName, string, () => void][]) {
+      const b = el('button', 'side-btn');
+      b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
+      b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); fn(); });
+      quick.appendChild(b);
+    }
+    this.side.append(sh, this.sideStats, nt, this.sideNeeds, qt, quick);
+    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock);
     parent.appendChild(this.root);
+    this.toggleDrawer('buildings');
   }
 
   private navBtn = new Map<IconName, HTMLButtonElement>();
@@ -461,8 +521,9 @@ export class Hud {
     return btn;
   }
 
-  private toggleDrawer(cat: Category) {
-    if (this.drawerCat === cat) return this.closeDrawer();
+  private toggleDrawer(cat: Category, keep = false) {
+    if (this.drawerCat === cat && !keep && !this.dock?.classList.contains('min')) return;
+    if (this.dock?.classList.contains('min')) { this.dock.classList.remove('min'); document.body.classList.remove('dock-min'); }
     this.drawerCat = cat;
     this.drawer.replaceChildren();
     const info = CATS.find((c) => c.id === cat)!;
@@ -489,17 +550,17 @@ export class Hud {
     search.addEventListener('input', () => { this.searchText = search.value; fill(); });
     search.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') this.closeDrawer(); });
     fill();
-    this.drawer.append(title, row, this.descEl);
-    if (!IS_TOUCH) setTimeout(() => search.focus({ preventScroll: true }), 30);
+    // a mouse wheel scrolls the row of tiles sideways
+    row.addEventListener('wheel', (e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { row.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+    this.drawer.append(row, this.descEl);
     this.drawer.classList.add('show');
     this.catBtns.forEach((btn, c) => btn.classList.toggle('open', c === cat));
     this.refreshCards();
   }
 
+  /** The tiles stay open in the dock; only the search is cleared. */
   private closeDrawer() {
-    this.drawerCat = null;
-    this.drawer.classList.remove('show');
-    this.catBtns.forEach((btn) => btn.classList.remove('open'));
+    if (this.searchText && this.tabSearch) { this.searchText = ''; this.tabSearch.value = ''; if (this.drawerCat) this.toggleDrawer(this.drawerCat, true); }
   }
 
   private card(it: ToolItem) {
@@ -527,7 +588,7 @@ export class Hud {
     btn.append(img, name, tag, cost, count);
     btn.addEventListener('click', () => {
       this.h.setTool(it.tool);
-      this.closeDrawer();
+      showDesc();
     });
     this.cards.set(it.tool, btn);
     return btn;
@@ -630,6 +691,39 @@ export class Hud {
     this.lastWood = s.wood;
     this.lastIron = s.iron;
     if (this.drawerCat) this.refreshCards();
+    this.renderSide(s);
+  }
+
+  /** The town panel: the numbers that matter and what the town needs next. */
+  private renderSide(s: HudStats) {
+    if (this.sideTitle.textContent !== s.cityName) this.sideTitle.textContent = s.cityName;
+    const row = (label: string, value: string, bad = false, bar?: number) =>
+      `<div class="side-row${bad ? ' bad' : ''}"><span>${label}</span><b>${value}</b>${bar !== undefined ? `<i class="side-bar"><i style="width:${Math.round(Math.max(0, Math.min(1, bar)) * 100)}%"></i></i>` : ''}</div>`;
+    const html = [
+      row(t('Population'), fmt(s.population)),
+      row(t('Families'), `${fmt(s.households)} / ${fmt(s.homeUnits)}`, s.households >= s.homeUnits),
+      row(t('Happiness'), `${Math.round(s.happiness)}%`, s.happiness < 45, s.happiness / 100),
+      row(t('Employed'), `${s.workers} / ${s.workforce}`, false, s.workforce ? s.workers / s.workforce : 1),
+      row(t('Electricity'), `${Math.round(s.powered * 100)}%`, s.powered < 0.8, s.powered),
+      row(t('Water'), `${Math.round(s.water * 100)}%`, s.water < 0.9, s.water),
+      row(t('Money per day'), `${s.daily >= 0 ? '+' : '−'}$${fmt(Math.abs(s.daily))}`, s.daily < 0),
+    ].join('');
+    if (this.sideStats.innerHTML !== html) this.sideStats.innerHTML = html;
+    const needs = s.needs ?? [];
+    const key = needs.join('|');
+    if (key === this.needsKey) return;
+    this.needsKey = key;
+    this.sideNeeds.replaceChildren();
+    if (!needs.length) {
+      const ok = el('div', 'side-need ok');
+      ok.textContent = t('Nothing urgent — the town is doing well');
+      this.sideNeeds.appendChild(ok);
+    }
+    for (const n of needs.slice(0, 6)) {
+      const d = el('div', 'side-need');
+      d.textContent = n;
+      this.sideNeeds.appendChild(d);
+    }
   }
 
   /** A card with everything about a building: what it does, what it costs and needs, its numbers. */

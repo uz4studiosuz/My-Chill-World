@@ -165,6 +165,7 @@ export class Game implements ToolHost {
   private goals = new Goals();
   private goalsPanel?: GoalsPanel;
   private eventLog?: EventLog;
+  private needsCache?: string[];
   private buildingList?: BuildingList;
   private petitions?: PetitionsPanel;
   private lifeBook?: LifeBook;
@@ -3033,6 +3034,7 @@ export class Game implements ToolHost {
       households: [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === e.active).length,
       homeUnits: this.buildings.list.reduce((a, b) => a + (b.city === e.active && b.built >= 1 && !b.removed ? BUILDINGS[b.kind].units : 0), 0),
       dateText: this.dateText(), seasonIcon: SEASON_ICON[seasonOf(monthOf(e.day))], timeOfDay: e.timeOfDay, broke: e.money < 0,
+      needs: this.petitionTick % 20 === 1 || !this.needsCache ? (this.needsCache = this.townNeeds(e.city)) : this.needsCache,
     });
     for (const g of this.goals.check(this.goalContext())) {
       this.eco.add(this.eco.city, 'money', g.reward, 'Goal rewards');

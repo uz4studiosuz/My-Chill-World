@@ -2760,4 +2760,7 @@ export const UZ: Record<string, string> = {
   "{name} is now level {n}: {gives}": "{name} endi {n}-daraja: {gives}",
   "The {name} was upgraded to level {n}": "{name} {n}-darajaga ko'tarildi",
   "Upgrades": "Yaxshilashlar",
+  "Money per day": "Kunlik pul",
+  "Nothing urgent — the town is doing well": "Shoshilinch narsa yo'q — shahar yaxshi yashayapti",
+  "Hide the build panel": "Qurilish panelini yashirish",
 };
