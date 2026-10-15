@@ -381,6 +381,9 @@ export class Traffic {
     }
     const gap = this.gapAhead(v);
     if (gap < Infinity) target = Math.min(target, Math.max(0, (gap - 0.06) * 5));
+    // never drive into another vehicle, whatever the lane, the turn or the game speed
+    const room = this.bodyRoom(v);
+    if (room < Infinity) target = Math.min(target, Math.max(0, room * 5));
 
     if (v.speed < target) v.speed = Math.min(target, v.speed + 4 * dt);
     else v.speed = Math.max(target, v.speed - 12 * dt);
@@ -388,7 +391,7 @@ export class Traffic {
     v.stuck = target < 0.02 ? v.stuck + dt : 0;
     if (v.stuck > GIVE_UP) return 'gaveup';
 
-    v.s += v.speed * dt;
+    v.s += Math.min(v.speed * dt, Math.max(0, room));
     if (v.s >= v.len) return 'arrived';
     this.place(v);
     return 'moving';
@@ -464,6 +467,44 @@ export class Traffic {
       }
     }
     return false;
+  }
+
+  /**
+   * How far this vehicle may still move before its body touches another one ahead of it (any heading: queues,
+   * merges, turns, parking driveways). Two vehicles that block each other: the older one goes first.
+   */
+  private bodyRoom(v: Vehicle) {
+    let room = Infinity;
+    const seen = new Set<Vehicle>();
+    const tiles = [v.tiles[v.ti], v.tiles[Math.min(v.tiles.length - 1, v.ti + 1)]];
+    const me = this.onDriveway(v);
+    const ahead = (a: Vehicle, b: Vehicle) => {
+      const rx = b.x - a.x, rz = b.z - a.z;
+      const along = rx * a.hx + rz * a.hz;
+      if (along <= 0) return Infinity;
+      const dot = a.hx * b.hx + a.hz * b.hz;
+      if (dot < -0.5) return Infinity; // oncoming: its own lane
+      const cross = Math.abs(a.hx * b.hz - a.hz * b.hx);
+      const lat = Math.abs(rx * a.hz - rz * a.hx);
+      if (lat > 0.085 + 0.085 * Math.abs(dot) + b.halfLen * cross) return Infinity;
+      return along - (a.halfLen + b.halfLen * Math.abs(dot) + 0.085 * cross + 0.03);
+    };
+    for (const k of tiles) {
+      const cx = k % N, cz = (k / N) | 0;
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        for (const o of this.grid.get((cz + dz) * N + cx + dx) ?? []) {
+          if (o === v || seen.has(o)) continue;
+          seen.add(o);
+          // a car parking or pulling out does not stop the traffic, but cars in a driveway queue up
+          if (this.onDriveway(o) && !me) continue;
+          const d = ahead(v, o);
+          if (d === Infinity) continue;
+          if (d < 0.05 && ahead(o, v) < 0.05 && v.id < o.id) continue;
+          room = Math.min(room, d);
+        }
+      }
+    }
+    return room;
   }
 
   private gapAhead(v: Vehicle) {

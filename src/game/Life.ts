@@ -347,10 +347,24 @@ export class Life {
     return out;
   }
 
+  private parkCache?: { t: number; out: { x: number; z: number; rot: number; color: THREE.Color }[] };
+
+  /**
+   * Every parked car: in its home's own spaces, in a parking lot, and when the home's spaces are full, along the
+   * kerb of its street (never on top of another car); when even the kerb is full it waits in the garage (hidden).
+   */
   parkedCars() {
-    const { pop, buildings } = this.c;
+    const now = performance.now();
+    if (this.parkCache && now - this.parkCache.t < 400) return this.parkCache.out;
+    const { pop, buildings, net } = this.c;
     const out: { x: number; z: number; rot: number; color: THREE.Color }[] = [];
     const at = new Map<number, number>();
+    // cells already taken by a parked car (a quarter of a tile), so no two cars ever stand on one spot
+    const taken = new Set<number>();
+    const cell = (x: number, z: number) => Math.round(x * 4) * 4096 + Math.round(z * 4);
+    const free = (x: number, z: number) => { for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (taken.has(cell(x + dx * 0.12, z + dz * 0.12))) return false; return true; };
+    const put = (p: { x: number; z: number; rot: number }, color: THREE.Color) => { out.push({ ...p, color }); taken.add(cell(p.x, p.z)); };
+    const overflow: { h: Building; color: THREE.Color }[] = [];
     for (const f of pop.families.values()) {
       if (!f.car || f.car.at === 'moving') continue;
       const color = colorOf(f.car.color);
@@ -360,10 +374,36 @@ export class Life {
         const i = at.get(h.id) ?? 0;
         at.set(h.id, i + 1);
         const slots = BUILDINGS[h.kind].slots.length;
-        if (slots) out.push({ ...buildings.slot(h, i % slots), color });
+        if (i < slots) put(buildings.slot(h, i), color);
+        else overflow.push({ h, color });
       } else if (f.car.lot !== undefined) {
         const lot = buildings.get(f.car.lot);
-        if (lot) out.push({ ...buildings.slot(lot, f.car.slot!), color });
+        if (lot) put(buildings.slot(lot, f.car.slot!), color);
+      }
+    }
+    // the home's spaces are full: along the kerb of its street, on the home's side, up to two tiles each way
+    for (const { h, color } of overflow) {
+      if (h.access < 0) continue;
+      const ax = h.access % N, az = (h.access / N) | 0;
+      const s = BUILDINGS[h.kind].size;
+      const bx = h.x + (s - 1) / 2, bz = h.z + (s - 1) / 2;
+      const side = Math.abs(bx - ax) >= Math.abs(bz - az) ? { x: Math.sign(bx - ax), z: 0 } : { x: 0, z: Math.sign(bz - az) };
+      const along = { x: -side.z, z: side.x };
+      const rot = Math.atan2(along.x, along.z);
+      let done = false;
+      for (const step of [0, 1, -1, 2, -2]) {
+        const tx = ax + along.x * step, tz = az + along.z * step;
+        if (!inBounds(tx, tz)) continue;
+        const k = tz * N + tx;
+        if (!net.type[k] || net.isIntersection(k) || net.isRing(k)) continue;
+        for (const o of [-0.22, 0.22]) {
+          const x = tileToWorld(tx) + side.x * 0.36 + along.x * o, z = tileToWorld(tz) + side.z * 0.36 + along.z * o;
+          if (!free(x, z)) continue;
+          put({ x, z, rot }, color);
+          done = true;
+          break;
+        }
+        if (done) break;
       }
     }
     // new cars for sale stand in a row in front of each car market
@@ -377,6 +417,7 @@ export class Life {
         out.push({ x: m.mesh.position.x + lx * cr + lz * sr, z: m.mesh.position.z - lx * sr + lz * cr, rot: m.rot + Math.PI / 2, color: colorOf(SHOW[(m.id + i) % SHOW.length]) });
       }
     }
+    this.parkCache = { t: now, out };
     return out;
   }
 
