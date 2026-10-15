@@ -65,7 +65,7 @@ import { BuildTool, CheckResult, GhostInfo, LineKind, PlaceKind, ToolHost, ToolI
 import { InputController } from '../input/InputController';
 import { Hud , ITEMS } from '../ui/Hud';
 import { Inspector, InspectorView } from '../ui/Inspector';
-import { StatsPanel, StatsSnapshot } from '../ui/StatsPanel';
+import { StatsPanel, StatsSnapshot, type StatSection } from '../ui/StatsPanel';
 import { SAVE_VERSION, SaveStore, WorldMeta, WorldSave } from '../save/SaveStore';
 import { t } from '../i18n/i18n';
 
@@ -3185,12 +3185,41 @@ export class Game implements ToolHost {
         { title: t('Who uses power (by kind)'), rows: [...users.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, v]) => [t(k), kw(v)] as [string, string]) },
         { title: t('Every building'), rows: own.filter((b) => BUILDINGS[b.kind].energy).map((b) => [b, BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1)] as const)
           .sort((a, b) => b[1] - a[1]).slice(0, 30).map(([b, v]) => [`${t(BUILDINGS[b.kind].name)} #${b.id}`, `${kw(v)} · ${b.powered ? '✓' : `✗ ${t('No power')}`}`, b.powered] as [string, string, boolean]) },
-        { title: t('Water'), kpis: [
-          [t('Clean water'), `${Math.round(city.water * 100)}%`, t('of the people'), city.water > 0.99],
-          [t('Capacity'), n(towers.reduce((a, w) => a + waterOf(w), 0)), t('{n} towers · {p} people', { n: towers.length, p: people }), towers.reduce((a, w) => a + waterOf(w), 0) >= people],
-          [t('Connected homes'), `${Math.round(city.piped * 100)}%`, t('mains under roads and pipes'), city.piped > 0.95],
-          [t('Sewage treated'), `${Math.round((this.life.sanitation.get(city.id) ?? 1) * 100)}%`, t('needed above 60 people'), (this.life.sanitation.get(city.id) ?? 1) > 0.95],
-        ] },
+        // drinking water, counted like electricity: what the towers give now and what the people need
+        ...(() => {
+          const give = (w: Building) => (w.built >= 1 ? waterOf(w) * (w.workers > 0 ? 1 : 0.5) * (w.powered ? 1 : 0.3) : 0);
+          const supply = Math.round(towers.reduce((a, w) => a + give(w), 0));
+          const ok = supply >= people;
+          const sew = this.life.sewageCap.get(city.id);
+          return [
+            { title: t('Drinking water'), kpis: [
+              [t('Given now'), t('{n} people', { n: supply }), t('all water towers together'), ok],
+              [t('Needed'), t('{n} people', { n: people }), t('everyone drinks every day')],
+              [t('Spare'), t('{n} people', { n: Math.max(0, supply - people) }), ok ? t('room to grow') : t('build another water tower'), ok],
+              [t('Covered'), `${Math.round(city.water * 100)}%`, city.water > 0.99 ? t('enough clean water') : t('people get sick without water'), city.water > 0.99],
+              [t('Connected homes'), `${Math.round(city.piped * 100)}%`, t('mains under roads and pipes'), city.piped > 0.95],
+              [t('Sewage treated'), sew ? `${Math.min(sew.treated, sew.people)} / ${sew.people}` : '—', t('one plant per 300 people over 60'), (this.life.sanitation.get(city.id) ?? 1) > 0.98],
+            ] } as StatSection,
+            { title: t('Water towers'), rows: towers.length ? towers.map((w) => [`${t(BUILDINGS.watertower.name)} #${w.id} · ${t('Level')} ${w.level || 1}`,
+              `${t('{n} people', { n: Math.round(give(w)) })} / ${waterOf(w)} · ${w.workers}/${BUILDINGS.watertower.jobs}${w.powered ? '' : ` · ${t('No power')}`}`, give(w) >= waterOf(w)] as [string, string, boolean]) : [[t('None — build one'), '—', false]] } as StatSection,
+          ];
+        })(),
+        // food: made and eaten yesterday, the stock and how long it lasts
+        ...(() => {
+          const fy = city.foodYesterday;
+          const days = fy.eaten > 0 ? city.food / fy.eaten : 99;
+          const makers: BuildingKind[] = ['farm', 'orchard', 'ranch', 'fishery', 'bakery', 'dairy', 'mill'];
+          return [
+            { title: t('Food'), kpis: [
+              [t('Made yesterday'), n(fy.made), t('fields, orchards, ranches, fishing'), fy.made >= fy.eaten],
+              [t('Eaten yesterday'), n(fy.eaten), t('one portion a person a day')],
+              [t('Balance'), `${fy.made - fy.eaten >= 0 ? '+' : '−'}${n(Math.abs(fy.made - fy.eaten))}`, fy.made >= fy.eaten ? t('the stores fill up') : t('the stores are emptying'), fy.made >= fy.eaten],
+              [t('In stock'), n(city.food), days >= 99 ? t('plenty') : t('lasts {n} days', { n: Math.floor(days) }), days >= 5],
+              [t('Food price'), `×${city.priceFactor.toFixed(2)}`, t('dearer when scarce'), city.priceFactor <= 1.1],
+            ] } as StatSection,
+            { title: t('Who makes food'), rows: makers.filter((k) => count(k)).length ? makers.filter((k) => count(k)).map((k) => [t(BUILDINGS[k].name), `${working(k)}/${count(k)} ${t('working')}`, working(k) === count(k)] as [string, string, boolean]) : [[t('Nobody — build a farm'), '—', false]] } as StatSection,
+          ];
+        })(),
       ],
       finance: [
         { title: t('Bank'), kpis: !count('bank') ? [

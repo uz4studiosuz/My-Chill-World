@@ -464,7 +464,19 @@ export class Hud {
       quick.appendChild(b);
     }
     this.side.append(sh, this.sideStats, nt, this.sideNeeds, qt, quick);
-    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock);
+    // a handle on the panel's edge folds it away (remembered between visits)
+    const sideToggle = el('button', 'side-toggle');
+    const setSide = (min: boolean) => {
+      document.body.classList.toggle('side-min', min);
+      sideToggle.innerHTML = icon(min ? 'chevL' : 'chevR');
+      sideToggle.title = min ? t('Show the town panel') : t('Hide the town panel');
+      try { localStorage.setItem('mcw_side_min', min ? '1' : '0'); } catch { /* ignore */ }
+    };
+    let sideMin = false;
+    try { sideMin = localStorage.getItem('mcw_side_min') === '1'; } catch { /* ignore */ }
+    setSide(sideMin);
+    sideToggle.addEventListener('click', () => setSide(!document.body.classList.contains('side-min')));
+    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle);
     parent.appendChild(this.root);
     this.toggleDrawer('buildings');
   }

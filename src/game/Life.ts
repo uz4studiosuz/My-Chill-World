@@ -735,6 +735,7 @@ export class Life {
           let nf = f0;
           if (b.workers < d.jobs) nf = Math.min(3, f0 + 0.05);
           else if (b.books && b.books.profit > b.books.wages * 0.5) nf = Math.min(3, f0 + 0.02); // a business doing well shares it
+          else if (b.books && b.books.profit < b.books.wages * 0.05) nf = Math.max(0.7, f0 - 0.02); // one that barely pays trims it
           b.wageF = Math.round(nf * 100) / 100;
         }
         if (owner) {
@@ -1106,16 +1107,26 @@ export class Life {
       e.workers += b.workers;
       byKind.set(b.kind, e);
     }
-    const unemployed = [...pop.citizens.values()].some((c) => c.job < 0 && pop.canWork(c) && buildings.get(pop.families.get(c.family)?.home ?? -1)?.city === city.id);
-    // a town doing well (money in the treasury, people content, work for everyone) raises pay a little every day
-    const thriving = city.money > 4000 && city.happiness >= 55 && !unemployed;
+    let workforce = 0, jobless = 0;
+    for (const c of pop.citizens.values()) {
+      if (!pop.canWork(c) || buildings.get(pop.families.get(c.family)?.home ?? -1)?.city !== city.id) continue;
+      workforce++;
+      if (c.job < 0) jobless++;
+    }
+    const joblessShare = workforce ? jobless / workforce : 0;
+    // the pay the market asks for: up where hands are short, food is dear, people are unhappy or the town is rich;
+    // down where many look for work or the town hall is out of money. Pay moves towards it a little every day.
     for (const [kind, e] of byKind) {
       const w = city.wages[kind] ?? 1;
-      let next = w;
-      if (e.workers < e.jobs) next = Math.min(3, w + 0.05);
-      else if (thriving) next = Math.min(3, w + (city.money > 15000 ? 0.03 : 0.01));
-      // pay never goes down by itself
-      next = Math.max(w, Math.round(next * 100) / 100);
+      const vacancy = e.jobs ? (e.jobs - e.workers) / e.jobs : 0;
+      let target = 1 + vacancy * 0.9;
+      if (joblessShare > 0.04) target -= Math.min(0.35, joblessShare * 2);
+      target *= 0.75 + 0.25 * Math.max(0.8, Math.min(2.2, city.priceFactor));
+      if (city.happiness < 45) target += 0.1;
+      if (city.money > 15000) target += 0.12;
+      else if (city.money < 600 && BUILDINGS[kind as BuildingKind]?.publicJob) target -= 0.2;
+      target = Math.max(0.7, Math.min(3, target));
+      const next = Math.round((w + (target - w) * 0.15) * 100) / 100;
       if (Math.abs(next - 1) < 0.01) delete city.wages[kind];
       else city.wages[kind] = next;
     }

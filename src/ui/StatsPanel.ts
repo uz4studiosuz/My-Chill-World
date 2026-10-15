@@ -64,7 +64,7 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'jobs', label: 'Jobs', icon: 'jobs' },
   { id: 'economy', label: 'Economy', icon: 'coin' },
   { id: 'production', label: 'Production', icon: 'production' },
-  { id: 'energy', label: 'Energy & water', icon: 'energy' },
+  { id: 'energy', label: 'Power, water & food', icon: 'energy' },
   { id: 'finance', label: 'Bank & trade', icon: 'globe' },
   { id: 'cities', label: 'Cities', icon: 'buildings' },
   { id: 'traffic', label: 'Traffic', icon: 'roads' },
