@@ -11,8 +11,13 @@ export interface EmbassyTown {
   relation: number;
   friendship: string;
   style?: string;
-  /** Building kinds the town wants now (they agree to these more readily). */
+  /** Building kinds the town wants now, with the reason (they agree to these more readily). */
   wants: string[];
+  why: Record<string, string>;
+  /** Chance they say yes to each kind (0..1). */
+  chance: Record<string, number>;
+  /** Why they would refuse everything now (relations too low), or ''. */
+  blocked: string;
   joint: { id: number; kind: string; name: string; building: boolean; profit: number; workers: string }[];
   contracts: number;
 }
@@ -139,6 +144,18 @@ export class EmbassyPanel {
     main.appendChild(jl);
     // what to build together
     sec(t('Propose a joint project'));
+    const how = el('div', 'emb-how');
+    [['1', t('Pick a workplace below'), t('★ = they want it: they almost always agree')], ['2', t('They decide'), t('the % on the card is their yes')],
+      ['3', t('They build it'), t('on their land, with their builders')], ['4', t('Profit shared'), t('their people work; half the profit is yours every day')]].forEach(([n, a, b]) => {
+      const s = el('div', 'emb-step');
+      s.innerHTML = '<span></span><div><b></b><small></small></div>';
+      (s.querySelector('span') as HTMLElement).textContent = n;
+      (s.querySelector('b') as HTMLElement).textContent = a;
+      (s.querySelector('small') as HTMLElement).textContent = b;
+      how.appendChild(s);
+    });
+    main.appendChild(how);
+    if (tw.blocked) { const w = el('div', 'emb-warn'); w.textContent = tw.blocked; main.appendChild(w); }
     const tabs = el('div', 'trade-towns');
     for (const [id, label] of CATS) {
       const b = el('button', `trade-town${this.cat === id ? ' active' : ''}`);
@@ -153,11 +170,17 @@ export class EmbassyPanel {
       const want = tw.wants.includes(o.kind);
       const b = el('button', `emb-opt${want ? ' want' : ''}`);
       const th = this.thumbs.get(o.kind);
-      b.innerHTML = `<i></i><b></b><small></small><em></em>`;
+      b.innerHTML = `<i></i><b></b><small></small><span class="emb-why"></span><div class="emb-yes"><i></i><span></span></div><em></em>`;
       if (th) (b.querySelector('i') as HTMLElement).style.backgroundImage = `url(${th})`;
       (b.querySelector('b') as HTMLElement).textContent = o.name;
       (b.querySelector('small') as HTMLElement).textContent = `${t('you pay')} $${o.half.toLocaleString('en-US')} · ${t('{n} jobs for them', { n: o.jobs })}`;
       (b.querySelector('em') as HTMLElement).textContent = want ? `★ ${t('they want it')}` : '';
+      (b.querySelector('.emb-why') as HTMLElement).textContent = tw.why[o.kind] ?? '';
+      const ch = Math.round((tw.chance[o.kind] ?? 0) * 100);
+      const bar = b.querySelector('.emb-yes i') as HTMLElement;
+      bar.style.width = `${ch}%`;
+      bar.style.background = ch >= 70 ? '#7be08f' : ch >= 40 ? '#f2b33d' : '#ff7a6e';
+      (b.querySelector('.emb-yes span') as HTMLElement).textContent = t('{n}% yes', { n: ch });
       b.addEventListener('click', () => this.host.propose(tw.id, o.kind));
       grid.appendChild(b);
     }

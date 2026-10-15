@@ -1835,6 +1835,15 @@ export class Game implements ToolHost {
 
   private select(s: Selection) {
     if (s?.type !== this.selection?.type || s?.id !== this.selection?.id) { this.following = false; this.aptFamily = null; }
+    const eb = s?.type === 'building' ? this.buildings.get(s.id) : undefined;
+    if (eb?.kind === 'embassy' && eb.built >= 1 && !this.cityOf(eb).ai && this.routeEdit < 0) {
+      // the embassy has its own window: nothing else opens with it
+      this.selection = null;
+      this.inspector?.hide();
+      this.cityReport?.hide();
+      this.embassy?.open();
+      return;
+    }
     this.selection = s;
     if (!s) this.inspector?.hide();
     else this.refreshInspector();
@@ -5160,6 +5169,33 @@ export class Game implements ToolHost {
     return out;
   }
 
+  /** How likely a neighbour says yes to a joint project of this kind (0..1): friendship, and whether they want it. */
+  private yesChance(town: City, kind: BuildingKind) {
+    const rel = town.relation ?? 40;
+    if (rel < 30) return 0;
+    const wanted = this.townWants(town).includes(kind);
+    const has = this.buildings.list.filter((b) => b.city === town.id && b.kind === kind && !b.removed).length;
+    return Math.max(0.05, Math.min(0.97, 0.25 + rel / 110 + (wanted ? 0.35 : 0) - has * 0.12));
+  }
+
+  /** Why a neighbour would like this workplace (shown on the card), or ''. */
+  private wantReason(town: City, kind: BuildingKind) {
+    const pops = this.life.populationByCity();
+    const people = pops.get(town.id) ?? 0;
+    const own = this.buildings.list.filter((b) => b.city === town.id && !b.removed);
+    const jobs = own.reduce((a, b) => a + BUILDINGS[b.kind].jobs, 0), staff = own.reduce((a, b) => a + b.workers, 0);
+    const idle = [...this.pop.citizens.values()].filter((c) => c.job < 0 && this.pop.canWork(c) && this.cityOfCitizen(c) === town.id).length;
+    if (this.autoCity.wish(town)?.kind === kind) return t('Their mayor plans it but lacks the money');
+    if ((kind === 'grocery' || kind === 'supermarket' || kind === 'market' || kind === 'bakery' || kind === 'dairyshop') && town.food < people * 3) return t('Their food is running low');
+    if (kind === 'brickworks' && town.bricks < 20) return t('They are short of bricks');
+    if (kind === 'sawmill' && town.planks < 15) return t('They are short of planks');
+    if (kind === 'factory' && (town.cotton > 30 || town.planks > 30)) return t('They have cotton and planks for it');
+    if (idle > 5 && BUILDINGS[kind].jobs >= 4) return t('{n} of their people have no job', { n: idle });
+    if (!own.some((b) => b.kind === kind)) return t('They have none yet');
+    if (jobs - staff > 10) return t('Few workers: their jobs stand empty');
+    return '';
+  }
+
   /** Everything the embassy window shows. */
   private embassyData() {
     const me = this.eco.city;
@@ -5176,7 +5212,10 @@ export class Game implements ToolHost {
         return { id: b.id, kind: b.kind, name: t(BUILDINGS[b.kind].name), building: b.built < 1, profit, workers: `${b.workers}/${BUILDINGS[b.kind].jobs}` };
       });
       return { id: c.id, name: c.name, tint: c.tint ?? '#aab4be', people: pops.get(c.id) ?? 0, money: c.money, happiness: c.happiness, relation: c.relation ?? 40, friendship: this.friendship(c.relation ?? 40),
-        style: STYLE_NAME[this.autoCity.styleOf(c)], wants: this.townWants(c), joint, contracts: (me.contracts ?? []).filter((k) => k.town === c.id).length };
+        style: STYLE_NAME[this.autoCity.styleOf(c)], wants: this.townWants(c), joint,
+        why: Object.fromEntries(options.map((o) => [o.kind, this.wantReason(c, o.kind as BuildingKind)])),
+        chance: Object.fromEntries(options.map((o) => [o.kind, this.yesChance(c, o.kind as BuildingKind)])),
+        blocked: (c.relation ?? 40) < 30 ? t('{city} does not trust you yet (relations {n}/100, they need 30): send a gift or trade with them first', { city: c.name, n: Math.round(c.relation ?? 40) }) : '', contracts: (me.contracts ?? []).filter((k) => k.town === c.id).length };
     });
     return { towns, options, money: me.money, total };
   }
@@ -5188,8 +5227,7 @@ export class Game implements ToolHost {
     const half = Math.round(d.money / 2);
     if (me.money < half) return this.hud?.toast(t('Not enough money — needs ${n}', { n: half }));
     const rel = town.relation ?? 40;
-    const wanted = this.townWants(town).includes(kind);
-    if (rel < 30 || Math.random() > Math.min(0.97, 0.3 + rel / 100 + (wanted ? 0.35 : 0))) {
+    if (Math.random() > this.yesChance(town, kind)) {
       town.relation = Math.max(0, rel - 1);
       this.deal(town.id, t('Turned down a joint {name}', { name: t(d.name) }), 0);
       sound.play('error');

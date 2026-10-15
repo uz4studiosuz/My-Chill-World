@@ -2076,3 +2076,20 @@ body.pov-mode .day-report, body.photo-mode .day-report { display: none; }
   .emb-card { grid-template-columns: 48px 1fr; } .emb-flag { width: 48px; height: 48px; }
 }
 .emb-acts .btn-mini { flex: none; width: auto; }
+
+/* the embassy sits in the game frame like the other windows */
+body.ui2 .embassy { left: 12px; right: calc(var(--side-w) + 12px); width: auto; transform: none; top: calc(var(--top-h) + 10px); bottom: calc(var(--dock-h) + 10px); height: auto;
+  background: var(--frame, #15181d); border-radius: 14px; }
+body.ui2.side-min .embassy { right: 12px; }
+.emb-how { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px; margin-bottom: 8px; }
+.emb-step { display: flex; gap: 8px; align-items: flex-start; padding: 7px 9px; border-radius: 10px; background: rgba(59,120,194,.1); border: 1px solid rgba(59,120,194,.3); }
+.emb-step > span { width: 22px; height: 22px; border-radius: 50%; flex: none; display: grid; place-items: center; background: #3b78c2; color: #fff; font-weight: 900; font-size: 12px; }
+.emb-step b { display: block; font-size: 12px; }
+.emb-step small { font-size: 10.5px; color: var(--muted); }
+.emb-warn { padding: 8px 10px; border-radius: 10px; background: rgba(255,122,110,.12); border: 1px solid rgba(255,122,110,.4); color: #ffb3aa; font-size: 12px; margin-bottom: 8px; }
+.emb-why { font-size: 10.5px; color: #f5c66b; min-height: 13px; }
+.emb-yes { display: flex; align-items: center; gap: 6px; }
+.emb-yes i { display: block; height: 5px; border-radius: 3px; flex: none; max-width: 70%; }
+.emb-yes span { font-size: 10.5px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+@media (max-width: 760px) { body.ui2 .embassy { left: 6px; right: 6px; } }
+.emb-acts { justify-content: flex-start; } .emb-acts > * { margin: 0 !important; flex: none !important; }
