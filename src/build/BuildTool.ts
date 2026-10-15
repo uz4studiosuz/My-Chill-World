@@ -14,7 +14,10 @@ export type PlaceKind =
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
   | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
-export type LineKind = 'road' | 'litroad' | 'path' | 'canal' | 'rail' | 'pipe' | 'tunnel';
+export type LineKind = 'road' | 'litroad' | 'path' | 'path_stone' | 'path_brick' | 'path_gravel' | 'path_wood' | 'canal' | 'rail' | 'pipe' | 'tunnel';
+/** Footpath styles: the tool and the style number kept in the tiles (1 = yellow pavers). */
+export const PATH_STYLE: Partial<Record<string, number>> = { path: 1, path_stone: 2, path_brick: 3, path_gravel: 4, path_wood: 5 };
+export const isPathKind = (t: string) => PATH_STYLE[t] !== undefined;
 export type ToolId = 'pan' | 'bulldoze' | LineKind | PlaceKind;
 
 export interface CheckResult { ok: boolean; reason?: string; money?: number; stone?: number; wood?: number; iron?: number; bridges?: number }
@@ -43,7 +46,7 @@ const OK = new THREE.Color('#5fe08a');
 const BAD = new THREE.Color('#ff5a4f');
 const REMOVE = new THREE.Color('#ff8a3d');
 
-const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || t === 'path' || t === 'canal' || t === 'rail' || t === 'pipe' || t === 'tunnel';
+const isLine = (t: ToolId): t is LineKind => t === 'road' || t === 'litroad' || isPathKind(t) || t === 'canal' || t === 'rail' || t === 'pipe' || t === 'tunnel';
 const isPlace = (t: ToolId): t is PlaceKind => t !== 'pan' && t !== 'bulldoze' && !isLine(t);
 
 export class BuildTool {
@@ -183,7 +186,7 @@ export class BuildTool {
       return;
     }
     this.preview.hideGhost();
-    this.path = tool === 'path' ? diagPath(this.start!, cur) : lPath(this.start!, cur);
+    this.path = isPathKind(tool) ? diagPath(this.start!, cur) : lPath(this.start!, cur);
     if (isLine(tool)) {
       const r = this.host.checkLine(tool, this.path);
       this.preview.show(this.path, r.ok ? OK : BAD);

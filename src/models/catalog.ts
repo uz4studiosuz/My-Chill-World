@@ -221,6 +221,46 @@ export const CATALOG: CatalogEntry[] = [
     },
   },
   {
+    id: 'path_stone', name: 'Stone Path', group: 'Roads', desc: 'Free paths for pedestrians — walking is faster on paths than on grass.',
+    make: () => {
+      const fp = new Footpaths();
+      const c = N / 2;
+      fp.add([{ x: c - 1, z: c }, { x: c, z: c }, { x: c + 1, z: c }, { x: c, z: c + 1 }], 2);
+      fp.rebuild();
+      return group(fp.mesh, mesh(box(3, 0.12, 2, 0.5, -0.06, 1, '#8cb156')));
+    },
+  },
+  {
+    id: 'path_brick', name: 'Brick Walkway', group: 'Roads', desc: 'Free paths for pedestrians — walking is faster on paths than on grass.',
+    make: () => {
+      const fp = new Footpaths();
+      const c = N / 2;
+      fp.add([{ x: c - 1, z: c }, { x: c, z: c }, { x: c + 1, z: c }, { x: c, z: c + 1 }], 3);
+      fp.rebuild();
+      return group(fp.mesh, mesh(box(3, 0.12, 2, 0.5, -0.06, 1, '#8cb156')));
+    },
+  },
+  {
+    id: 'path_gravel', name: 'Gravel Path', group: 'Roads', desc: 'Free paths for pedestrians — walking is faster on paths than on grass.',
+    make: () => {
+      const fp = new Footpaths();
+      const c = N / 2;
+      fp.add([{ x: c - 1, z: c }, { x: c, z: c }, { x: c + 1, z: c }, { x: c, z: c + 1 }], 4);
+      fp.rebuild();
+      return group(fp.mesh, mesh(box(3, 0.12, 2, 0.5, -0.06, 1, '#8cb156')));
+    },
+  },
+  {
+    id: 'path_wood', name: 'Boardwalk', group: 'Roads', desc: 'Free paths for pedestrians — walking is faster on paths than on grass.',
+    make: () => {
+      const fp = new Footpaths();
+      const c = N / 2;
+      fp.add([{ x: c - 1, z: c }, { x: c, z: c }, { x: c + 1, z: c }, { x: c, z: c + 1 }], 5);
+      fp.rebuild();
+      return group(fp.mesh, mesh(box(3, 0.12, 2, 0.5, -0.06, 1, '#8cb156')));
+    },
+  },
+  {
     id: 'roundabout', name: 'Roundabout', group: 'Roads', desc: 'One-way ring. Entering cars give way to circulating traffic.',
     make: () => roadPiece(5, 5, (n, c) => {
       n.addRoundabout(c, c);

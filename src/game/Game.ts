@@ -61,7 +61,7 @@ import { Pipes } from '../paths/Pipes';
 import { DriveMode } from './DriveMode';
 import { CameraRig } from '../camera/CameraRig';
 import { Preview } from '../build/Preview';
-import { BuildTool, CheckResult, GhostInfo, LineKind, PlaceKind, ToolHost, ToolId } from '../build/BuildTool';
+import { BuildTool, CheckResult, GhostInfo, LineKind, PlaceKind, ToolHost, ToolId, isPathKind, PATH_STYLE } from '../build/BuildTool';
 import { InputController } from '../input/InputController';
 import { Hud , ITEMS } from '../ui/Hud';
 import { Inspector, InspectorView } from '../ui/Inspector';
@@ -286,7 +286,7 @@ export class Game implements ToolHost {
     this.roadMesh = new RoadMesh(this.net, this.map);
     this.canals = new Canals(this.map);
     this.buildings = new Buildings(this.map, this.net, {
-      isBlocked: (k) => this.footpaths.tiles[k] === 1 || this.canals.tiles[k] === 1 || this.railway.tiles[k] === 1,
+      isBlocked: (k) => this.footpaths.tiles[k] !== 0 || this.canals.tiles[k] === 1 || this.railway.tiles[k] === 1,
       treesNear: (x, z, r) => this.terrain.treesNear(x, z, r),
     });
     this.traffic = new Traffic(this.net);
@@ -922,7 +922,7 @@ export class Game implements ToolHost {
   checkLine(kind: LineKind, path: Tile[]): CheckResult {
     if (kind === 'tunnel') kind = 'road'; // a tunnel is a road drawn through a mountain
     // a road, a footpath or a railway may cross a neighbour's land to join the towns; canals and pipes may not
-    const joins = kind === 'road' || kind === 'litroad' || kind === 'path' || kind === 'rail';
+    const joins = kind === 'road' || kind === 'litroad' || isPathKind(kind) || kind === 'rail';
     for (const tl of path) {
       const town = joins ? undefined : this.foreignTown(tl.x, tl.z);
       if (town) return { ok: false, reason: t('This land belongs to the neighbour town {city}', { city: town.name }) };
@@ -951,7 +951,7 @@ export class Game implements ToolHost {
       if (!this.eco.canAfford(money, 0, 0, iron)) return { ok: false, reason: t('Needs {cost}', { cost: costText(money, 0, 0, iron) }) };
       return { ok: true, money, iron };
     }
-    if (kind === 'path' || kind === 'canal') {
+    if (isPathKind(kind) || kind === 'canal') {
       const canal = kind === 'canal';
       for (const tl of path) {
         const k = idx(tl.x, tl.z);
@@ -961,9 +961,13 @@ export class Game implements ToolHost {
         if (this.buildings.occ[k] !== -1 || this.net.isIsland(k)) return { ok: false, reason: t('Something is in the way') };
       }
       if (!canal) {
-        const money = path.filter((tl) => !this.footpaths.tiles[idx(tl.x, tl.z)] && !this.net.type[idx(tl.x, tl.z)] && this.buildings.occ[idx(tl.x, tl.z)] === -1).length * PATH_COST;
-        if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }) };
-        return { ok: true, money, stone: 0 };
+        // tiles that get this style (new paths, or old paths of another style being repaved)
+        const style = PATH_STYLE[kind] ?? 1;
+        const n = path.filter((tl) => this.footpaths.tiles[idx(tl.x, tl.z)] !== style && !this.net.type[idx(tl.x, tl.z)] && this.buildings.occ[idx(tl.x, tl.z)] === -1).length;
+        const money = n * (style === 4 ? Math.max(1, Math.round(PATH_COST / 2)) : PATH_COST);
+        const stone = style === 2 || style === 3 ? n : 0, wood = style === 5 ? n : 0;
+        if (!this.eco.canAfford(money, stone, wood, 0)) return { ok: false, reason: t('Needs {cost}', { cost: costText(money, stone, wood) }) };
+        return { ok: true, money, stone, wood };
       }
       const money = path.filter((tl) => !this.canals.tiles[idx(tl.x, tl.z)] && this.buildings.occ[idx(tl.x, tl.z)] === -1).length * CANAL_COST;
       if (this.eco.money < money) return { ok: false, reason: t('Not enough money — needs ${n}', { n: money }) };
@@ -1021,9 +1025,10 @@ export class Game implements ToolHost {
       this.effects.pave(path);
       return;
     }
-    if (kind === 'path' || kind === 'canal') {
-      this.eco.spend(r.money ?? 0, 0, 0, 0, 'Paths and canals');
-      if (kind === 'path') { this.canals.remove(free); this.footpaths.add(free); }
+    if (isPathKind(kind) || kind === 'canal') {
+      this.eco.spend(r.money ?? 0, r.stone ?? 0, r.wood ?? 0, 0, 'Paths and canals');
+      // a new style laid over an old path repaves it
+      if (isPathKind(kind)) { this.canals.remove(free); this.footpaths.add(path.filter((tl) => !this.net.type[idx(tl.x, tl.z)] && this.buildings.occ[idx(tl.x, tl.z)] === -1), PATH_STYLE[kind]); }
       else { this.footpaths.remove(free); this.canals.add(path.filter((tl) => this.map.isLand(idx(tl.x, tl.z)) && this.buildings.occ[idx(tl.x, tl.z)] === -1)); }
       this.terrain.clearTiles(free.map((tl) => idx(tl.x, tl.z)));
       this.effects.pave(path);

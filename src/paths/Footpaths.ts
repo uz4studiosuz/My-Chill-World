@@ -1,8 +1,14 @@
 import * as THREE from 'three';
 import { DIRS, N, Tile, idx, inBounds, tileToWorld } from '../world/grid';
 
-const PAVER = new THREE.Color('#e3c565');
-const EDGE = new THREE.Color('#b99a46');
+/** Each style: surface, edging and (for boards and pavers) the colour of the joints. */
+const STYLES: Record<number, { top: THREE.Color; edge: THREE.Color; joint?: THREE.Color; half?: number }> = {
+  1: { top: new THREE.Color('#e3c565'), edge: new THREE.Color('#b99a46') },
+  2: { top: new THREE.Color('#a9adb3'), edge: new THREE.Color('#7b8087'), joint: new THREE.Color('#8f949b') },
+  3: { top: new THREE.Color('#b8614a'), edge: new THREE.Color('#e3d6c4'), joint: new THREE.Color('#99503d') },
+  4: { top: new THREE.Color('#d9ccae'), edge: new THREE.Color('#a59a80'), half: 0.1 },
+  5: { top: new THREE.Color('#a8794d'), edge: new THREE.Color('#6b4a2e'), joint: new THREE.Color('#8a5f3a'), half: 0.12 },
+};
 const Y = 0.012;
 const HALF = 0.11;
 
@@ -27,8 +33,9 @@ export class Footpaths {
     this.mesh.frustumCulled = false;
   }
 
-  add(path: Tile[]) {
-    for (const t of path) this.tiles[idx(t.x, t.z)] = 1;
+  /** Lay a path of a style (1 pavers · 2 stone · 3 brick · 4 gravel · 5 boardwalk). */
+  add(path: Tile[], style = 1) {
+    for (const t of path) this.tiles[idx(t.x, t.z)] = style;
     this.version++;
   }
 
@@ -44,7 +51,7 @@ export class Footpaths {
 
   count() {
     let n = 0;
-    for (let k = 0; k < this.tiles.length; k++) n += this.tiles[k];
+    for (let k = 0; k < this.tiles.length; k++) if (this.tiles[k]) n++;
     return n;
   }
 
@@ -53,9 +60,20 @@ export class Footpaths {
     const b = new FlatBuilder();
     for (let z = 0; z < N; z++) {
       for (let x = 0; x < N; x++) {
-        if (!this.tiles[idx(x, z)]) continue;
+        const style = this.tiles[idx(x, z)];
+        if (!style) continue;
+        const st = STYLES[style] ?? STYLES[1];
+        const half = st.half ?? HALF;
         const cx = tileToWorld(x), cz = tileToWorld(z);
-        for (const [h, y, c] of [[HALF + 0.025, Y, EDGE], [HALF, Y + 0.002, PAVER]] as const) {
+        // joints across the surface: planks of a boardwalk, setts of a stone path, a brick pattern
+        if (st.joint) {
+          for (let i = -2; i <= 2; i++) {
+            const o = i * half * 0.45;
+            b.rect(cx - half, cz + o - 0.004, cx + half, cz + o + 0.004, Y + 0.004, st.joint);
+            if (style !== 5) b.rect(cx + o - 0.004, cz - half, cx + o + 0.004, cz + half, Y + 0.004, st.joint);
+          }
+        }
+        for (const [h, y, c] of [[half + 0.025, Y, st.edge], [half, Y + 0.002, st.top]] as const) {
           b.rect(cx - h, cz - h, cx + h, cz + h, y, c);
           for (const d of DIRS) {
             const nx = x + d.dx, nz = z + d.dz;
@@ -87,14 +105,21 @@ export class Footpaths {
   }
 
   serialize() {
+    // the plain paths are saved as their tile number; other styles add style × tiles (old saves read the same)
     const out: number[] = [];
-    for (let k = 0; k < this.tiles.length; k++) if (this.tiles[k]) out.push(k);
+    const NN = this.tiles.length;
+    for (let k = 0; k < NN; k++) if (this.tiles[k]) out.push(this.tiles[k] === 1 ? k : k + (this.tiles[k] - 1) * NN);
     return out;
   }
 
   deserialize(list: number[] = []) {
     this.tiles.fill(0);
-    for (const k of list) if (k >= 0 && k < this.tiles.length) this.tiles[k] = 1;
+    const NN = this.tiles.length;
+    for (const v of list) {
+      if (v < 0) continue;
+      const k = v % NN, style = 1 + Math.floor(v / NN);
+      if (style <= 5) this.tiles[k] = style;
+    }
     this.version++;
   }
 }
