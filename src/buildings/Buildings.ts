@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { bakeShade } from '../fx/BakedShade';
 import { UPGRADABLE } from './Upgrades';
 import { N, Tile, idx, inBounds, tileToWorld, worldToTile } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
@@ -476,7 +477,7 @@ export class Buildings {
       const variant = hash2(b.x, b.z) % 16;
       const key = `house:${variant}:${level}`;
       let g = this.geoCache.get(key);
-      if (!g) { g = houseGeometry(variant, level); this.geoCache.set(key, g); }
+      if (!g) { g = bakeShade(houseGeometry(variant, level)); this.geoCache.set(key, g); }
       (b.mesh.children[0] as THREE.Mesh).geometry = g;
       return;
     }
@@ -781,7 +782,7 @@ export class Buildings {
     const key = `${kind}:${variant}`;
     let g = this.geoCache.get(key);
     if (!g) {
-      g = buildingGeometry(kind, variant);
+      g = bakeShade(buildingGeometry(kind, variant));
       this.geoCache.set(key, g);
     }
     return g;

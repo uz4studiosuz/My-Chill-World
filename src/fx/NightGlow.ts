@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyShade } from './BakedShade';
 
 /** 0 = day, 1 = deep night. Shared by every material that lights up after dark. */
 export const nightLevel = { value: 0 };
@@ -12,8 +13,14 @@ const WINDOWS: [string, number][] = [['#ffe9a8', 1], ['#a8d0e6', 1], ['#6f9fc8',
  */
 export function windowMaterial(lit = true) {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true });
-  if (!lit) return m;
+  if (!lit) {
+    // unlit buildings still get the baked shade
+    m.onBeforeCompile = (sh) => applyShade(sh);
+    m.customProgramCacheKey = () => 'window-dark';
+    return m;
+  }
   m.onBeforeCompile = (sh) => {
+    applyShade(sh);
     sh.uniforms.uNight = nightLevel;
     WINDOWS.forEach(([c], i) => { sh.uniforms[`uWin${i}`] = { value: new THREE.Color(c) }; });
     sh.vertexShader = sh.vertexShader

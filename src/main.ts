@@ -38,6 +38,9 @@ async function boot() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = IS_TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+  // a filmic curve keeps the colours but rolls off bright highlights softly
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1.05;
   window.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('pointerdown', () => sound.unlock(), true);
   window.addEventListener('keydown', () => sound.unlock(), true);
