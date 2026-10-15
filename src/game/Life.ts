@@ -576,6 +576,19 @@ export class Life {
     }
   }
 
+  /** A family building a home joins it to a water pipe running beside it (the pipe is laid on under the house). */
+  private connectWater(kind: BuildingKind, x: number, z: number) {
+    const pipes = this.c.pipes;
+    if (!pipes) return;
+    const s = BUILDINGS[kind].size;
+    let near = false;
+    for (let i = -1; i <= s && !near; i++) for (const [px, pz] of [[x + i, z - 1], [x + i, z + s], [x - 1, z + i], [x + s, z + i]]) {
+      if (inBounds(px, pz) && pipes[pz * N + px]) { near = true; break; }
+    }
+    if (!near) return;
+    for (let zz = z; zz < z + s; zz++) for (let xx = x; xx < x + s; xx++) pipes[zz * N + xx] = 1;
+  }
+
   /**
    * Water flows from the towers through the pipes only (lay them from a tower to the homes; they may run under roads).
    * A home gets water when it touches a pipe network with a tower; every town shares only its own towers' water
@@ -603,10 +616,10 @@ export class Life {
       }
       id++;
     }
+    // a building is on the network only where a pipe runs under it (under one of its own tiles)
     const compOf = (b: Building) => {
-      if (b.access >= 0 && comp[b.access] >= 0) return comp[b.access];
       const s = BUILDINGS[b.kind].size;
-      for (let i = -1; i <= s; i++) for (const [x, z] of [[b.x + i, b.z - 1], [b.x + i, b.z + s], [b.x - 1, b.z + i], [b.x + s, b.z + i]]) {
+      for (let z = b.z; z < b.z + s; z++) for (let x = b.x; x < b.x + s; x++) {
         if (inBounds(x, z) && comp[z * N + x] >= 0) return comp[z * N + x];
       }
       return -1;
@@ -918,6 +931,7 @@ export class Life {
         if (!this.buyMaterials(investor, cityId, 'apartment', say)) return false;
         investor.money -= cost;
         buildings.place('apartment', x, z, { city: cityId, owner: investor.id });
+        this.connectWater('apartment', x, z);
         this.privateBuild.set(cityId, eco.day);
         say(t('The {family} family is building an apartment block to rent out', { family: investor.surname }));
         return true;
@@ -931,6 +945,7 @@ export class Life {
         if (!this.buyMaterials(parents, cityId, 'house', say)) return false;
         parents.money -= BUILDINGS.house.money;
         buildings.place('house', x, z, { city: cityId });
+        this.connectWater('house', x, z);
         this.privateBuild.set(cityId, eco.day);
         say(t('The {family} family is building a house for their grown-up child', { family: parents.surname }));
         return true;

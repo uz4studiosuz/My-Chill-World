@@ -248,6 +248,7 @@ export class AutoCity {
     const spot = this.findSpot(kind, hall, own);
     if (!spot || !this.afford(city, kind, 0) || !this.pay(city, kind)) return false;
     const b = buildings.place(kind, spot.x, spot.z, { city: city.id });
+    this.pipeUnder(kind, spot.x, spot.z);
     if (kind === 'farm') this.h.digCanal(b);
     this.h.clearTiles(buildings.footprint(kind, spot.x, spot.z).map((f) => idx(f.x, f.z)));
     this.h.networkChanged();
@@ -296,6 +297,7 @@ export class AutoCity {
     }
     if (!this.pay(city, want)) return;
     const b = buildings.place(want, spot.x, spot.z, { city: city.id });
+    this.pipeUnder(want, spot.x, spot.z);
     if (want === 'farm') this.h.digCanal(b);
     this.h.clearTiles(buildings.footprint(want, spot.x, spot.z).map((f) => idx(f.x, f.z)));
     this.h.networkChanged();
@@ -423,6 +425,12 @@ export class AutoCity {
     const few = lacking.slice(0, 4);
     const ok = few.filter((x) => this.afford(city, x.k, 1500));
     return (ok.length ? ok[Math.floor(Math.random() * ok.length)] : few[0]).k;
+  }
+
+  /** The town runs a water pipe under its new homes and towers (it joins the pipes under the street beside them). */
+  private pipeUnder(kind: BuildingKind, x: number, z: number) {
+    if (!BUILDINGS[kind].units && kind !== 'watertower') return;
+    this.h.layPipes(this.h.buildings.footprint(kind, x, z));
   }
 
   /** Has the town the money and materials (it buys missing stone, wood and iron from traders)? */

@@ -427,6 +427,8 @@ export class Game implements ToolHost {
     else this.buildStarterTown(opts.create?.towns ?? 2);
     // pipes now carry the water (roads no longer do): a world from before, or a new one, gets pipes under its roads once
     if (!opts.save?.pipes2) this.pipesUnderRoads();
+    // homes and towers join the water only through a pipe under them: those beside a pipe get one once
+    if (!opts.save?.pipes3) this.pipesUnderWaterBuildings();
     if (opts.save && !opts.save.pipes2) for (const c of this.eco.cities.values()) if (!c.ai) { c.bricks += 120; c.steel += 30; }
     this.wantTutorial = !!opts.create && Tutorial.wanted();
 
@@ -1908,6 +1910,7 @@ export class Game implements ToolHost {
     town.style = TOWN_STYLES[Math.floor(Math.random() * TOWN_STYLES.length)];
     town.taxRate = 0.25;
     this.layVillage(site.x, site.z, town.id, 14);
+    this.pipesUnderWaterBuildings(town.id);
     const free = this.life.freeHomes(town.id)[0];
     if (free) this.life.moveInto(rich, free, 'Moved to found the town of {city}');
     const founder = this.pop.members(rich).filter((m) => m.age >= 25).sort((a, b) => b.skill - a.skill || b.age - a.age)[0];
@@ -4428,6 +4431,23 @@ export class Game implements ToolHost {
     this.pipes.rebuild();
   }
 
+  /** Run a pipe under every home and water tower that has a pipe beside it (when pipes had to pass under them). */
+  private pipesUnderWaterBuildings(cityId?: number) {
+    const tiles: Tile[] = [];
+    for (const b of this.buildings.list) {
+      if (b.removed || (cityId !== undefined && b.city !== cityId)) continue;
+      if (!BUILDINGS[b.kind].units && b.kind !== 'watertower') continue;
+      const s = BUILDINGS[b.kind].size;
+      let near = false;
+      for (let i = -1; i <= s && !near; i++) for (const [x, z] of [[b.x + i, b.z - 1], [b.x + i, b.z + s], [b.x - 1, b.z + i], [b.x + s, b.z + i]]) {
+        if (inBounds(x, z) && this.pipes.tiles[idx(x, z)]) { near = true; break; }
+      }
+      if (!near) continue;
+      for (let z = b.z; z < b.z + s; z++) for (let x = b.x; x < b.x + s; x++) tiles.push({ x, z });
+    }
+    if (tiles.length) { this.pipes.add(tiles); this.pipes.rebuild(); }
+  }
+
   /** Score for the records table. */
   private score() {
     const cities = [...this.eco.cities.values()];
@@ -4863,7 +4883,7 @@ export class Game implements ToolHost {
       roundabouts: this.net.roundabouts,
       footpaths: this.footpaths.serialize(),
       canals: this.canals.serialize(),
-      pipes: this.pipes.serialize(), pipes2: true,
+      pipes: this.pipes.serialize(), pipes2: true, pipes3: true,
       trade: this.trade.save(),
       worldHistory: [...this.worldHistory.entries()],
       dealings: [...this.dealings.entries()],

@@ -53,6 +53,8 @@ export interface WorldSave {
   pipes?: number[];
   /** Pipes are the only water mains (older saves get pipes under their roads once). */
   pipes2?: boolean;
+  /** Homes and towers join the water through a pipe under them (older saves get those pipes once). */
+  pipes3?: boolean;
   trade?: { relation: number[] };
   worldHistory?: [number, { day: number; pop: number; money: number; happy: number }[]][];
   dealings?: [number, { day: number; text: string; money: number }[]][];
