@@ -2093,3 +2093,37 @@ body.ui2.side-min .embassy { right: 12px; }
 .emb-yes span { font-size: 10.5px; font-weight: 800; color: var(--muted); white-space: nowrap; }
 @media (max-width: 760px) { body.ui2 .embassy { left: 6px; right: 6px; } }
 .emb-acts { justify-content: flex-start; } .emb-acts > * { margin: 0 !important; flex: none !important; }
+
+/* ---- the tutorial (missions) ---- */
+.tutorial.tut2 { position: absolute; left: 12px; top: calc(var(--top-h, 52px) + 12px); width: 330px; max-width: calc(100vw - 24px); z-index: 9; padding: 12px 14px;
+  border-radius: 16px; border: 1px solid rgba(242,179,61,.45); border-left: 4px solid var(--accent); background: rgba(21,24,29,.97); box-shadow: 0 14px 34px rgba(0,0,0,.5); color: var(--text); }
+.inspector.show ~ .tutorial.tut2 { display: block; }
+.tut2 .tut-head { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.tut-badge { font-size: 17px; }
+.tut2 .tut-head b { font-family: var(--font-display); font-size: 13px; color: var(--accent); }
+.tut2 .tut-count { font-size: 11.5px; font-weight: 800; color: var(--muted); }
+.tut2 .tut-skip { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.tut-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; margin-bottom: 9px; }
+.tut-bar i { display: block; height: 100%; background: linear-gradient(90deg, #f2b33d, #7be08f); }
+.tut-title { font-family: var(--font-display); font-size: 16px; margin-bottom: 5px; }
+.tut2 .tut-text { font-size: 13px; line-height: 1.45; }
+.tut-why { margin-top: 7px; font-size: 12px; color: #f5c66b; line-height: 1.35; }
+.tut-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.tut-reward { font-weight: 900; color: #7be08f; font-size: 14px; }
+.tut-next { padding: 7px 14px; border-radius: 10px; border: 0; background: var(--accent); color: #1d1a14; font-weight: 800; cursor: pointer; }
+.tut-next.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 700; }
+/* what to press: a glowing ring */
+.tut-glow { position: relative; z-index: 3; animation: tut-glow 1.2s ease-in-out infinite; outline: 3px solid #f2c230 !important; outline-offset: 2px; border-radius: 10px; }
+@keyframes tut-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(242,194,48,.7); } 50% { box-shadow: 0 0 0 8px rgba(242,194,48,0); } }
+@media (max-width: 760px) { .tutorial.tut2 { top: auto; bottom: calc(var(--dock-h, 46px) + 8px); left: 8px; right: 8px; width: auto; padding: 10px 12px; } .tut2 .tut-text { font-size: 12.5px; } }
+/* ---- the welcome screen of a new world ---- */
+.welcome-back { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(8,10,14,.6); backdrop-filter: blur(3px); pointer-events: auto; }
+.welcome { width: min(460px, calc(100vw - 32px)); padding: 22px 22px 18px; border-radius: 20px; background: linear-gradient(180deg, #1e2530, #15181d); border: 1px solid var(--frame-line, #2c3139);
+  box-shadow: 0 24px 60px rgba(0,0,0,.6); color: var(--text); text-align: center; }
+.wl-hero { font-size: 46px; }
+.welcome > b { display: block; font-family: var(--font-display); font-size: 22px; margin: 4px 0 6px; }
+.welcome p { color: #cfd6dd; font-size: 13.5px; line-height: 1.45; margin: 0 0 10px; }
+.welcome ul { text-align: left; margin: 0 0 16px; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; line-height: 1.4; }
+.wl-btns { display: grid; gap: 8px; }
+.wl-main { padding: 12px; border-radius: 12px; border: 0; background: var(--accent); color: #1d1a14; font-weight: 900; font-size: 15px; cursor: pointer; }
+.wl-alt { padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-weight: 700; cursor: pointer; }

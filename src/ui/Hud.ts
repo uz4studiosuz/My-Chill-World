@@ -221,6 +221,8 @@ export interface HudHandlers {
   openChains?: () => void;
   /** The embassy window. */
   openEmbassy?: () => void;
+  /** Start the tutorial again. */
+  openTutorial?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -332,6 +334,7 @@ export class Hud {
       b.innerHTML = icon(ic);
       b.title = t(label);
       b.setAttribute('aria-label', t(label));
+      b.dataset.layer = k;
       b.addEventListener('click', () => h.setLayer(k));
       this.layerBtns.set(k, b);
       layers.appendChild(b);
@@ -452,6 +455,7 @@ export class Hud {
     for (const c of CATS) {
       const btn = this.toolButton(c.icon, t(c.label));
       btn.classList.add('cat');
+      btn.dataset.cat = c.id;
       btn.addEventListener('click', () => this.toggleDrawer(c.id));
       this.catBtns.set(c.id, btn);
       bar.appendChild(btn);
@@ -516,6 +520,7 @@ export class Hud {
       const b = el('button', 'side-act');
       b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
       b.title = t(label);
+      b.dataset.panel = ic;
       b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); fn(); });
       this.navBtn.set(ic, b);
       top3.appendChild(b);
@@ -524,8 +529,9 @@ export class Hud {
     qt.textContent = t('More');
     const quick = el('div', 'side-quick');
     for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['production', 'Production chains', () => h.openChains?.()], ['globe', 'Embassy', () => h.openEmbassy?.()], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals],
-      ['list', 'Chronicle', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['book', 'Guide', h.openGuide]] as [IconName, string, () => void][]) {
+      ['list', 'Chronicle', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['book', 'Guide', h.openGuide], ['play', 'Tutorial', () => h.openTutorial?.()]] as [IconName, string, () => void][]) {
       const b = el('button', 'side-btn');
+      b.dataset.panel = ic;
       b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
       b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); fn(); });
       quick.appendChild(b);

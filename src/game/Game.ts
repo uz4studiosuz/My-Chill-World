@@ -24,7 +24,7 @@ import { clanName, firstName, townName } from '../people/names';
 import { sound } from '../audio/Sound';
 import { GoalContext, Goals } from '../sim/Goals';
 import { GoalsPanel } from '../ui/GoalsPanel';
-import { Tutorial, TutorialContext } from '../ui/Tutorial';
+import { welcome, Tutorial, TutorialContext } from '../ui/Tutorial';
 import { EventLog, LogEntry } from '../ui/EventLog';
 import { BuildingList } from '../ui/BuildingList';
 import { Guide } from '../ui/Guide';
@@ -546,10 +546,11 @@ export class Game implements ToolHost {
       setSpeed: (s) => this.setSpeed(s),
       openMenu: () => this.onMenu(),
       openStats: () => { this.goalsPanel?.hide(); this.eventLog?.hide(); this.stats?.toggle(); },
-      openGoals: () => { this.stats?.hide(); this.eventLog?.hide(); this.goalsPanel?.toggle(); },
+      openGoals: () => { this.goalsOpened++; this.stats?.hide(); this.eventLog?.hide(); this.goalsPanel?.toggle(); },
       openLog: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.toggle(); },
       openGuide: () => this.guide?.toggle(),
       openChains: () => this.chainView?.toggle(),
+      openTutorial: () => this.startTutorial(),
       openEmbassy: () => { if (this.hasEmbassy()) this.embassy?.toggle(); else this.hud?.toast(t('Build an Embassy first: it handles the deals with the neighbour towns')); },
       openResource: (key) => { this.news?.hide(); this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.resPanel?.toggle(key); },
       openPhoto: () => this.togglePhoto(),
@@ -559,7 +560,7 @@ export class Game implements ToolHost {
       openWorld: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
       openTrade: () => { this.resPanel?.hide(); this.stats?.hide(); this.trade.newDay(this.eco.day); this.tradePanel?.toggle(); },
       openDrive: () => (this.drive.active ? this.drive.stop() : this.startDrive()),
-      openNews: () => { this.stats?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.news?.toggle(); },
+      openNews: () => { this.newsOpened++; this.stats?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.news?.toggle(); },
       openPetitions: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.toggle(); },
       toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setNature(on); return on; },
       openPerson: (id) => {
@@ -750,8 +751,11 @@ export class Game implements ToolHost {
     this.news?.dispose();
     this.news = new Newspaper(this.hud.root);
     this.news.onUnread = (n) => this.hud?.setBadge('news', n);
-    if (this.wantTutorial && !this.tutorial?.finished) {
-      this.tutorial = new Tutorial(this.hud.root, this.tutorialContext(), () => sound.play('complete'));
+    // a new world: time waits while the mayor reads the welcome and chooses to learn or to play
+    if (this.wantTutorial && !this.welcomed) {
+      this.welcomed = true;
+      this.speed = 0;
+      welcome(this.hud.root, () => this.startTutorial(), () => this.setSpeed(1));
     }
     this.setTool(this.tool?.tool ?? 'pan');
     this.setSpeed(this.speed);
@@ -4970,12 +4974,32 @@ export class Game implements ToolHost {
   }
 
   private tutorialContext(): TutorialContext {
-    const n = (k: BuildingKind) => this.buildings.list.reduce((a, b) => a + (b.kind === k ? 1 : 0), 0);
+    const id = this.eco.active;
+    const own = this.buildings.list.filter((b) => b.city === id && !b.removed);
+    const n = (k: BuildingKind) => own.reduce((a, b) => a + (b.kind === k ? 1 : 0), 0);
     const sel = this.selection?.type === 'building' ? this.buildings.get(this.selection.id) : undefined;
     return {
-      roads: this.net.counts(this.map.water).total, houses: n('house'), footpaths: this.footpaths.count(),
-      shops: n('grocery') + n('clothes') + n('market'), hallSelected: sel?.kind === 'townhall', speed: this.speed,
+      roads: this.net.counts(this.map.water).total, houses: n('house'), builtHouses: own.filter((b) => b.kind === 'house' && b.built >= 1).length, footpaths: this.footpaths.count(),
+      shops: n('grocery') + n('clothes') + n('market') + n('supermarket'), hallSelected: sel?.kind === 'townhall' || !!this.cityReport?.visible, speed: this.speed,
+      dry: own.filter((b) => b.built >= 1 && BUILDINGS[b.kind].units && (this.life.homeWater.get(b.id) ?? 1) === 0).length,
+      unwired: own.filter((b) => b.built >= 1 && BUILDINGS[b.kind].energy > 0 && !this.life.onCable(b)).length,
+      layer: this.mapLayer, newsOpened: this.newsOpened, goalsOpened: this.goalsOpened,
     };
+  }
+
+  /** Panels opened (the tutorial checks them). */
+  private newsOpened = 0;
+  private goalsOpened = 0;
+  private welcomed = false;
+
+  /** Start (or restart) the tutorial: missions with rewards that point at what to press. */
+  startTutorial() {
+    this.tutorial?.dispose();
+    this.tutorial = new Tutorial(this.hud!.root, this.tutorialContext(), (reward) => {
+      sound.play('complete');
+      if (reward) { this.eco.add(this.eco.city, 'money', reward, 'Goal rewards'); this.hud?.toast(t('Well done! +${n}', { n: reward })); }
+      this.refreshHud();
+    });
   }
 
   /** Nature sounds follow the camera: water, forest, town, rain and night. */

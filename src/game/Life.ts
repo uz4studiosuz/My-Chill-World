@@ -3823,12 +3823,12 @@ export class Life {
    * Construction speed of one site: slow on its own, much faster while builders from a construction company work on it.
    */
   buildSpeed(b: Building) {
-    const n = Math.min(4, this.crewSize(b));
+    const n = Math.min(5, this.crewSize(b));
     // a Town Hall and the construction company itself go up slowly with hired hands; everything else needs builders
     const now = this.clock();
     const planks = ((b.planked ?? 0) > now ? CHAIN.plankBoost : 1) * ((b.boost?.bricks ?? 0) > now ? CHAIN2.brickBoost : 1) * ((b.boost?.steel ?? 0) > now ? CHAIN2.steelBoost : 1);
     if (SELF_BUILT[b.kind]) return (0.5 + 0.6 * n) * planks;
-    return 0.65 * n * planks;
+    return 0.85 * n * planks;
   }
 
   /** Why a construction site is not progressing (null when builders are on it). */
@@ -3890,7 +3890,9 @@ export class Life {
     const fromTile = outside ? tileAt(from) : buildings.frontTile(yard);
     c.activity = 'Walking to a road site';
     this.walk(c, from, fromTile, null, () => {
-      if (!c.walker || !atWork()) { leave(); this.busyBuilders.delete(c.id); return; }
+      if (!atWork()) { leave(); this.busyBuilders.delete(c.id); return; }
+      // no footpath to the road site: the builder comes over the fields anyway
+      if (!c.walker || c.walker.leaving) { c.walker = walkers.walk(c.variant, 1, { points: [stand, { x: stand.x + 0.01, z: stand.z }] }, 'none', () => {}); c.walker.citizen = c.id; }
       // the builder has arrived: from now on the road goes faster
       if (!this.roadCrews.has(road.key)) this.roadCrews.set(road.key, new Set());
       this.roadCrews.get(road.key)!.add(c.id);
@@ -3934,19 +3936,42 @@ export class Life {
     const ang = Math.random() * Math.PI * 2;
     const center = { x: site.mesh.position.x, z: site.mesh.position.z };
     const stand = { x: center.x + Math.cos(ang) * half, z: center.z + Math.sin(ang) * half };
+    // the builder at the site: a walker standing there (made when he arrives by van or found no footpath)
+    const arrive = () => {
+      if (!atWork() || site.removed) { leave(site); this.busyBuilders.delete(c.id); return false; }
+      if (!c.walker || c.walker.leaving) {
+        c.walker = walkers.walk(c.variant, 1, { points: [stand, { x: stand.x + 0.01, z: stand.z }] }, 'none', () => {});
+        c.walker.citizen = c.id;
+      }
+      return true;
+    };
+    const work = () => {
+      const ww = c.walker;
+      if (!ww || !atWork() || site.removed) { leave(site); this.busyBuilders.delete(c.id); return; }
+      if (site.built >= 1) { leave(site); this.builderLoop(c, yard); return; }
+      c.activity = 'Building';
+      if (Math.random() < 0.35) effects.puff(stand.x, stand.z, 0.15, 3, ['#d8c9a6', '#bdb7aa']);
+      walkers.holdFor(ww, 1.6, 'chop', work, center);
+    };
+    // a far site: the builders ride there in the company's yellow van
+    const { traffic } = this.c;
+    if (!c.walker && dist(site, yard) > 8 && yard.access >= 0 && site.access >= 0 && traffic.canRoute(yard.access, site.access)) {
+      c.activity = 'Driving to a construction site';
+      const ok = traffic.spawn({
+        kind: 'car', from: yard.access, to: site.access, fromPos: buildings.door(yard), toPos: buildings.door(site), color: new THREE.Color('#f2b33d'),
+        purpose: 'Builders on the way', driverId: c.id, driverName: this.fullName(c), fromName: BUILDINGS.construction.name, destName: BUILDINGS[site.kind].name,
+        onArrive: () => { if (arrive()) work(); },
+        onFail: () => { if (arrive()) work(); },
+      });
+      if (ok) return;
+    }
     c.activity = 'Walking to a construction site';
     const fromTile = c.walker && !c.walker.leaving ? tileAt(from) : buildings.frontTile(yard);
     this.walk(c, from, fromTile, null, () => {
+      // no footpath there: the builder comes over the fields anyway
+      if (!arrive()) return;
       const w = c.walker;
-      if (!w || !atWork() || site.removed) { leave(site); this.busyBuilders.delete(c.id); return; }
-      const work = () => {
-        const ww = c.walker;
-        if (!ww || !atWork() || site.removed) { leave(site); this.busyBuilders.delete(c.id); return; }
-        if (site.built >= 1) { leave(site); this.builderLoop(c, yard); return; }
-        c.activity = 'Building';
-        if (Math.random() < 0.35) effects.puff(stand.x, stand.z, 0.15, 3, ['#d8c9a6', '#bdb7aa']);
-        walkers.holdFor(ww, 1.6, 'chop', work, center);
-      };
+      if (!w) { leave(site); this.busyBuilders.delete(c.id); return; }
       work();
     }, 'none', stand);
   }
