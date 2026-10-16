@@ -239,6 +239,8 @@ export interface HudHandlers {
   openEmbassy?: () => void;
   /** Start the tutorial again. */
   openTutorial?: () => void;
+  /** The town hall's full report of the active town. */
+  openHall?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -544,13 +546,13 @@ export class Hud {
     nt.textContent = t('What the town needs');
     this.sideNeeds = el('div', 'side-needs');
     const top3 = el('div', 'side-actions');
-    for (const [ic, label, fn] of [['news', 'Newspaper', h.openNews], ['mail', 'Letters', h.openPetitions], ['office', 'All buildings', h.openBuildings]] as [IconName, string, () => void][]) {
+    for (const [ic, label, fn, key] of [['buildings', 'Town hall', () => h.openHall?.(), 'hall'], ['news', 'Newspaper', h.openNews, 'news'], ['mail', 'Letters', h.openPetitions, 'mail'], ['office', 'All buildings', h.openBuildings, 'office']] as [IconName, string, () => void, string][]) {
       const b = el('button', 'side-act');
       b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
       b.title = t(label);
-      b.dataset.panel = ic;
+      b.dataset.panel = key;
       b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); fn(); });
-      this.navBtn.set(ic, b);
+      if (key !== 'hall') this.navBtn.set(ic, b);
       top3.appendChild(b);
     }
     const qt = el('div', 'side-title');
@@ -585,6 +587,14 @@ export class Hud {
   private navBtn = new Map<IconName, HTMLButtonElement>();
   private townBtn?: HTMLButtonElement;
   private badges = new Map<string, number>();
+  /** Fly to a person and follow them (set from the handlers). */
+  openPersonById?: (id: number) => void;
+
+  /** Show the town panel (unfolded on wide screens, the sheet on phones). */
+  showSide() {
+    if (window.innerWidth <= 760) this.side.classList.add('open');
+    else if (document.body.classList.contains('side-min')) (this.root.querySelector('.side-toggle') as HTMLButtonElement | null)?.click();
+  }
 
   /** A small counter on a top-bar button (e.g. unanswered letters). */
   setBadge(name: IconName, n: number) {

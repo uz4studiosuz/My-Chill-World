@@ -13,6 +13,9 @@ export interface TutorialContext {
   /** Homes without a water pipe, buildings without a power cable. */
   dry: number;
   unwired: number;
+  /** Homes (finished or not) with no pipe under them; buildings (finished or not) with no cable. */
+  unpiped: number;
+  uncabled: number;
   layer: string;
   newsOpened: number;
   goalsOpened: number;
@@ -27,35 +30,35 @@ interface Step {
   target?: string;
   /** Money for doing it. */
   reward: number;
+  /** It is about the town panel: open the panel for it. */
+  side?: boolean;
   /** Done? (start = the town when the step began, first = when the tutorial began). Missing = press Next. */
   done?: (c: TutorialContext, start: TutorialContext, first: TutorialContext) => boolean;
 }
 
 const STEPS: Step[] = [
   { title: 'Welcome, mayor!', text: 'This little town is yours. People move in when there are homes, water, power, food and jobs. On the right is the town panel: what the town has and what it needs.',
-    why: 'Time is paused — take your time. Press Next.', target: '.sidebar', reward: 0 },
+    why: 'Time is paused — take your time. Press Next.', target: '.sidebar', reward: 0, side: true },
   { title: 'Start the clock', text: 'Press ▶ / 1× at the top to let time run. Builders, families and cars only move while time runs.',
     why: 'Pause (⏸) whenever you want to think.', target: '.sp-pause, .sp-cur, .mobile-speed .sbtn', reward: 100, done: (c) => c.speed > 0 },
   { title: 'Build a road', text: 'At the bottom open the Roads tab, choose Road and drag from the end of a street. Then press Build. The road crew lays it tile by tile by itself.',
-    why: 'Every home and shop needs a road at its door.', target: '[data-cat="roads"], [data-tool="road"]', reward: 200, done: (c, s) => c.roads >= s.roads + 2 },
+    why: 'Every home and shop needs a road at its door.', target: '[data-cat="roads"], [data-tool="road"], .pending.show .pbtn.ok', reward: 200, done: (c, s) => c.roads >= s.roads + 2 },
   { title: 'Build a house', text: 'Open the Town tab, choose House and tap next to a road, then Build. It needs money, stone, wood and bricks (the card shows what you have).',
-    why: 'Each house brings a new family: workers and taxes.', target: '[data-cat="buildings"], [data-tool="house"]', reward: 200, done: (c, s) => c.houses > s.houses },
-  { title: 'Water for the house', text: 'When the house is finished, lay a Water Pipe (Roads tab) from the pipe under the street to under the house. The 💧 map on the left shows the pipes.',
-    why: 'A home gets water only where a pipe runs under it.', target: '[data-cat="roads"], [data-tool="pipe"], [data-layer="water"]', reward: 200, done: (c, _s, f) => c.builtHouses > f.builtHouses && c.dry === 0 },
+    why: 'Each house brings a new family: workers and taxes.', target: '[data-cat="buildings"], [data-tool="house"], .pending.show .pbtn.ok', reward: 200, done: (c, s) => c.houses > s.houses },
+  { title: 'Water for the house', text: 'Lay a Water Pipe (Roads tab) from the pipe under the street to under your new house — you need not wait until it is finished. The 💧 map on the left shows the pipes.',
+    why: 'A home gets water only where a pipe runs under it.', target: '[data-cat="roads"], [data-tool="pipe"], .pending.show .pbtn.ok', reward: 200, done: (c, _s, f) => c.houses > f.houses && c.unpiped === 0 },
   { title: 'Power for everyone', text: 'Buildings get electricity through power cables: lay a Power Cable (Roads tab) along the street to any building that has none.',
-    why: 'Without power homes are unhappy and workplaces slow down.', target: '[data-cat="roads"], [data-tool="cable"], [data-layer="power"]', reward: 200, done: (c) => c.unwired === 0 },
+    why: 'Without power homes are unhappy and workplaces slow down.', target: '[data-cat="roads"], [data-tool="cable"], .pending.show .pbtn.ok', reward: 200, done: (c) => c.uncabled === 0 },
   { title: 'Food and a shop', text: 'Open the Business tab and build a Grocery Store by a road. Families buy food there and the town earns tax.',
-    why: 'Hungry people get sick and leave.', target: '[data-cat="business"], [data-tool="grocery"]', reward: 250, done: (c, s) => c.shops > s.shops },
-  { title: 'Read the newspaper', text: 'Open the Newspaper in the town panel: every day it says what the town needs most.',
-    why: 'When you do not know what to build next, look there.', target: '[data-panel="news"]', reward: 100, done: (c, s) => c.newsOpened > s.newsOpened },
+    why: 'Hungry people get sick and leave.', target: '[data-cat="business"], [data-tool="grocery"], .pending.show .pbtn.ok', reward: 250, done: (c, s) => c.shops > s.shops },
   { title: 'Look at a map', text: 'Tap one of the map buttons on the left (electricity, water, happiness, traffic…). A key explains the colours.',
     why: 'Red shows where something is missing.', target: '.layer-btn', reward: 100, done: (c) => c.layer !== 'none' },
-  { title: 'Your town hall', text: 'Tap the Town Hall building on the map: it opens the full report of your town — money, people, jobs, trade and taxes.',
-    why: 'Everything about the town is in one place.', target: '.sidebar', reward: 150, done: (c) => c.hallSelected },
+  { title: 'Your town hall', text: 'Press "Town hall" at the top of the town panel (or tap the Town Hall on the map): the full report of your town opens — money, people, jobs, trade and taxes.',
+    why: 'Everything about the town is in one place.', target: '[data-panel="hall"]', reward: 150, side: true, done: (c) => c.hallSelected },
   { title: 'Missions', text: 'Open Goals (in the town panel, under More): a campaign of missions with money rewards, chapter by chapter.',
-    why: 'They show you the way from a village to a metropolis.', target: '[data-panel="trophy"]', reward: 150, done: (c, s) => c.goalsOpened > s.goalsOpened },
+    why: 'They show you the way from a village to a metropolis.', target: '[data-panel="trophy"]', reward: 150, side: true, done: (c, s) => c.goalsOpened > s.goalsOpened },
   { title: 'Faster!', text: 'Speed time up with 3× or 10× at the top. You are ready to build your city!',
-    why: 'Watch the newspaper and the town panel as the town grows.', target: '.sp-cur, .sp-opt, .mobile-speed .step', reward: 300, done: (c) => c.speed >= 3 },
+    why: 'Watch the newspaper and the town panel as the town grows.', target: '.sp-cur, .mobile-speed .step', reward: 300, done: (c) => c.speed >= 3 },
 ];
 
 const KEY = 'mcw_tutorial_done';
@@ -73,7 +76,7 @@ export class Tutorial {
     try { return localStorage.getItem(KEY) !== '1'; } catch { return true; }
   }
 
-  constructor(parent: HTMLElement, ctx: TutorialContext, private onDone: (reward: number) => void) {
+  constructor(parent: HTMLElement, ctx: TutorialContext, private onDone: (reward: number) => void, private openSide: () => void = () => {}) {
     this.start = { ...ctx };
     this.first = { ...ctx };
     this.root = el('div', 'tutorial tut2');
@@ -104,7 +107,12 @@ export class Tutorial {
     // the most specific target that is on screen (the tile, else its tab)
     const parts = s?.target ? s.target.split(',').map((x) => x.trim()) : [];
     let best: HTMLElement | undefined;
-    for (const sel of [...parts].reverse()) { const e = [...document.querySelectorAll(sel)].find((x) => (x as HTMLElement).offsetParent !== null) as HTMLElement | undefined; if (e && sel.includes('data-tool')) { best = e; break; } }
+    const vis = (sel: string) => [...document.querySelectorAll(sel)].find((x) => (x as HTMLElement).offsetParent !== null && (x as HTMLElement).getBoundingClientRect().width > 0) as HTMLElement | undefined;
+    for (const want of ['pbtn', 'data-tool']) {
+      const sel = parts.find((p) => p.includes(want));
+      const e = sel ? vis(sel) : undefined;
+      if (e) { best = e; break; }
+    }
     const el2 = best ?? target;
     if (!el2 || this.step === 0) { this.spot.classList.remove('show'); this.veil.classList.remove('show'); return; }
     const r = el2.getBoundingClientRect();
@@ -146,6 +154,7 @@ export class Tutorial {
 
   private render() {
     const s = STEPS[this.step];
+    if (s.side) this.openSide();
     this.root.replaceChildren();
     const head = el('div', 'tut-head');
     head.innerHTML = '<span class="tut-badge">🎓</span><b></b><span class="tut-count"></span>';
@@ -179,7 +188,7 @@ export class Tutorial {
     document.querySelectorAll('.tut-glow').forEach((e) => e.classList.remove('tut-glow'));
     const s = STEPS[this.step];
     if (this.finished || !s?.target) return;
-    document.querySelectorAll(s.target).forEach((e) => { if ((e as HTMLElement).offsetParent !== null) e.classList.add('tut-glow'); });
+    document.querySelectorAll(s.target).forEach((e) => { if ((e as HTMLElement).offsetParent !== null && !(e as HTMLElement).classList.contains('sidebar')) e.classList.add('tut-glow'); });
   }
 
   private finish(completed = false) {

@@ -54,7 +54,8 @@ export const Platform = {
   onAd: (playing: boolean) => {},
 
   /** Ads work on CrazyGames (and in its local test mode). */
-  get adsAvailable() { return !!sdk && !adsBroken && (env === 'crazygames' || env === 'local'); },
+  // no ads in this build (the game is not on CrazyGames)
+  get adsAvailable() { return false && !!sdk && !adsBroken && (env === 'crazygames' || env === 'local'); },
 
   /** The player's language from CrazyGames (for example 'en-US', 'uz-UZ'), if known. */
   get locale(): string | undefined { try { return sdk?.user?.systemInfo?.locale; } catch { return undefined; } },

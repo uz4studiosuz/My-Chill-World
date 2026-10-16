@@ -2168,3 +2168,75 @@ body.pov-mode .build-mode, body.photo-mode .build-mode { display: none !importan
 .tut-spot { box-shadow: 0 0 0 3px #f2c230, 0 0 26px 8px rgba(242,194,48,.75) !important; }
 .tut-veil { position: fixed; inset: 0; z-index: 34; background: rgba(6,8,12,.5); pointer-events: none; display: none; }
 .tut-veil.show { display: block; }
+
+/* the town panel: four buttons on top */
+.side-actions { grid-template-columns: repeat(4, 1fr); }
+.side-act[data-panel="hall"] { background: rgba(59,120,194,.18); border-color: rgba(59,120,194,.5); }
+.side-act[data-panel="hall"] svg { color: #9cc7ff; }
+/* the tutorial: only the ring beats (nothing on the screen moves), a light veil */
+.tut-glow { animation: none !important; transform: none !important; }
+.tut-veil { background: rgba(6,8,12,.32) !important; }
+@media (max-width: 760px) {
+  .tutorial.tut2 { top: auto !important; bottom: calc(var(--dock-h, 46px) + 8px) !important; max-height: 42vh; overflow: auto; }
+  /* phones: the town panel is a sheet opened from the top bar, whatever was folded on a big screen */
+  body.ui2.side-min .sidebar { display: flex; }
+  body.ui2 .side-toggle { display: none !important; }
+}
+
+/* ---- the passport desk (in the town hall window) ---- */
+.pdesk { display: none; flex-direction: column; gap: 8px; height: 100%; min-height: 0; color: var(--text); }
+.pdesk.show { display: flex; }
+.cr-embed .pdesk { height: 100%; }
+.pd-head { display: flex; align-items: center; gap: 10px; }
+.pd-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: rgba(47,107,79,.3); color: #8fe0b2; }
+.pd-ic svg { width: 19px; height: 19px; }
+.pd-head b { display: block; font-family: var(--font-display); font-size: 16px; }
+.pd-head small { color: var(--muted); font-size: 12px; }
+.pd-bar { display: flex; gap: 6px; }
+.pd-search { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 13px var(--font-ui); }
+.pd-sort { padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 12.5px var(--font-ui); }
+.pd-chips { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; flex: none; }
+.pd-chip { padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 700 12px var(--font-ui); cursor: pointer; white-space: nowrap; }
+.pd-chip.active { background: var(--accent); color: #1d1a14; border-color: var(--accent); }
+.pd-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(300px, 1.1fr); gap: 10px; }
+.pd-list { overflow: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 2px; }
+.pd-row { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 11px; border: 1px solid var(--line); background: var(--raised); color: var(--text); cursor: pointer; text-align: left; }
+.pd-row:hover { border-color: rgba(242,179,61,.5); }
+.pd-row.active { border-color: var(--accent); background: rgba(242,179,61,.1); }
+.pd-av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; flex: none; background: rgba(58,111,209,.2); }
+.pd-av.f { background: rgba(217,86,143,.2); }
+.pd-row > div { flex: 1; min-width: 0; }
+.pd-row b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-row small { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-row em { font-style: normal; font: 10.5px ui-monospace, Consolas, monospace; color: var(--muted); }
+.pd-card { overflow: auto; padding: 4px 10px 10px; border-radius: 14px; background: rgba(0,0,0,.18); border: 1px solid var(--line); }
+.pd-empty { height: 100%; min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 4px; color: var(--muted); }
+.pd-empty span { font-size: 40px; }
+.pd-empty b { color: var(--text); font-size: 14px; }
+.pd-title { padding-top: 6px; }
+.pd-title b { display: block; font-family: var(--font-display); font-size: 16px; }
+.pd-title small { color: var(--muted); font-size: 12px; }
+.pd-sec { margin: 10px 0 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.pd-kv { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.pd-kv b { text-align: right; } .pd-kv b.pos { color: #7be08f; } .pd-kv b.neg { color: #ff9a8e; }
+.pd-acts { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.pd-acts .btn-mini { display: inline-flex; align-items: center; gap: 5px; }
+.pd-acts svg { width: 14px; height: 14px; }
+@media (max-width: 760px) { .pd-wrap { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } .pd-card { max-height: 55vh; } }
+
+/* ---- phones: when a big window is open, the little cards around it step aside ---- */
+@media (max-width: 760px) {
+  body:has(.stats.show, .trade-panel.show, .embassy.show, .respanel.show, .goals.show, .chain-view.show, .inspector.show) :is(.build-cost, .map-legend, .day-report, .build-mode, .layerbar) { display: none !important; }
+  body:has(.sidebar.open) :is(.build-cost, .map-legend, .build-mode, .tutorial.tut2) { display: none !important; }
+  .map-legend { bottom: calc(var(--dock-h, 46px) + 8px) !important; }
+  .day-report { top: calc(var(--top-h, 52px) + 54px); }
+}
+
+.pd-back { display: none; margin: 6px 0 2px; padding: 6px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 700 12px var(--font-ui); cursor: pointer; }
+@media (max-width: 760px) {
+  .pd-wrap { grid-template-columns: 1fr !important; grid-template-rows: 1fr !important; }
+  .pd-wrap .pd-card { display: none; max-height: none; }
+  .pd-wrap.picked .pd-card { display: block; }
+  .pd-wrap.picked .pd-list { display: none; }
+  .pd-back { display: inline-block; }
+}

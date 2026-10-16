@@ -39,6 +39,44 @@ export interface Passport {
   mrz: [string, string];
 }
 
+/** A person's ID card, drawn like a passport page (also used by the passport desk). */
+export function passportCard(p: Passport): HTMLElement {
+  const card = el('div', 'passport');
+  card.style.setProperty('--pp', p.tint);
+  const top = el('div', 'pp-top');
+  top.innerHTML = `<span>${t('ID card')}</span><b></b>`;
+  (top.querySelector('b') as HTMLElement).textContent = p.town;
+  const body = el('div', 'pp-body');
+  const photo = el('div', 'pp-photo');
+  photo.innerHTML = portrait(p.photo);
+  const fields = el('div', 'pp-fields');
+  const field = (label: string, value: string, wide = false) => {
+    const f = el('div', `pp-f${wide ? ' wide' : ''}`);
+    const l = el('small', '');
+    l.textContent = label;
+    const val = el('b', '');
+    val.textContent = value;
+    f.append(l, val);
+    fields.appendChild(f);
+  };
+  field(t('Surname'), p.surname, true);
+  field(t('Given name'), p.name, true);
+  field(t('Sex'), p.sex);
+  field(t('Date of birth'), p.birth);
+  field(t('Place of birth'), p.birthplace, true);
+  field(t('Document No.'), p.number, true);
+  const stamp = el('div', 'pp-stamp');
+  stamp.textContent = p.town;
+  body.append(photo, fields, stamp);
+  const sign = el('div', 'pp-sign');
+  sign.innerHTML = `<small>${t('Signature')}</small><i></i>`;
+  (sign.querySelector('i') as HTMLElement).textContent = `${p.name} ${p.surname}`;
+  const mrz = el('div', 'pp-mrz');
+  mrz.textContent = `${p.mrz[0]}\n${p.mrz[1]}`;
+  card.append(top, body, sign, mrz);
+  return card;
+}
+
 /** A small portrait in the person's own colours. */
 function portrait(p: Passport['photo']) {
   const hair = p.female
@@ -101,43 +139,7 @@ export class Inspector {
     head.append(badge, titles, x);
     this.root.appendChild(head);
 
-    if (v.passport) {
-      const p = v.passport;
-      const card = el('div', 'passport');
-      card.style.setProperty('--pp', p.tint);
-      const top = el('div', 'pp-top');
-      top.innerHTML = `<span>${t('ID card')}</span><b></b>`;
-      (top.querySelector('b') as HTMLElement).textContent = p.town;
-      const body = el('div', 'pp-body');
-      const photo = el('div', 'pp-photo');
-      photo.innerHTML = portrait(p.photo);
-      const fields = el('div', 'pp-fields');
-      const field = (label: string, value: string, wide = false) => {
-        const f = el('div', `pp-f${wide ? ' wide' : ''}`);
-        const l = el('small', '');
-        l.textContent = label;
-        const val = el('b', '');
-        val.textContent = value;
-        f.append(l, val);
-        fields.appendChild(f);
-      };
-      field(t('Surname'), p.surname, true);
-      field(t('Given name'), p.name, true);
-      field(t('Sex'), p.sex);
-      field(t('Date of birth'), p.birth);
-      field(t('Place of birth'), p.birthplace, true);
-      field(t('Document No.'), p.number, true);
-      const stamp = el('div', 'pp-stamp');
-      stamp.textContent = p.town;
-      body.append(photo, fields, stamp);
-      const sign = el('div', 'pp-sign');
-      sign.innerHTML = `<small>${t('Signature')}</small><i></i>`;
-      (sign.querySelector('i') as HTMLElement).textContent = `${p.name} ${p.surname}`;
-      const mrz = el('div', 'pp-mrz');
-      mrz.textContent = `${p.mrz[0]}\n${p.mrz[1]}`;
-      card.append(top, body, sign, mrz);
-      this.root.appendChild(card);
-    }
+    if (v.passport) this.root.appendChild(passportCard(v.passport));
 
     if (v.tags?.length) {
       const tags = el('div', 'ins-tags');
