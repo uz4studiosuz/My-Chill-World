@@ -3334,4 +3334,11 @@ export const UZ: Record<string, string> = {
   "List": "Ro'yxat",
   "Goods in the stores": "Ombordagi tovarlar",
   "homes": "uy",
+  "Trucks bring iron beams from the iron mine to big building sites and they go up faster.": "Yuk mashinalari temir konidan katta qurilishlarga temir to'sinlar olib boradi va ular tezroq quriladi.",
+  "Iron is needed for factories, hospitals, towers, railways and the car factory. Trucks bring iron beams from the iron mine to big building sites and they go up faster.": "Temir zavodlar, kasalxonalar, baland binolar, temir yo'l va avtomobil zavodi uchun kerak. Yuk mashinalari temir konidan katta qurilishlarga temir to'sinlar olib boradi va ular tezroq quriladi.",
+  "Delivering iron beams": "Temir to'sinlarni olib bormoqda",
+  "For big buildings (iron beams make big sites go up faster), the car factory and the bicycle factory.": "Katta binolar uchun (temir to'sinlar katta qurilishlarni tezlashtiradi), avtomobil va velosiped zavodlari uchun.",
+  "Ranch milk goes to the dairy (cheese and ice cream: 1.5 food per milk). Brickworks make bricks from stone and the iron mine sends iron beams; trucks bring them to construction sites, which then go up faster. A coal mine feeds the coal power plant; a hydro dam on a river bank gives clean power all day.": "Chorvachilik suti sut sexiga boradi (pishloq va muzqaymoq: bir sutdan 1,5 ovqat). G'isht zavodi toshdan g'isht qiladi, temir koni temir to'sinlar jo'natadi; yuk mashinalari ularni qurilishlarga olib boradi va qurilish tezlashadi. Ko'mir koni ko'mir elektrostansiyasini ta'minlaydi; daryo bo'yidagi GES kun bo'yi toza elektr beradi.",
+  "Factories, hospitals, big buildings, railways, the car and bicycle factories; iron beams make big building sites go up faster.": "Zavodlar, kasalxonalar, katta binolar, temir yo'l, avtomobil va velosiped zavodlari; temir to'sinlar katta qurilishlarni tezlashtiradi.",
+  "{a}–{b} of {n}": "{n} tadan {a}–{b}",
 };

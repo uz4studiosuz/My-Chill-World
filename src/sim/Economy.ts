@@ -124,9 +124,9 @@ export interface CitySave {
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
 
 export interface Grant { money: number; stone: number; wood: number; food: number; iron: number; bricks?: number; steel?: number }
-export const START_GRANT: Grant = { money: 5000, stone: 120, wood: 120, food: 600, iron: 30, bricks: 160, steel: 40 };
+export const START_GRANT: Grant = { money: 5000, stone: 120, wood: 120, food: 600, iron: 60, bricks: 160 };
 /** What a freshly founded city starts with (the founding cost is paid by the active city). */
-export const NEW_CITY_GRANT: Grant = { money: 1800, stone: 50, wood: 50, food: 200, iron: 10, bricks: 60, steel: 10 };
+export const NEW_CITY_GRANT: Grant = { money: 1800, stone: 50, wood: 50, food: 200, iron: 20, bricks: 60 };
 
 const blankBalance = (): Balance => ({ incomeTax: 0, foodSales: 0, propertyTax: 0, businessTax: 0, utilities: 0, publicWages: 0, upkeep: 0, net: 0 });
 

@@ -42,7 +42,7 @@ const NODES: Node[] = [
   { id: 'milk', type: 'good', label: 'Milk', emoji: '🥛', col: 1, row: 3, info: 'From the ranches: the dairy makes cheese, the dairy shop sells it to families.' },
   { id: 'wood', type: 'good', label: 'Wood', emoji: '🪵', col: 1, row: 8, info: 'Building material, fuel for the wood power plant and logs for the sawmill.' },
   { id: 'stone', type: 'good', label: 'Stone', emoji: '🧱', col: 1, row: 10, info: 'Building material and clay for the brickworks.' },
-  { id: 'iron', type: 'good', label: 'Iron', emoji: '🔩', col: 1, row: 11, info: 'For big buildings, the car factory and the steel mill.' },
+  { id: 'iron', type: 'good', label: 'Iron', emoji: '🔩', col: 1, row: 11, info: 'For big buildings (iron beams make big sites go up faster), the car factory and the bicycle factory.' },
   { id: 'coal', type: 'good', label: 'Coal', emoji: '⚫', col: 1, row: 12, info: 'Fuel for the coal power plant.' },
   // workshops
   { id: 'mill', type: 'building', label: 'Flour Mill', emoji: '🏭', col: 2, row: 0, info: 'Grinds grain into flour.' },
@@ -52,7 +52,6 @@ const NODES: Node[] = [
   { id: 'sawmill', type: 'building', label: 'Sawmill', emoji: '🪚', col: 2, row: 8, info: 'Logs into planks: building sites with planks go 40% faster.' },
   { id: 'powerplant', type: 'building', label: 'Wood Power Plant', emoji: '⚡', col: 2, row: 9, info: 'Burns wood for electricity.' },
   { id: 'brickworks', type: 'building', label: 'Brickworks', emoji: '🧱', col: 2, row: 10, info: 'Stone into bricks: every home is built of bricks.' },
-  { id: 'steelmill', type: 'building', label: 'Steel Mill', emoji: '🔥', col: 2, row: 11, info: 'Iron into steel beams (faster big buildings).' },
   { id: 'carfactory', type: 'building', label: 'Car Factory', emoji: '🚗', col: 2, row: 12, info: 'Iron into cars for the car market.' },
   { id: 'coalplant', type: 'building', label: 'Coal Power Plant', emoji: '🏭', col: 2, row: 13, info: 'Burns coal for a lot of electricity (and smoke).' },
   // products
@@ -63,7 +62,6 @@ const NODES: Node[] = [
   { id: 'furniture', type: 'good', label: 'Furniture', emoji: '🛋️', col: 3, row: 6, info: 'Sold in the markets and the supermarket.' },
   { id: 'power', type: 'good', label: 'Electricity', emoji: '💡', col: 3, row: 9, info: 'Through the power cables to every building and street lamp.' },
   { id: 'bricks', type: 'good', label: 'Bricks', emoji: '🧱', col: 3, row: 10, info: 'Every new home needs them.' },
-  { id: 'steel', type: 'good', label: 'Steel', emoji: '🔩', col: 3, row: 11, info: 'Beams for big buildings: they go up faster.' },
   { id: 'cars', type: 'good', label: 'Cars', emoji: '🚙', col: 3, row: 12, info: 'Families buy them at the car market.' },
   // second workshop and the shops
   { id: 'bakery', type: 'building', label: 'Bakery', emoji: '🥖', col: 4, row: 0, info: 'Flour into bread (food).' },
@@ -87,7 +85,7 @@ const EDGES: [string, string][] = [
   ['wood', 'sawmill'], ['sawmill', 'planks'], ['planks', 'factory'], ['factory', 'furniture'], ['furniture', 'market'], ['furniture', 'supermarket'], ['planks', 'construction'],
   ['wood', 'powerplant'], ['powerplant', 'power'], ['coal', 'coalplant'], ['coalplant', 'power'], ['power', 'homes'],
   ['stone', 'brickworks'], ['brickworks', 'bricks'], ['bricks', 'house'], ['stone', 'house'], ['wood', 'house'], ['construction', 'house'],
-  ['iron', 'steelmill'], ['steelmill', 'steel'], ['steel', 'construction'], ['iron', 'carfactory'], ['carfactory', 'cars'], ['cars', 'carmarket'], ['carmarket', 'homes'],
+  ['iron', 'construction'], ['iron', 'carfactory'], ['carfactory', 'cars'], ['cars', 'carmarket'], ['carmarket', 'homes'],
   ['food', 'grocery'], ['food', 'supermarket'], ['food', 'market'], ['grocery', 'homes'], ['supermarket', 'homes'], ['market', 'homes'], ['house', 'homes'],
 ];
 

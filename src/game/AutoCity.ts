@@ -64,7 +64,7 @@ export const STYLE_NAME: Record<TownStyle, string> = {
 const STYLE_WISH: Record<TownStyle, BuildingKind[]> = {
   builder: ['apartment', 'house', 'construction', 'sawmill', 'brickworks'],
   trader: ['market', 'supermarket', 'hotel', 'bank', 'kiosk', 'teahouse', 'trainstation', 'airport'],
-  industrial: ['factory', 'ironmine', 'sawmill', 'brickworks', 'steelmill', 'carfactory', 'coalmine', 'bikefactory'],
+  industrial: ['factory', 'ironmine', 'sawmill', 'brickworks', 'carfactory', 'coalmine', 'bikefactory'],
   green: ['park', 'bigpark', 'fountain', 'windturbine', 'solarfarm', 'playground', 'recycling', 'bikefactory'],
   thrifty: ['bank', 'orchard', 'fishery', 'grocery'],
 };
@@ -80,7 +80,7 @@ const LADDER: [BuildingKind, number, number][] = [
   ['dairy', 100, 0], ['ironmine', 100, 0], ['pond', 100, 300], ['carmarket', 110, 0], ['trainstation', 120, 0], ['hotel', 120, 300],
   ['cinema', 120, 0], ['office', 120, 120], ['factory', 120, 250], ['coalmine', 120, 0], ['parking', 120, 150], ['statue', 120, 300],
   ['bikefactory', 140, 0], ['solarfarm', 140, 250], ['clocktower', 150, 0], ['bigpark', 150, 400], ['hydro', 150, 0], ['school', 150, 150],
-  ['recycling', 160, 0], ['steelmill', 160, 0], ['supermarket', 160, 300], ['university', 160, 0], ['airport', 180, 0],
+  ['recycling', 160, 0], ['supermarket', 160, 300], ['university', 160, 0], ['airport', 180, 0],
   ['concerthall', 180, 0], ['coalplant', 180, 0], ['battery', 180, 0], ['military', 200, 0], ['stadium', 200, 0], ['casino', 200, 0],
   ['carfactory', 200, 0], ['archway', 200, 0], ['police', 200, 200], ['academy', 220, 0], ['themepark', 260, 0], ['hospital', 300, 300],
   ['firestation', 300, 300], ['market', 300, 300], ['warehouse', 300, 300],
@@ -371,7 +371,7 @@ export class AutoCity {
     // fuel and materials for what the town already runs
     if (count('powerplant') && city.wood < 30 && count('woodcutter') < 3) return 'woodcutter';
     if (count('coalplant') && city.coal < 20 && !count('coalmine') && !this.blocked(city, 'coalmine')) return 'coalmine';
-    if ((count('steelmill') || count('carfactory') || count('bikefactory')) && city.iron < 20 && !count('ironmine') && !this.blocked(city, 'ironmine')) return 'ironmine';
+    if ((count('carfactory') || count('bikefactory')) && city.iron < 20 && !count('ironmine') && !this.blocked(city, 'ironmine')) return 'ironmine';
     // garbage and graves
     if (people >= 60 && count('landfill') + count('recycling') < 1 + Math.floor(people / 350)) return people >= 220 && !count('recycling') ? 'recycling' : 'landfill';
     const graves = own.filter((b) => b.kind === 'cemetery' && b.built >= 1);
@@ -446,7 +446,7 @@ export class AutoCity {
       // chains first need what feeds them
       if ((k === 'mill' || k === 'bakery') && !has('farm')) continue;
       if (k === 'dairy' && !has('ranch')) continue;
-      if ((k === 'steelmill' || k === 'carfactory' || k === 'bikefactory') && !has('ironmine') && city.iron < 40) continue;
+      if ((k === 'carfactory' || k === 'bikefactory') && !has('ironmine') && city.iron < 40) continue;
       if (k === 'coalplant' && !has('coalmine')) continue;
       if (k === 'brickworks' && !has('quarry')) continue;
       if (k === 'sawmill' && !has('woodcutter')) continue;

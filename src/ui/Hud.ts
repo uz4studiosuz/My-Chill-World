@@ -96,7 +96,6 @@ export const ITEMS: ToolItem[] = [
   b('warehouse', 'production', '+2000 storage', 'Keeps the town\'s goods: every warehouse stores 2,000 more of each good (2,500 food). Without room, new harvests and goods spoil.', 'production'),
   b('dairy', 'production', 'Milk → cheese', 'Ranches send milk in a tanker; the dairy makes cheese and ice cream for the shops (1.5 food per milk).', 'cow'),
   b('brickworks', 'production', 'Stone → bricks', 'Fires stone into bricks. Trucks bring bricks to construction sites, which go up faster.', 'quarry'),
-  b('steelmill', 'production', 'Iron → steel', 'Melts iron into steel beams for big construction sites.', 'iron'),
   b('coalmine', 'production', 'Coal', 'Must touch mountains. Miners dig coal for the coal power plant.', 'quarry'),
   b('coalplant', 'production', '+160 energy/day', 'Burns coal: a lot of steady power, but heavy smoke.', 'powerplant'),
   b('hydro', 'production', '+90 clean energy', 'Built on a river or lake bank: steady clean power day and night.', 'water'),

@@ -487,7 +487,7 @@ export class Game implements ToolHost {
     if (!opts.save?.pipes3) this.pipesUnderWaterBuildings();
     // power now runs through cables: a world from before, or a new one, gets cables under its roads once
     if (!opts.save?.cables1) this.cablesUnderRoads();
-    if (opts.save && !opts.save.pipes2) for (const c of this.eco.cities.values()) if (!c.ai) { c.bricks += 120; c.steel += 30; }
+    if (opts.save && !opts.save.pipes2) for (const c of this.eco.cities.values()) if (!c.ai) { c.bricks += 120; c.iron += 30; }
     this.wantTutorial = !!opts.create && Tutorial.wanted();
 
     this.waterLife = new WaterLife(this.map,
@@ -1433,7 +1433,7 @@ export class Game implements ToolHost {
     if (kind === 'townhall' && this.buildings.halls().some((h) => Math.max(Math.abs(h.x - tl.x), Math.abs(h.z - tl.z)) < CITY_MIN_DISTANCE)) {
       return { ok: false, reason: t('Too close to another Town Hall') };
     }
-    // homes need bricks and anything with iron needs steel too (made at the brickworks and the steel mill, or bought)
+    // homes need bricks (made at the brickworks, or bought)
     const ex = this.moving ? { bricks: 0, steel: 0 } : extraCost(kind as BuildingKind);
     if (!this.eco.canAfford(def.money, def.stone, def.wood, def.iron) || this.eco.city.bricks < ex.bricks || this.eco.city.steel < ex.steel) {
       return { ok: false, reason: t('Needs {cost}', { cost: costText(def.money, def.stone, def.wood, def.iron) + materialText(ex.bricks, ex.steel) }) };
@@ -1768,7 +1768,7 @@ export class Game implements ToolHost {
         this.effects.smoke(b.mesh.position.x + 0.22 * c - 0.2 * s, 0.78, b.mesh.position.z - 0.22 * s - 0.2 * c);
         continue;
       }
-      if ((b.kind === 'factory' || b.kind === 'carfactory' || b.kind === 'coalplant' || b.kind === 'steelmill' || b.kind === 'brickworks') && b.workers > 0 && b.built >= 1) {
+      if ((b.kind === 'factory' || b.kind === 'carfactory' || b.kind === 'coalplant' || b.kind === 'brickworks') && b.workers > 0 && b.built >= 1) {
         this.effects.smoke(b.mesh.position.x + 0.6, 1.8, b.mesh.position.z - 0.5);
         continue;
       }
@@ -3694,7 +3694,7 @@ export class Game implements ToolHost {
     this.hud!.setStats({
       cityName: e.city.name, cities: e.cities.size, happiness: e.city.happiness,
       money: e.money, iron: e.iron, daily: e.city.balance.net, stone: e.stone, wood: e.wood, food: e.food, bricks: e.city.bricks,
-      goods: ([['bricks', 'Bricks'], ['planks', 'Planks'], ['coal', 'Coal'], ['grain', 'Grain'], ['flour', 'Flour'], ['milk', 'Milk'], ['feed', 'Corn feed'], ['cotton', 'Cotton'], ['garments', 'Clothes'], ['furniture', 'Furniture'], ['steel', 'Steel']] as [Res, string][]).map(([k, l]) => [k, l, e.city[k]] as [string, string, number]),
+      goods: ([['bricks', 'Bricks'], ['planks', 'Planks'], ['coal', 'Coal'], ['grain', 'Grain'], ['flour', 'Flour'], ['milk', 'Milk'], ['feed', 'Corn feed'], ['cotton', 'Cotton'], ['garments', 'Clothes'], ['furniture', 'Furniture']] as [Res, string][]).map(([k, l]) => [k, l, e.city[k]] as [string, string, number]),
       foodDaily: this.foodBalance(), powered: e.powered, water: e.city.water,
       population: this.life.populationByCity().get(e.active) ?? 0, workers: this.buildings.list.reduce((a, b) => a + (b.city === e.active && b.built >= 1 && !b.removed ? b.workers : 0), 0), workforce: counts.workforce,
       vacancies: this.buildings.list.reduce((a, b) => a + (b.city === e.active && b.built >= 1 && !b.removed ? Math.max(0, BUILDINGS[b.kind].jobs - b.workers) : 0), 0),
@@ -3802,7 +3802,7 @@ export class Game implements ToolHost {
       return `+${n(made)} / −${n(used)}`;
     };
     const goods: [Res, string][] = [['food', 'Food'], ['grain', 'Grain'], ['flour', 'Flour'], ['milk', 'Milk'], ['feed', 'Corn feed'], ['cotton', 'Cotton'], ['garments', 'Clothes'], ['furniture', 'Furniture'],
-      ['wood', 'Wood'], ['planks', 'Planks'], ['stone', 'Stone'], ['bricks', 'Bricks'], ['iron', 'Iron'], ['steel', 'Steel'], ['coal', 'Coal']];
+      ['wood', 'Wood'], ['planks', 'Planks'], ['stone', 'Stone'], ['bricks', 'Bricks'], ['iron', 'Iron'], ['coal', 'Coal']];
     const farms = own.filter((b) => b.kind === 'farm');
     const crops = Object.keys(CROPS) as CropKind[];
     const has = (k: BuildingKind) => working(k) > 0;
@@ -3818,7 +3818,6 @@ export class Game implements ToolHost {
       [t('Furniture: sawmill → factory → market'), [link('sawmill', 'sawmill', 'no sawmill'), link('factory', 'factory', 'no factory'), step(has('market') || has('supermarket'), 'market', 'no market')].join(' · '), has('sawmill') && has('factory') && (has('market') || has('supermarket'))],
       [t('Planks: woodcutter → sawmill → building sites'), [link('woodcutter', 'woodcutter', 'no woodcutter'), link('sawmill', 'sawmill', 'no sawmill')].join(' · '), has('woodcutter') && has('sawmill')],
       [t('Bricks: quarry → brickworks → building sites'), [link('quarry', 'quarry', 'no quarry'), link('brickworks', 'brickworks', 'no brickworks')].join(' · '), has('quarry') && has('brickworks')],
-      [t('Steel: iron mine → steel mill → big buildings'), [link('ironmine', 'iron mine', 'no iron mine'), link('steelmill', 'steel mill', 'no steel mill')].join(' · '), has('ironmine') && has('steelmill')],
       [t('Power: coal mine → coal plant'), [link('coalmine', 'coal mine', 'no coal mine'), step(count('coalplant') > 0, 'coal plant', 'no coal plant')].join(' · '), !count('coalplant') || has('coalmine')],
       [t('Cars: iron → car factory → car market → families'), [link('carfactory', 'factory', 'no factory (cars are imported)'), link('carmarket', 'car market', 'no car market')].join(' · '), has('carmarket')],
       [t('Garbage: homes → trucks → landfill / recycling'), step(has('landfill') || has('recycling'), 'collected', 'nobody collects garbage'), has('landfill') || has('recycling')],
@@ -3851,7 +3850,6 @@ export class Game implements ToolHost {
             { emoji: '🛋️', title: t('Furniture'), steps: [{ label: n('woodcutter'), state: st('woodcutter') }, { label: n('sawmill'), state: st('sawmill') }, { label: n('factory'), state: st('factory') }, { label: t('Market'), state: any('market', 'supermarket') }], onClick: open('furniture') },
             { emoji: '🪵', title: t('Planks'), steps: [{ label: n('woodcutter'), state: st('woodcutter') }, { label: n('sawmill'), state: st('sawmill') }, { label: n('construction'), state: st('construction') }], onClick: open('sawmill') },
             { emoji: '🧱', title: t('Bricks'), steps: [{ label: n('quarry'), state: st('quarry') }, { label: n('brickworks'), state: st('brickworks') }, { label: n('construction'), state: st('construction') }], onClick: open('brickworks') },
-            { emoji: '🔩', title: t('Steel'), steps: [{ label: n('ironmine'), state: st('ironmine') }, { label: n('steelmill'), state: st('steelmill') }], onClick: open('steelmill') },
             { emoji: '🚗', title: t('Cars'), steps: [{ label: n('ironmine'), state: st('ironmine') }, { label: n('carfactory'), state: st('carfactory') }, { label: n('carmarket'), state: st('carmarket') }], onClick: open('carfactory') },
             { emoji: '⚡', title: t('Power from coal'), steps: [{ label: n('coalmine'), state: st('coalmine') }, { label: n('coalplant'), state: st('coalplant') }], onClick: open('coalplant') },
             { emoji: '🔥', title: t('Power from wood'), steps: [{ label: n('woodcutter'), state: st('woodcutter') }, { label: n('powerplant'), state: st('powerplant') }], onClick: open('powerplant') },
@@ -3867,7 +3865,7 @@ export class Game implements ToolHost {
         })(),
         { title: t('Fields by crop'), bars: crops.map((k, i) => [t(CROPS[k].name), farms.filter((f) => (f.cropKind ?? 'wheat') === k).length, ['#e3bf4f', '#d9b13a', '#c4553d', '#e8e4da', '#9cc95a'][i]] as [string, number, string]),
           rows: farms.length ? [] : [[t('No fields yet'), '—', false]] },
-        { title: t('Workplaces of the chains'), rows: (['farm', 'ranch', 'orchard', 'fishery', 'mill', 'bakery', 'dairy', 'sawmill', 'brickworks', 'steelmill', 'quarry', 'ironmine', 'coalmine', 'woodcutter'] as BuildingKind[])
+        { title: t('Workplaces of the chains'), rows: (['farm', 'ranch', 'orchard', 'fishery', 'mill', 'bakery', 'dairy', 'sawmill', 'brickworks', 'quarry', 'ironmine', 'coalmine', 'woodcutter'] as BuildingKind[])
           .filter((k) => count(k)).map((k) => [t(BUILDINGS[k].name), `${working(k)}/${count(k)} ${t('working')}`, working(k) === count(k)] as [string, string, boolean]) },
       ],
       energy: [
@@ -4077,7 +4075,7 @@ export class Game implements ToolHost {
       case 'stone': return { key, icon: 'stone', title: t('Stone'), value: n(city.stone), sections: [...this.ledgerSections(city, 'stone'), { title: t('Bricks'), rows: [[t('Bricks in stock'), n(city.bricks)]], note: t('Brickworks fire stone into bricks; construction sites that get bricks are built faster.') }, producers(['quarry'], (b) => `${staffed(b)} · ${t('{n} ready', { n: Math.floor(b.stored) })}`), { title: t('Used for'), note: t('Roads, bridges and most buildings.') }] };
       case 'wood': return { key, icon: 'wood', title: t('Wood'), value: n(city.wood), sections: [...this.ledgerSections(city, 'wood'), producers(['woodcutter'], staffed),
         { title: t('Planks'), rows: [[t('Planks in stock'), n(city.planks)], [t('Sawmill'), own.some((b) => b.kind === 'sawmill' && b.workers > 0) ? t('Working') : t('None — build one'), own.some((b) => b.kind === 'sawmill' && b.workers > 0) ? 'good' : 'bad']], note: t('Construction sites that get planks are built 40% faster.') }, { title: t('Used for'), note: t('Building material and fuel for the wood power plant.') }] };
-      case 'iron': return { key, icon: 'iron', title: t('Iron'), value: n(city.iron), sections: [...this.ledgerSections(city, 'iron'), { title: t('Steel'), rows: [[t('Steel in stock'), n(city.steel)]], note: t('A steel mill melts iron into steel beams for big construction sites.') }, producers(['ironmine'], staffed), { title: t('Used for'), note: t('Factories, hospitals, big buildings, railways and the car factory.') }] };
+      case 'iron': return { key, icon: 'iron', title: t('Iron'), value: n(city.iron), sections: [...this.ledgerSections(city, 'iron'), producers(['ironmine'], staffed), { title: t('Used for'), note: t('Factories, hospitals, big buildings, railways, the car and bicycle factories; iron beams make big building sites go up faster.') }] };
       case 'food': {
         const fy = city.foodYesterday;
         return {
@@ -4477,7 +4475,7 @@ export class Game implements ToolHost {
       { title: t('Best paid jobs'), bars: [...new Set(built.filter((b) => BUILDINGS[b.kind].jobs).map((b) => b.kind))].map((k) => [t(BUILDINGS[k].name), BUILDINGS[k].salary * (city.wages[k] ?? 1), DEGREE_JOBS[k] ? '#b9a3e0' : '#6fb6ff', `$${(BUILDINGS[k].salary * (city.wages[k] ?? 1)).toFixed(1)}${DEGREE_JOBS[k] ? ' 🎓' : ''}`] as [string, number, string, string]).sort((a, b) => b[1] - a[1]).slice(0, 14) },
     ] });
     // ---- every good: in stock, in and out yesterday ----
-    const resList: [Res, string][] = [['money', 'Money'], ['food', 'Food'], ['wood', 'Wood'], ['stone', 'Stone'], ['iron', 'Iron'], ['grain', 'Grain'], ['flour', 'Flour'], ['milk', 'Milk'], ['feed', 'Corn feed'], ['cotton', 'Cotton'], ['planks', 'Planks'], ['bricks', 'Bricks'], ['steel', 'Steel'], ['coal', 'Coal'], ['garments', 'Clothes'], ['furniture', 'Furniture']];
+    const resList: [Res, string][] = [['money', 'Money'], ['food', 'Food'], ['wood', 'Wood'], ['stone', 'Stone'], ['iron', 'Iron'], ['grain', 'Grain'], ['flour', 'Flour'], ['milk', 'Milk'], ['feed', 'Corn feed'], ['cotton', 'Cotton'], ['planks', 'Planks'], ['bricks', 'Bricks'], ['coal', 'Coal'], ['garments', 'Clothes'], ['furniture', 'Furniture']];
     // prices of every good day by day: your town and the others; tap a good to chart it
     const pick = this.goodsPick;
     const priceLine = (cid: number, g: Good) => {
@@ -4652,7 +4650,7 @@ export class Game implements ToolHost {
     const needs: [Res, string, number, string][] = [];
     const io: Partial<Record<BuildingKind, [Res | null, string, string]>> = {
       bakery: ['flour', 'Flour', 'Bread for the shops'], mill: ['grain', 'Grain', 'Flour for the bakery'], dairy: ['milk', 'Milk', 'Cheese and ice cream'],
-      sawmill: ['wood', 'Wood', 'Planks for building sites'], brickworks: ['stone', 'Stone', 'Bricks for building sites'], steelmill: ['iron', 'Iron', 'Steel for big buildings'],
+      sawmill: ['wood', 'Wood', 'Planks for building sites'], brickworks: ['stone', 'Stone', 'Bricks for building sites'], 
       powerplant: ['wood', 'Wood', 'Electricity'], coalplant: ['coal', 'Coal', 'Electricity'], ranch: ['feed', 'Corn feed', 'Milk and meat'],
       grocery: ['food', 'Food', 'Groceries for families'], market: ['food', 'Food', 'Food and goods for families'], supermarket: ['food', 'Food', 'Food for families'],
       teahouse: ['food', 'Food', 'Tea and plov'], kiosk: ['food', 'Food', 'Coffee and ice cream'], dairyshop: ['milk', 'Milk', 'Milk, yogurt and cheese (eaten as food)'], clothes: ['garments', 'Clothes', 'Clothes for families (80% more with factory clothes, 30% with raw cotton)'],
@@ -4844,7 +4842,7 @@ export class Game implements ToolHost {
 
   /** How much of a good a town wants to keep (for its prices: below it the good is dear, above it cheap). */
   private stockTarget(g: Good, people: number) {
-    const t: Record<Good, number> = { food: people * 4 + 40, wood: 80, stone: 80, iron: 30, coal: 30, planks: 20, bricks: 20, steel: 15, grain: 40, flour: 30, milk: 30, cotton: 30, garments: 20, furniture: 15 };
+    const t: Record<Good, number> = { food: people * 4 + 40, wood: 80, stone: 80, iron: 30, coal: 30, planks: 20, bricks: 20, grain: 40, flour: 30, milk: 30, cotton: 30, garments: 20, furniture: 15 };
     return t[g];
   }
 
@@ -4901,7 +4899,7 @@ export class Game implements ToolHost {
         relation: c.ai ? c.relation ?? 40 : undefined,
         news: c.ai ? this.autoCity.log.get(c.id) ?? [] : [],
         homes: own.filter((b) => BUILDINGS[b.kind].units).reduce((a, b) => a + BUILDINGS[b.kind].units, 0),
-        res: ([['Food', 'food'], ['Wood', 'wood'], ['Stone', 'stone'], ['Iron', 'iron'], ['Grain', 'grain'], ['Flour', 'flour'], ['Milk', 'milk'], ['Planks', 'planks'], ['Bricks', 'bricks'], ['Steel', 'steel'], ['Coal', 'coal'], ['Cotton', 'cotton'], ['Clothes', 'garments'], ['Furniture', 'furniture']] as const)
+        res: ([['Food', 'food'], ['Wood', 'wood'], ['Stone', 'stone'], ['Iron', 'iron'], ['Grain', 'grain'], ['Flour', 'flour'], ['Milk', 'milk'], ['Planks', 'planks'], ['Bricks', 'bricks'], ['Coal', 'coal'], ['Cotton', 'cotton'], ['Clothes', 'garments'], ['Furniture', 'furniture']] as const)
           .map(([label, k]) => [t(label), Math.round(c[k])] as [string, number]).filter(([, v], i) => i < 4 || v > 0),
         history: [...(this.worldHistory.get(c.id) ?? []), { day: this.eco.day, pop: people, money: Math.round(c.money), happy: Math.round(c.happiness) }],
         dealings: this.dealings.get(c.id) ?? [],
@@ -5243,7 +5241,7 @@ export class Game implements ToolHost {
     if (has('clothes') && city.cotton < 5 && !has('factory')) say('The clothing store sells more with cotton: sow cotton and build a factory');
     if (has('sawmill') && !has('woodcutter')) say('The sawmill needs logs: build a woodcutter');
     if (has('brickworks') && !has('quarry')) say('The brickworks needs stone: build a stone quarry');
-    if ((has('steelmill') || has('carfactory') || has('bikefactory')) && city.iron < 10 && !has('ironmine')) say('The factories need iron: build an iron mine');
+    if ((has('carfactory') || has('bikefactory')) && city.iron < 10 && !has('ironmine')) say('The factories need iron: build an iron mine');
     if (city.wood < 30 && !has('woodcutter')) say('Wood is running out: build a woodcutter');
     if (city.stone < 30 && !has('quarry')) say('Stone is running out: build a stone quarry');
     if (city.bricks < 30 && !has('brickworks')) say('Bricks are running out — every home needs them: build a brickworks (it needs a quarry) or buy bricks in Trade');
@@ -5397,7 +5395,7 @@ export class Game implements ToolHost {
     const OUT: Partial<Record<BuildingKind, [Res, string[]][]>> = {
       woodcutter: [['wood', ['Woodcutters']]], quarry: [['stone', ['Quarries (trucks)', 'Quarries (on foot)']]], coalmine: [['coal', ['Coal mines']]], ironmine: [['iron', ['Iron mines']]],
       orchard: [['food', [BUILDINGS.orchard.name]]], fishery: [['food', [BUILDINGS.fishery.name]]], ranch: [['food', [BUILDINGS.ranch.name]], ['milk', [BUILDINGS.ranch.name]]],
-      mill: [['flour', ['Flour Mill']]], bakery: [['food', ['Bakery']]], dairy: [['food', ['Dairy']]], brickworks: [['bricks', ['Brickworks']]], steelmill: [['steel', ['Steel mill']]],
+      mill: [['flour', ['Flour Mill']]], bakery: [['food', ['Bakery']]], dairy: [['food', ['Dairy']]], brickworks: [['bricks', ['Brickworks']]],
       sawmill: [['planks', ['Sawmill']]], factory: [['garments', ['Factory']], ['furniture', ['Factory']]],
     };
     for (const b of this.buildings.list) {
@@ -5433,7 +5431,7 @@ export class Game implements ToolHost {
     const shops = has('grocery') || has('market') || has('supermarket');
     return [crop('wheat') && has('mill') && has('bakery') && shops, has('ranch') && has('dairy') && shops, has('ranch') && has('dairyshop'), crop('corn') && has('ranch'),
       crop('cotton') && has('factory') && has('clothes'), has('woodcutter') && has('sawmill') && has('factory') && (has('market') || has('supermarket')), has('woodcutter') && has('sawmill') && has('construction'),
-      has('quarry') && has('brickworks') && has('construction'), has('ironmine') && has('steelmill'), has('ironmine') && has('carfactory') && has('carmarket'), has('coalmine') && has('coalplant'),
+      has('quarry') && has('brickworks') && has('construction'), has('ironmine') && has('carfactory') && has('carmarket'), has('coalmine') && has('coalplant'),
       has('woodcutter') && has('powerplant'), has('landfill') || has('recycling')].filter(Boolean).length;
   }
 
@@ -5489,7 +5487,7 @@ export class Game implements ToolHost {
       if (b.workers > 0 || !BUILDINGS[b.kind].jobs) e.working!++;
     }
     const y = city.ledgerDays[0] ?? city.ledger;
-    for (const g of ['grain', 'feed', 'cotton', 'milk', 'wood', 'stone', 'iron', 'coal', 'flour', 'garments', 'food', 'planks', 'furniture', 'bricks', 'steel'] as Res[]) {
+    for (const g of ['grain', 'feed', 'cotton', 'milk', 'wood', 'stone', 'iron', 'coal', 'flour', 'garments', 'food', 'planks', 'furniture', 'bricks'] as Res[]) {
       let made = 0, used = 0;
       for (const v of Object.values(y[g] ?? {})) { if (v > 0) made += v; else used -= v; }
       out[g] = { stock: city[g], made, used };
@@ -5513,6 +5511,18 @@ export class Game implements ToolHost {
     }
     this.zoneMesh.geometry.dispose();
     this.zoneMesh.geometry = fb.geometry();
+  }
+
+  /** Steel is gone from the game: steel mills of old worlds come down (paid back) and stored steel turns into iron. */
+  private dropSteel() {
+    for (const b of [...this.buildings.list]) {
+      if (b.kind !== 'steelmill' || b.removed) continue;
+      const city = this.cityOf(b);
+      this.eco.add(city, 'money', BUILDINGS.steelmill.money, 'Undo refunds');
+      this.eco.add(city, 'iron', BUILDINGS.steelmill.iron, 'Undo refunds');
+      this.destroyBuilding(b, false);
+    }
+    for (const c of this.eco.cities.values()) if (c.steel > 0) { c.iron += c.steel; c.steel = 0; }
   }
 
   /** Is there something to take here for a woodcutter (trees), a quarry or a mine (rock)? */
@@ -5975,6 +5985,7 @@ export class Game implements ToolHost {
     this.pipes.rebuild();
     this.cables.rebuild();
     this.terrain.clearTiles(s.cleared);
+    queueMicrotask(() => this.dropSteel());
     this.terrain.loadStumps(s.stumps);
     for (const b of s.buildings) {
       // the side it faced when it was placed (turned with R), if a road is still there

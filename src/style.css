@@ -2268,3 +2268,14 @@ body.pov-mode .build-mode, body.photo-mode .build-mode { display: none !importan
 .rpp-card i:empty { display: none; }
 @media (min-width: 761px) { .res-pop { left: auto; right: calc(var(--side-w, 300px) + 12px); width: 380px; } }
 @media (max-width: 760px) { .res-more .v { display: none; } .res-more { padding: 0 9px !important; border-color: var(--accent) !important; } }
+
+.pd-left { display: flex; flex-direction: column; min-height: 0; gap: 6px; }
+.pd-left .pd-list { flex: 1; min-height: 0; }
+.pd-pager { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; flex: none; }
+.pd-pager:empty { display: none; }
+.pd-pg { min-width: 30px; height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 700 12.5px var(--font-ui); cursor: pointer; }
+.pd-pg.active { background: var(--accent); color: #1d1a14; border-color: var(--accent); }
+.pd-pg:disabled { opacity: .35; cursor: default; }
+.pd-dots { color: var(--muted); padding: 0 2px; }
+.pd-pinfo { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+@media (max-width: 760px) { .pd-wrap.picked .pd-left { display: none; } }

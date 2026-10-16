@@ -42,9 +42,12 @@ export class PassportDesk {
   private filter: Filter = 'all';
   private sort: Sort = 'name';
   private picked = -1;
+  /** The page of the list (15 residents a page). */
+  private page = 0;
   private listEl?: HTMLDivElement;
   private cardEl?: HTMLDivElement;
   private wrapEl?: HTMLDivElement;
+  private pagerEl?: HTMLDivElement;
 
   constructor(parent: HTMLElement, private host: DeskHost) {
     this.root = el('div', 'pdesk');
@@ -66,13 +69,13 @@ export class PassportDesk {
     search.type = 'search';
     search.placeholder = t('Search: name, surname, profession or document No.');
     search.value = this.q;
-    search.addEventListener('input', () => { this.q = search.value; this.fill(count); });
+    search.addEventListener('input', () => { this.q = search.value; this.page = 0; this.fill(count); });
     search.addEventListener('keydown', (e) => e.stopPropagation());
     const chips = el('div', 'pd-chips');
     for (const [f, label] of FILTERS) {
       const b = el('button', `pd-chip${this.filter === f ? ' active' : ''}`);
       b.textContent = t(label);
-      b.addEventListener('click', () => { this.filter = f; chips.querySelectorAll('.pd-chip').forEach((x) => x.classList.toggle('active', x === b)); this.fill(count); });
+      b.addEventListener('click', () => { this.filter = f; this.page = 0; chips.querySelectorAll('.pd-chip').forEach((x) => x.classList.toggle('active', x === b)); this.fill(count); });
       chips.appendChild(b);
     }
     const sort = el('select', 'pd-sort') as HTMLSelectElement;
@@ -83,13 +86,16 @@ export class PassportDesk {
       sort.appendChild(o);
     }
     sort.value = this.sort;
-    sort.addEventListener('change', () => { this.sort = sort.value as Sort; this.fill(count); });
+    sort.addEventListener('change', () => { this.sort = sort.value as Sort; this.page = 0; this.fill(count); });
     const bar = el('div', 'pd-bar');
     bar.append(search, sort);
     const wrap = el('div', 'pd-wrap');
     this.listEl = el('div', 'pd-list');
+    this.pagerEl = el('div', 'pd-pager');
     this.cardEl = el('div', 'pd-card');
-    wrap.append(this.listEl, this.cardEl);
+    const left = el('div', 'pd-left');
+    left.append(this.listEl, this.pagerEl!);
+    wrap.append(left, this.cardEl);
     this.wrapEl = wrap;
     wrap.classList.toggle('picked', this.picked >= 0);
     this.root.append(head, bar, chips, wrap);
@@ -123,7 +129,10 @@ export class PassportDesk {
     const scroll = this.listEl.scrollTop;
     this.listEl.replaceChildren();
     if (!list.length) { const e = el('div', 'rp-note'); e.textContent = t('Nobody found'); this.listEl.appendChild(e); }
-    for (const p of list.slice(0, 300)) {
+    const PER = 15;
+    const pages = Math.max(1, Math.ceil(list.length / PER));
+    this.page = Math.min(this.page, pages - 1);
+    for (const p of list.slice(this.page * PER, this.page * PER + PER)) {
       const r = el('button', `pd-row${p.id === this.picked ? ' active' : ''}`);
       r.innerHTML = '<span class="pd-av"></span><div><b></b><small></small></div><em></em>';
       const av = r.querySelector('.pd-av') as HTMLElement;
@@ -135,8 +144,26 @@ export class PassportDesk {
       r.addEventListener('click', () => { this.picked = p.id; this.listEl!.querySelectorAll('.pd-row').forEach((x) => x.classList.toggle('active', x === r)); this.showCard(); });
       this.listEl.appendChild(r);
     }
-    if (list.length > 300) { const e = el('div', 'rp-note'); e.textContent = t('{n} more — search to narrow the list', { n: list.length - 300 }); this.listEl.appendChild(e); }
     this.listEl.scrollTop = scroll;
+    // the pages: ‹ 1 2 3 … ›
+    const pg = this.pagerEl!;
+    pg.replaceChildren();
+    if (pages > 1) {
+      const go = (n: number) => { this.page = Math.max(0, Math.min(pages - 1, n)); this.listEl!.scrollTop = 0; this.fill(count); };
+      const btn = (label: string, n: number, on = false, off = false) => { const b = el('button', `pd-pg${on ? ' active' : ''}`); b.textContent = label; b.disabled = off; b.addEventListener('click', () => go(n)); pg.appendChild(b); };
+      btn('‹', this.page - 1, false, this.page === 0);
+      const shown = new Set([0, pages - 1, this.page - 1, this.page, this.page + 1].filter((n) => n >= 0 && n < pages));
+      let last = -1;
+      for (const n of [...shown].sort((a, b) => a - b)) {
+        if (n - last > 1) { const d = el('span', 'pd-dots'); d.textContent = '…'; pg.appendChild(d); }
+        btn(String(n + 1), n, n === this.page);
+        last = n;
+      }
+      btn('›', this.page + 1, false, this.page >= pages - 1);
+      const info = el('span', 'pd-pinfo');
+      info.textContent = t('{a}–{b} of {n}', { a: this.page * PER + 1, b: Math.min(list.length, this.page * PER + PER), n: list.length });
+      pg.appendChild(info);
+    }
   }
 
   private showCard() {

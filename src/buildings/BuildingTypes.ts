@@ -107,7 +107,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   dairy: def({ kind: 'dairy', name: 'Dairy', size: 2, money: 1100, stone: 20, wood: 15, iron: 5, jobs: 4, salary: 13, energy: 3 }),
   supermarket: def({ kind: 'supermarket', name: 'Supermarket', size: 2, money: 2000, stone: 40, wood: 15, iron: 8, jobs: 8, salary: 13, energy: 5, slots: [[-0.6, 0.72, 0], [-0.3, 0.72, 0], [0.3, 0.72, 0], [0.6, 0.72, 0]] }),
   brickworks: def({ kind: 'brickworks', name: 'Brickworks', size: 2, money: 1200, stone: 20, wood: 10, iron: 5, jobs: 5, salary: 14, energy: 4 }),
-  steelmill: def({ kind: 'steelmill', name: 'Steel Mill', size: 2, money: 2600, stone: 40, iron: 20, jobs: 6, salary: 18, energy: 8 }),
+  steelmill: def({ kind: 'steelmill', name: 'Steel Mill', size: 2, money: 2600, stone: 40, iron: 20, jobs: 6, salary: 18, energy: 8, buildable: false }),
   sewage: def({ kind: 'sewage', name: 'Sewage Treatment', size: 2, money: 1500, stone: 30, iron: 10, jobs: 3, salary: 14, publicJob: true, upkeep: 6, energy: 4 }),
   coalmine: def({ kind: 'coalmine', name: 'Coal Mine', size: 2, money: 1000, wood: 15, jobs: 6, salary: 15, upkeep: 4, needsRoad: false, energy: 4 , work: 'miner' }),
   coalplant: def({ kind: 'coalplant', name: 'Coal Power Plant', size: 2, money: 2200, stone: 40, iron: 20, jobs: 5, salary: 17, publicJob: true, upkeep: 7, power: 160 }),
@@ -208,7 +208,7 @@ export const CHAIN = {
   /** Units a truck carries between chain buildings (only for show — goods are pooled). */
   load: 15,
 };
-/** More chains: dairy (milk → cheese, ice cream), brickworks (stone → bricks), steel mill (iron → steel), coal. */
+/** More chains: dairy (milk → cheese, ice cream), brickworks (stone → bricks), coal; iron speeds up big sites. */
 export const CHAIN2 = {
   dairy: 40, foodPerMilk: 1.5, milkShareOfRanch: 0.6,
   bricks: 30, stonePerBrick: 1, steel: 12, ironPerSteel: 1.5,
@@ -355,7 +355,7 @@ export const TOWN_LEVELS = [{ name: 'Village', pop: 0 }, { name: 'Town', pop: 10
 export const townLevel = (people: number) => TOWN_LEVELS.reduce((a, l, i) => (people >= l.pop ? i : a), 0);
 /** Buildings that open only when the town has grown (the level they need). */
 export const UNLOCK_LEVEL: Partial<Record<BuildingKind, number>> = {
-  cinema: 1, garage: 1, embassy: 1, tower15: 1, carfactory: 1, steelmill: 1, coalplant: 1, bigpark: 1, concerthall: 1,
+  cinema: 1, garage: 1, embassy: 1, tower15: 1, carfactory: 1, coalplant: 1, bigpark: 1, concerthall: 1,
   university: 2, stadium: 2, metro: 2, tower30: 2, airport: 2, casino: 2, hydro: 2, military: 2, academy: 2,
   tower50: 3, themepark: 3,
 };

@@ -97,7 +97,7 @@ const HEATING = { woodPerHome: 1.2, price: 3 };
 const DRIVING = new Set(['Driving the bus', 'On patrol', 'Driving a truck', 'Driving the fire truck', 'Driving the ambulance', 'Drilling on the parade ground', 'Collecting garbage']);
 export type WeatherMood = 'clear' | 'fog' | 'blizzard' | 'heat';
 const CARGO_PURPOSE: Record<CargoKind, string> = {
-  bricks: 'Delivering bricks', steel: 'Delivering steel', milk: 'Bringing milk to the dairy', dairy: 'Delivering cheese and ice cream',
+  bricks: 'Delivering bricks', steel: 'Delivering iron beams', milk: 'Bringing milk to the dairy', dairy: 'Delivering cheese and ice cream',
   stone: 'Delivering stone', logs: 'Bringing logs to the sawmill', planks: 'Delivering planks', grain: 'Bringing grain to the mill',
   flour: 'Bringing flour to the bakery', bread: 'Delivering bread to the shops', trash: 'Collecting garbage', veg: 'Delivering fruit and fish',
   cotton: 'Bringing cotton to the clothing stores', corn: 'Bringing corn feed to the ranch',
@@ -1982,12 +1982,6 @@ export class Life {
         eco.add(city, 'stone', -n * CHAIN2.stonePerBrick, 'Brickworks');
         eco.add(city, 'bricks', n, 'Brickworks');
       }
-      for (const sm of own.filter((b) => b.kind === 'steelmill')) {
-        const n = Math.min(Math.max(0, city.iron - 10) / CHAIN2.ironPerSteel, CHAIN2.steel * staff(sm) * share);
-        if (n <= 0) continue;
-        eco.add(city, 'iron', -n * CHAIN2.ironPerSteel, 'Steel mill');
-        eco.add(city, 'steel', n, 'Steel mill');
-      }
       for (const sm of own.filter((b) => b.kind === 'sawmill')) {
         const n = Math.min(Math.max(0, city.wood - 20), CHAIN.sawmill * staff(sm) * share);
         if (n <= 0) continue;
@@ -2054,7 +2048,7 @@ export class Life {
   /** Construction sites get planks from the sawmill: a truck brings them and the site goes up faster. */
   private deliverPlanks() {
     this.deliverMaterial('bricks', 'brickworks', 'bricks', 'Delivering bricks');
-    this.deliverMaterial('steel', 'steelmill', 'steel', 'Delivering steel');
+    this.deliverMaterial('iron', 'ironmine', 'steel', 'Delivering iron beams');
     const { buildings, eco, traffic } = this.c;
     const now = this.clock();
     for (const site of buildings.list) {
@@ -2072,22 +2066,23 @@ export class Life {
     }
   }
 
-  /** Bricks and steel go to construction sites by truck; each makes the site go up faster for a while. */
-  private deliverMaterial(res: 'bricks' | 'steel', producer: string, cargo: CargoKind, purpose: string) {
+  /** Bricks (and iron beams for big sites) go to construction sites by truck; each makes the site go up faster for a while. */
+  private deliverMaterial(res: 'bricks' | 'iron', producer: string, cargo: CargoKind, purpose: string) {
     const { buildings, eco, traffic } = this.c;
     const now = this.clock();
     for (const site of buildings.list) {
       if (site.built >= 1 || site.removed || this.crewSize(site) === 0) continue;
-      if (res === 'steel' && BUILDINGS[site.kind].size < 2) continue;
+      if (res === 'iron' && BUILDINGS[site.kind].size < 2) continue;
       const boost = (site.boost ??= {});
-      if ((boost[res] ?? 0) > now) continue;
+      const key = res === 'iron' ? 'steel' : res;
+      if ((boost[key] ?? 0) > now) continue;
       const city = eco.cities.get(site.city);
-      if (!city || city[res] < CHAIN2.perSite) continue;
+      if (!city || city[res] < CHAIN2.perSite + (res === 'iron' ? 20 : 0)) continue;
       const from = buildings.list.find((b) => b.kind === producer && b.city === site.city && b.access >= 0);
       const driver = from ? this.takeDriver(from) : undefined;
       if (!from || !driver || site.access < 0) { this.releaseDriver(driver); continue; }
       eco.add(city, res, -CHAIN2.perSite, 'Used on construction sites');
-      boost[res] = now + 90;
+      boost[key] = now + 90;
       const ok = traffic.spawn({ kind: 'truck', from: from.access, to: site.access, loaded: true, cargo, fromPos: buildings.door(from), purpose, driverId: driver.id, driverName: this.fullName(driver), fromName: BUILDINGS[from.kind].name, destName: BUILDINGS[site.kind].name, onArrive: () => this.releaseDriver(driver), onFail: () => this.releaseDriver(driver) });
       if (!ok) this.releaseDriver(driver);
     }
