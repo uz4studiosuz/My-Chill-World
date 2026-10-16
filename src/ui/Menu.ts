@@ -265,7 +265,7 @@ export class Menu {
     };
     row.append(
       mk('Sound', () => sound.sfxOn, (v) => sound.setSfx(v)),
-      mk('Nature', () => sound.natureOn, (v) => sound.setNature(v)),
+      mk('Nature sounds', () => sound.natureOn, (v) => sound.setNature(v)),
       mk('Newspaper', () => Newspaper.enabled, (v) => { Newspaper.enabled = v; }),
       mk('Morning card', () => { try { return localStorage.getItem('mcw_dayreport') !== '0'; } catch { return true; } }, (v) => { try { localStorage.setItem('mcw_dayreport', v ? '1' : '0'); } catch { /* ignore */ } }),
     );

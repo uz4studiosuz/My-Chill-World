@@ -143,6 +143,9 @@ const smooth = (a: number, b: number, x: number) => {
 };
 
 /** A line the builders lay tile by tile: a road, railway, path, canal, water pipe, power cable or tunnel. */
+/** What each kind of line is called on its progress tag. */
+const LINE_NAME: Record<string, string> = { road: 'Road', rail: 'Railway', path: 'Footpath', canal: 'Irrigation Canal', pipe: 'Water Pipe', cable: 'Power Cable', tunnel: 'Tunnel' };
+
 interface LineJob {
   kind: 'road' | 'rail' | 'path' | 'canal' | 'pipe' | 'cable' | 'tunnel';
   /** Footpath style. */
@@ -752,6 +755,7 @@ export class Game implements ToolHost {
     this.news = new Newspaper(this.hud.root);
     this.news.onUnread = (n) => this.hud?.setBadge('news', n);
     // a new world: time waits while the mayor reads the welcome and chooses to learn or to play
+    if (this.tutorial && !this.tutorial.finished) this.tutorial.reattach(this.hud.root);
     if (this.wantTutorial && !this.welcomed) {
       this.welcomed = true;
       this.speed = 0;
@@ -1162,8 +1166,6 @@ export class Game implements ToolHost {
     const job = (k: LineJob['kind'], why: string, extra: Partial<LineJob> = {}) => {
       this.eco.spend(r.money ?? 0, r.stone ?? 0, r.wood ?? 0, r.iron ?? 0, why);
       this.roadJobs.push({ kind: k, tiles: path.map((tl) => ({ x: tl.x, z: tl.z })), done: 0, lit: false, city: this.eco.active, prog: 0, money: r.money ?? 0, stone: r.stone ?? 0, wood: r.wood ?? 0, iron: r.iron ?? 0, ...extra });
-      if (!this.buildings.list.some((b) => b.kind === 'construction' && b.city === this.eco.active && b.built >= 1))
-        this.hud?.toast(t('Builders lay it tile by tile: build a Construction Company'));
       this.drawRoadSites();
     };
     if (kind === 'tunnel') return job('tunnel', 'Tunnels');
@@ -1188,8 +1190,6 @@ export class Game implements ToolHost {
     this.lights.setLit(path.filter((tl) => this.net.type[idx(tl.x, tl.z)]).map((tl) => idx(tl.x, tl.z)), kind === 'litroad');
     this.terrain.clearTiles(path.filter((tl) => this.map.height[idx(tl.x, tl.z)] <= 0).map((tl) => idx(tl.x, tl.z)));
     this.roadJobs.push({ kind: 'road', tiles: path.map((tl) => ({ x: tl.x, z: tl.z })), done: 0, lit: kind === 'litroad', city: this.eco.active, prog: 0, money: r.money ?? 0, stone: r.stone ?? 0 });
-    if (path.some((tl) => !this.net.type[idx(tl.x, tl.z)]) && !this.buildings.list.some((b) => b.kind === 'construction' && b.city === this.eco.active && b.built >= 1))
-      this.hud?.toast(t('Roads are laid by builders: build a Construction Company'));
     this.drawRoadSites();
     this.networkChanged(false);
   }
@@ -1228,7 +1228,8 @@ export class Game implements ToolHost {
       const site = this.roadSiteOf(job);
       const crew = site ? this.life.roadCrew(site.key) : 0;
       crews.set(job.city, crew);
-      job.prog += dt * 0.3 * Math.min(crew, 8) * Game.LINE_PACE[job.kind];
+      // the road crew of the company lays it by itself; builders who come make it faster
+      job.prog += dt * 0.3 * (1.5 + Math.min(crew, 8)) * Game.LINE_PACE[job.kind];
       while (job.done < job.tiles.length) {
         const tl = job.tiles[job.done];
         const k = idx(tl.x, tl.z);
@@ -1281,7 +1282,7 @@ export class Game implements ToolHost {
   /** Gravel where a road is still to be laid, cones and a roller where the builders are at work. */
   private drawRoadSites() {
     if (!this.roadSites.parent) this.scene.add(this.roadSites);
-    for (const ch of [...this.roadSites.children]) this.roadSites.remove(ch);
+    for (const ch of [...this.roadSites.children]) { this.roadSites.remove(ch); if ((ch as THREE.Sprite).isSprite) { const m = (ch as THREE.Sprite).material; m.map?.dispose(); m.dispose(); } }
     const todo: Tile[] = [], active: Tile[] = [];
     for (const job of this.roadJobs) {
       let first = true;
@@ -1309,7 +1310,35 @@ export class Game implements ToolHost {
       crew.castShadow = true;
       this.roadSites.add(crew);
     }
+    // a tag over each line being laid: what and how far
+    for (const job of this.roadJobs) {
+      const st = this.roadSiteOf(job);
+      if (!st) continue;
+      const left = job.tiles.slice(job.done).filter((tl) => !this.lineDone(job, idx(tl.x, tl.z))).length;
+      const total = job.tiles.length;
+      const tag = this.lineTag(`${t(LINE_NAME[job.kind])} · ${total - left}/${total}`, (total - left) / Math.max(1, total));
+      tag.position.set(st.x, 0.9, st.z);
+      this.roadSites.add(tag);
+    }
   }
+  /** A small floating tag with a progress bar (a road or pipe being laid). */
+  private lineTag(text: string, p: number) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 72;
+    const g = c.getContext('2d')!;
+    g.fillStyle = 'rgba(21,24,29,0.9)';
+    g.beginPath(); g.roundRect(4, 4, 248, 64, 14); g.fill();
+    g.fillStyle = '#ffffff'; g.font = 'bold 24px sans-serif'; g.textAlign = 'center'; g.fillText(text, 128, 32);
+    g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(20, 46, 216, 10);
+    g.fillStyle = '#f2b33d'; g.fillRect(20, 46, 216 * Math.max(0, Math.min(1, p)), 10);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+    sp.scale.set(1.5, 0.42, 1);
+    sp.renderOrder = 21;
+    return sp;
+  }
+
   private siteGeo = (() => {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     const gravel = box(0.92, 0.03, 0.92, 0, 0.015, 0, '#b49a6c');
@@ -1924,10 +1953,7 @@ export class Game implements ToolHost {
     } else if (this.mapLayer === 'traffic') {
       this.overlays.showGrid([], '');
     } else if (this.mapLayer === 'land') {
-      this.overlays.showGrid(list.filter((b) => !DECOR[b.kind]), '', (b) => {
-        const v = this.landValue(b);
-        return v >= 1.6 ? '#3a6fd1' : v >= 1.2 ? '#6fb6ff' : v >= 0.9 ? '#aab4be' : '#a0703f';
-      });
+      this.overlays.showGrid([], '');
     } else if (this.mapLayer === 'crime') {
       this.overlays.showGrid(list.filter((b) => BUILDINGS[b.kind].units || BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind]), '', (b) => {
         const c = this.crimeAt(b);
@@ -1950,7 +1976,43 @@ export class Game implements ToolHost {
         tiles.push({ x: tileToWorld(k % N), z: tileToWorld((k / N) | 0), color: h < 0.35 ? '#58d36b' : h < 0.9 ? '#f2b33d' : '#ff5a4e' });
       }
       this.overlays.showTiles(tiles);
-    } else this.overlays.showTiles([]);
+    } else if (this.mapLayer === 'land') this.overlays.showTiles(this.landTiles());
+    else this.overlays.showTiles([]);
+  }
+
+  /** The land value map: every tile of land around your towns coloured from cheap (brown) to dear (blue). */
+  private landTiles() {
+    const out: { x: number; z: number; color: string }[] = [];
+    const halls = this.buildings.halls().filter((h) => !this.cityOf(h).ai);
+    const nice: [number, number, number][] = [], smoke: [number, number, number][] = [];
+    for (const o of this.buildings.list) {
+      if (o.removed || o.built < 1) continue;
+      if (DECOR[o.kind] || o.kind === 'park' || o.kind === 'bigpark' || o.kind === 'fountain') nice.push([o.x, o.z, 0.12]);
+      else if (o.kind === 'metro') nice.push([o.x, o.z, 0.25]);
+      if (POLLUTERS[o.kind]) smoke.push([o.x, o.z, POLLUTERS[o.kind]! * 0.06]);
+    }
+    const seen = new Set<number>();
+    for (const h of halls) {
+      for (let dz = -26; dz <= 26; dz++) for (let dx = -26; dx <= 26; dx++) {
+        const x = h.x + dx, z = h.z + dz;
+        if (!inBounds(x, z)) continue;
+        const k = idx(x, z);
+        if (seen.has(k) || this.map.water[k] || this.map.height[k] > 0) continue;
+        const dc = Math.hypot(dx, dz);
+        if (dc > 26) continue;
+        seen.add(k);
+        let v = 1 + Math.max(0, 1 - dc / 24) * 0.7;
+        let n = 0, s = 0;
+        for (const [ox, oz, w] of nice) if (Math.abs(ox - x) + Math.abs(oz - z) <= 5) n += w;
+        for (const [ox, oz, w] of smoke) if (Math.abs(ox - x) + Math.abs(oz - z) <= 6) s += w;
+        let water = false;
+        for (let wz = -3; wz <= 3 && !water; wz++) for (let wx = -3; wx <= 3; wx++) if (inBounds(x + wx, z + wz) && this.map.water[idx(x + wx, z + wz)]) { water = true; break; }
+        v += Math.min(0.6, n) + (water ? 0.3 : 0) - Math.min(0.6, s);
+        v = Math.max(0.6, Math.min(2.2, v));
+        out.push({ x: tileToWorld(x), z: tileToWorld(z), color: v >= 1.7 ? '#2f5fcf' : v >= 1.4 ? '#4f8fe8' : v >= 1.15 ? '#8fc0f5' : v >= 0.95 ? '#c9cdd2' : v >= 0.8 ? '#c99a6b' : '#8a5a35' });
+      }
+    }
+    return out;
   }
 
   /** Vehicles per road tile lately (the traffic map). */

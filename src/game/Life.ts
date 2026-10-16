@@ -3871,8 +3871,14 @@ export class Life {
   private dispatchBuilders() {
     const { pop, buildings } = this.c;
     for (const c of pop.citizens.values()) {
-      if (c.job < 0 || c.state !== 'away' || c.at !== c.job || this.busyBuilders.has(c.id) || c.walker) continue;
+      if (c.job < 0 || c.state !== 'away' || c.at !== c.job) continue;
+      // a builder waiting for an order (even walking back to the yard) is free for a new site
+      const waiting = c.activity === 'Waiting for a new order' || c.activity === 'At work';
+      if (this.busyBuilders.has(c.id) && !waiting) continue;
+      if (c.walker && !waiting) continue;
       const yard = buildings.get(c.job);
+      if (yard?.kind !== 'construction') continue;
+      if (waiting) this.busyBuilders.delete(c.id);
       if (yard?.kind === 'construction' && (buildings.list.some((b) => b.built < 1 && b.city === yard.city) || this.roadSite?.(yard.city))) this.builderLoop(c, yard);
     }
   }

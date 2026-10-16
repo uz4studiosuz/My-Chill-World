@@ -193,8 +193,9 @@ export class Editor {
     help.addEventListener('click', () => help.classList.remove('show'));
     const helpBtn = btn('?', () => help.classList.toggle('show'), 'ed-btn ed-icon', t('Keyboard shortcuts'));
     this.topUi = { undo: undoBtn, redo: redoBtn, move: moveBtn, scale: scaleBtn, rotate: rotBtn, help };
+    const home = btn(`⌂ ${t('Main menu')}`, () => { location.href = location.pathname.replace(/editor(\.html)?\/?$/, '') || './'; }, 'ed-btn primary', t('Back to the main menu'));
     top.append(
-      title, edit, modes, views, helpBtn, name, size, template,
+      home, title, edit, modes, views, helpBtn, name, size, template,
       btn(t('New'), () => { if (confirm(t('Start a new empty model?'))) { this.pushUndo(); this.parts = []; this.imported.clear(); this.rebuild(); } }),
       btn(t('Import'), () => file.click(), 'ed-btn', t('JSON from this editor, or a .glb / .gltf / .obj model')),
       btn(t('Export JSON'), () => this.exportJson(), 'ed-btn primary'),

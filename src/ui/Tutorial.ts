@@ -35,17 +35,17 @@ const STEPS: Step[] = [
   { title: 'Welcome, mayor!', text: 'This little town is yours. People move in when there are homes, water, power, food and jobs. On the right is the town panel: what the town has and what it needs.',
     why: 'Time is paused — take your time. Press Next.', target: '.sidebar', reward: 0 },
   { title: 'Start the clock', text: 'Press ▶ / 1× at the top to let time run. Builders, families and cars only move while time runs.',
-    why: 'Pause (⏸) whenever you want to think.', target: '.speeds .sbtn, .mobile-speed .sbtn', reward: 100, done: (c) => c.speed > 0 },
-  { title: 'Build a road', text: 'At the bottom open the Roads tab, choose Road and drag from the end of a street. Then press Build. The builders lay it tile by tile.',
-    why: 'Every home and shop needs a road at its door.', target: '[data-cat="roads"]', reward: 200, done: (c, s) => c.roads >= s.roads + 2 },
+    why: 'Pause (⏸) whenever you want to think.', target: '.sp-pause, .sp-cur, .mobile-speed .sbtn', reward: 100, done: (c) => c.speed > 0 },
+  { title: 'Build a road', text: 'At the bottom open the Roads tab, choose Road and drag from the end of a street. Then press Build. The road crew lays it tile by tile by itself.',
+    why: 'Every home and shop needs a road at its door.', target: '[data-cat="roads"], [data-tool="road"]', reward: 200, done: (c, s) => c.roads >= s.roads + 2 },
   { title: 'Build a house', text: 'Open the Town tab, choose House and tap next to a road, then Build. It needs money, stone, wood and bricks (the card shows what you have).',
-    why: 'Each house brings a new family: workers and taxes.', target: '[data-cat="buildings"]', reward: 200, done: (c, s) => c.houses > s.houses },
+    why: 'Each house brings a new family: workers and taxes.', target: '[data-cat="buildings"], [data-tool="house"]', reward: 200, done: (c, s) => c.houses > s.houses },
   { title: 'Water for the house', text: 'When the house is finished, lay a Water Pipe (Roads tab) from the pipe under the street to under the house. The 💧 map on the left shows the pipes.',
-    why: 'A home gets water only where a pipe runs under it.', target: '[data-cat="roads"], [data-layer="water"]', reward: 200, done: (c, _s, f) => c.builtHouses > f.builtHouses && c.dry === 0 },
+    why: 'A home gets water only where a pipe runs under it.', target: '[data-cat="roads"], [data-tool="pipe"], [data-layer="water"]', reward: 200, done: (c, _s, f) => c.builtHouses > f.builtHouses && c.dry === 0 },
   { title: 'Power for everyone', text: 'Buildings get electricity through power cables: lay a Power Cable (Roads tab) along the street to any building that has none.',
-    why: 'Without power homes are unhappy and workplaces slow down.', target: '[data-cat="roads"], [data-layer="power"]', reward: 200, done: (c) => c.unwired === 0 },
+    why: 'Without power homes are unhappy and workplaces slow down.', target: '[data-cat="roads"], [data-tool="cable"], [data-layer="power"]', reward: 200, done: (c) => c.unwired === 0 },
   { title: 'Food and a shop', text: 'Open the Business tab and build a Grocery Store by a road. Families buy food there and the town earns tax.',
-    why: 'Hungry people get sick and leave.', target: '[data-cat="business"]', reward: 250, done: (c, s) => c.shops > s.shops },
+    why: 'Hungry people get sick and leave.', target: '[data-cat="business"], [data-tool="grocery"]', reward: 250, done: (c, s) => c.shops > s.shops },
   { title: 'Read the newspaper', text: 'Open the Newspaper in the town panel: every day it says what the town needs most.',
     why: 'When you do not know what to build next, look there.', target: '[data-panel="news"]', reward: 100, done: (c, s) => c.newsOpened > s.newsOpened },
   { title: 'Look at a map', text: 'Tap one of the map buttons on the left (electricity, water, happiness, traffic…). A key explains the colours.',
@@ -55,7 +55,7 @@ const STEPS: Step[] = [
   { title: 'Missions', text: 'Open Goals (in the town panel, under More): a campaign of missions with money rewards, chapter by chapter.',
     why: 'They show you the way from a village to a metropolis.', target: '[data-panel="trophy"]', reward: 150, done: (c, s) => c.goalsOpened > s.goalsOpened },
   { title: 'Faster!', text: 'Speed time up with 3× or 10× at the top. You are ready to build your city!',
-    why: 'Watch the newspaper and the town panel as the town grows.', target: '.speeds .sbtn, .mobile-speed .sbtn', reward: 300, done: (c) => c.speed >= 3 },
+    why: 'Watch the newspaper and the town panel as the town grows.', target: '.sp-cur, .sp-opt, .mobile-speed .step', reward: 300, done: (c) => c.speed >= 3 },
 ];
 
 const KEY = 'mcw_tutorial_done';
@@ -78,7 +78,49 @@ export class Tutorial {
     this.first = { ...ctx };
     this.root = el('div', 'tutorial tut2');
     parent.appendChild(this.root);
+    this.spot = el('div', 'tut-spot');
+    this.veil = el('div', 'tut-veil');
+    document.body.append(this.veil, this.spot);
     this.render();
+    const follow = () => { if (this.finished) return; this.placeSpot(); this.raf = requestAnimationFrame(follow); };
+    this.raf = requestAnimationFrame(follow);
+  }
+
+  /** The dark veil with a bright, beating hole around what to press. */
+  private spot: HTMLDivElement;
+  private veil: HTMLDivElement;
+  private raf = 0;
+
+  /** After the interface is rebuilt (a new language): back on screen, in the new language. */
+  reattach(parent: HTMLElement) {
+    if (this.finished) return;
+    parent.appendChild(this.root);
+    this.render();
+  }
+
+  private placeSpot() {
+    const s = STEPS[this.step];
+    const target = s?.target ? [...document.querySelectorAll(s.target)].find((e) => (e as HTMLElement).offsetParent !== null) as HTMLElement | undefined : undefined;
+    // the most specific target that is on screen (the tile, else its tab)
+    const parts = s?.target ? s.target.split(',').map((x) => x.trim()) : [];
+    let best: HTMLElement | undefined;
+    for (const sel of [...parts].reverse()) { const e = [...document.querySelectorAll(sel)].find((x) => (x as HTMLElement).offsetParent !== null) as HTMLElement | undefined; if (e && sel.includes('data-tool')) { best = e; break; } }
+    const el2 = best ?? target;
+    if (!el2 || this.step === 0) { this.spot.classList.remove('show'); this.veil.classList.remove('show'); return; }
+    const r = el2.getBoundingClientRect();
+    if (!r.width) { this.spot.classList.remove('show'); this.veil.classList.remove('show'); return; }
+    const pad = 6;
+    this.spot.style.left = `${r.left - pad}px`;
+    this.spot.style.top = `${r.top - pad}px`;
+    this.spot.style.width = `${r.width + pad * 2}px`;
+    this.spot.style.height = `${r.height + pad * 2}px`;
+    this.spot.classList.add('show');
+    // the rest of the screen is dimmed, with a hole where to press (and the tutorial card stays bright)
+    const W = window.innerWidth, Hh = window.innerHeight;
+    const x0 = r.left - pad, y0 = r.top - pad, x1 = r.right + pad, y1 = r.bottom + pad;
+    const c = this.root.getBoundingClientRect();
+    this.veil.style.clipPath = `path(evenodd, 'M0 0H${W}V${Hh}H0Z M${x0} ${y0}H${x1}V${y1}H${x0}Z M${c.left} ${c.top}H${c.right}V${c.bottom}H${c.left}Z')`;
+    this.veil.classList.add('show');
   }
 
   update(ctx: TutorialContext) {
@@ -98,6 +140,7 @@ export class Tutorial {
     if (this.last) this.start = { ...this.last };
     if (this.step >= STEPS.length) this.finish(true);
     else this.render();
+    if (earned && s.reward) confetti();
     if (earned && s.reward) this.onDone(s.reward);
   }
 
@@ -141,6 +184,9 @@ export class Tutorial {
 
   private finish(completed = false) {
     this.finished = true;
+    cancelAnimationFrame(this.raf);
+    this.spot.remove();
+    this.veil.remove();
     document.querySelectorAll('.tut-glow').forEach((e) => e.classList.remove('tut-glow'));
     try { localStorage.setItem(KEY, '1'); } catch { /* ignore */ }
     if (completed) {
@@ -154,6 +200,9 @@ export class Tutorial {
 
   dispose() {
     document.querySelectorAll('.tut-glow').forEach((e) => e.classList.remove('tut-glow'));
+    cancelAnimationFrame(this.raf);
+    this.spot.remove();
+    this.veil.remove();
     this.root.remove();
   }
 }
@@ -181,4 +230,24 @@ export function welcome(parent: HTMLElement, onTutorial: () => void, onPlay: () 
   btns.append(a, b);
   back.appendChild(box);
   parent.appendChild(back);
+}
+
+/** A burst of confetti over the screen (a mission done). */
+export function confetti() {
+  const box = document.createElement('div');
+  box.className = 'confetti';
+  const colors = ['#f2b33d', '#7be08f', '#6fb6ff', '#f28cb8', '#ff7a6e', '#b9a3e0', '#ffe066'];
+  for (let i = 0; i < 70; i++) {
+    const p = document.createElement('i');
+    const x = (Math.random() - 0.5) * 900, y = -(200 + Math.random() * 350), rot = Math.random() * 720 - 360;
+    p.style.background = colors[i % colors.length];
+    p.style.setProperty('--x', `${x}px`);
+    p.style.setProperty('--y', `${y}px`);
+    p.style.setProperty('--r', `${rot}deg`);
+    p.style.animationDelay = `${Math.random() * 0.15}s`;
+    if (i % 3 === 0) p.style.borderRadius = '50%';
+    box.appendChild(p);
+  }
+  document.body.appendChild(box);
+  setTimeout(() => box.remove(), 2200);
 }

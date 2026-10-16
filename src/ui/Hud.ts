@@ -153,6 +153,22 @@ export const CATS: { id: Category; label: string; icon: IconName }[] = [
   { id: 'decor', label: 'Decor', icon: 'flower' },
 ];
 
+
+
+/** The most needed things first in every tab (a new player finds them at once); the rest keep their order. */
+const PRIORITY: Record<string, string[]> = {
+  roads: ['road', 'pipe', 'cable', 'litroad', 'path', 'roundabout', 'rail', 'tunnel', 'canal', 'path_stone', 'path_brick', 'path_gravel', 'path_wood', 'zone_res', 'zone_com', 'zone_ind', 'zone_none'],
+  buildings: ['house', 'watertower', 'apartment', 'park', 'parking', 'cemetery', 'garage', 'embassy', 'bigpark', 'tower15', 'tower30', 'tower50'],
+  services: ['school', 'kindergarten', 'hospital', 'police', 'firestation', 'sewage', 'landfill', 'weddinghall', 'busstop', 'busdepot', 'pharmacy', 'mosque', 'university', 'recycling', 'metro', 'cctv', 'levee', 'academy', 'stadium', 'concerthall', 'migration', 'military'],
+  business: ['construction', 'grocery', 'market', 'bakery', 'supermarket', 'clothes', 'dairyshop', 'kiosk', 'gasstation', 'bank', 'office', 'hotel', 'carmarket', 'teahouse', 'barber', 'gym', 'cinema', 'casino', 'themepark'],
+  production: ['farm', 'woodcutter', 'quarry', 'powerplant', 'orchard', 'ranch', 'windturbine', 'solarfarm', 'battery', 'fishery', 'warehouse', 'mill', 'sawmill', 'brickworks', 'dairy', 'ironmine', 'factory', 'coalmine', 'coalplant', 'steelmill', 'bikefactory', 'carfactory', 'hydro', 'trainstation', 'airport'],
+};
+{
+  const rank = (it: ToolItem) => { const l = PRIORITY[it.cat]; const i = l ? l.indexOf(it.tool) : -1; return i < 0 ? 999 : i; };
+  const pos = new Map(ITEMS.map((it, i) => [it, i]));
+  ITEMS.sort((a, b) => (a.cat === b.cat ? rank(a) - rank(b) || pos.get(a)! - pos.get(b)! : pos.get(a)! - pos.get(b)!));
+}
+
 const CAT_DESC: Record<Category, string> = {
   roads: 'Roads, paths and canals connect everything.',
   buildings: 'Housing and the basics of a town.',
@@ -237,8 +253,8 @@ const LEGENDS: Record<string, { title: string; icon: IconName; items: [string, s
     tip: 'Tap a home to see why its people feel that way.' },
   traffic: { title: 'Traffic map', icon: 'car', items: [['#58d36b', 'Free flow'], ['#f2b33d', 'Busy'], ['#ff5a4e', 'Jammed']],
     tip: 'Red streets need another road beside them, a roundabout, a bus line, a metro or a car park.' },
-  land: { title: 'Land value map', icon: 'coin', items: [['#3a6fd1', 'Very dear (×1.6+)'], ['#6fb6ff', 'Dear (×1.2+)'], ['#aab4be', 'Ordinary'], ['#a0703f', 'Cheap (near factories)']],
-    tip: 'The centre, parks, decorations, water and metro stations raise it; factories and mines lower it. Property tax follows it.' },
+  land: { title: 'Land value map', icon: 'coin', items: [['#2f5fcf', 'Very dear (×1.7+)'], ['#4f8fe8', 'Dear (×1.4+)'], ['#8fc0f5', 'Above average'], ['#c9cdd2', 'Ordinary'], ['#c99a6b', 'Cheap'], ['#8a5a35', 'Very cheap (smoke)']],
+    tip: 'Every tile around your town: the closer to the town hall the dearer (up to 24 tiles); parks and decorations add within 5 tiles, a river or lake within 3, a metro station within 5; factories and mines lower it within 6. Build homes and shops on blue land, factories on brown. Property tax follows it.' },
   crime: { title: 'Crime map', icon: 'eye', items: [['#58d36b', 'Safe'], ['#f2b33d', 'Some thefts'], ['#ff5a4e', 'Dangerous']],
     tip: 'Police stations (with staff) and security cameras make streets safe; jobs and a good income do too.' },
 };
@@ -250,6 +266,9 @@ export class Hud {
   readonly root: HTMLDivElement;
   private tool: ToolId = 'pan';
   private speedBtns: HTMLButtonElement[] = [];
+  private spPause!: HTMLButtonElement;
+  private spCur!: HTMLButtonElement;
+  private spOpts: HTMLButtonElement[] = [];
   private undoBtn: HTMLButtonElement;
   private moveBtn: HTMLButtonElement;
   private removeBtn: HTMLButtonElement;
@@ -392,15 +411,24 @@ export class Hud {
     top.appendChild(spacer);
 
     const corner = el('div', 'corner');
-    const speeds = el('div', 'speeds');
-    SPEEDS.forEach((s) => {
-      const btn = el('button', 'sbtn');
-      btn.innerHTML = s === 0 ? icon('pause') : `${s}×`;
-      btn.setAttribute('aria-label', s === 0 ? t('Pause') : t('Speed {n}', { n: s }));
-      btn.addEventListener('click', () => h.setSpeed(s));
-      this.speedBtns.push(btn);
-      speeds.appendChild(btn);
-    });
+    const speeds = el('div', 'speeds speed-pick');
+    this.spPause = el('button', 'sbtn sp-pause');
+    this.spPause.addEventListener('click', () => h.setSpeed(this.speed === 0 ? (this.lastSpeed || 1) : 0));
+    this.spCur = el('button', 'sbtn sp-cur');
+    this.spCur.title = t('Game speed');
+    const spMenu = el('div', 'sp-menu');
+    this.spCur.addEventListener('click', (e) => { e.stopPropagation(); spMenu.classList.toggle('show'); });
+    for (const [sp, label] of [[1, 'Normal'], [3, 'Fast'], [10, 'Very fast'], [50, 'Fastest']] as [number, string][]) {
+      const o = el('button', 'sp-opt');
+      o.innerHTML = `<b>${sp}×</b><span></span>`;
+      (o.querySelector('span') as HTMLElement).textContent = t(label);
+      o.dataset.speed = String(sp);
+      o.addEventListener('click', () => { spMenu.classList.remove('show'); h.setSpeed(sp); });
+      spMenu.appendChild(o);
+      this.spOpts.push(o);
+    }
+    document.addEventListener('pointerdown', (e) => { if (!speeds.contains(e.target as Node)) spMenu.classList.remove('show'); }, true);
+    speeds.append(this.spPause, this.spCur, spMenu);
     const rot = el('div', 'speeds');
     for (const dir of [1, -1]) {
       const btn = el('button', 'sbtn');
@@ -549,7 +577,7 @@ export class Hud {
     try { sideMin = localStorage.getItem('mcw_side_min') === '1'; } catch { /* ignore */ }
     setSide(sideMin);
     sideToggle.addEventListener('click', () => setSide(!document.body.classList.contains('side-min')));
-    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle, this.costEl, this.reportEl);
+    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle, this.costEl, this.reportEl, this.modeEl);
     parent.appendChild(this.root);
     this.toggleDrawer('buildings');
   }
@@ -664,6 +692,7 @@ export class Hud {
 
   private card(it: ToolItem) {
     const btn = el('button', 'card');
+    btn.dataset.tool = it.tool;
     const img = el('div', 'card-img');
     const thumb = this.thumbs.get(it.tool);
     if (thumb) img.style.backgroundImage = `url(${thumb})`;
@@ -730,9 +759,28 @@ export class Hud {
     this.refreshCards();
     this.setHint(null);
     this.renderCost();
+    this.renderMode();
   }
 
   private costEl = el('div', 'build-cost');
+  private modeEl = el('div', 'build-mode');
+
+  /** While a build tool is on: what it is, and buttons back to Move or to cancel. */
+  private renderMode() {
+    const it = ITEMS.find((i) => i.tool === this.tool);
+    const on = this.tool !== 'pan' && (!!it || this.tool === 'bulldoze');
+    this.modeEl.classList.toggle('show', on);
+    if (!on) return;
+    const name = it ? t(it.name) : t('Remove');
+    if (this.modeEl.dataset.tool === this.tool) return;
+    this.modeEl.dataset.tool = this.tool;
+    this.modeEl.innerHTML = `<span class="bm-ic">${icon(it?.icon ?? 'bulldoze')}</span><b></b><button class="bm-move">${icon('pan')}<span></span></button><button class="bm-x">${icon('close')}<span></span></button>`;
+    (this.modeEl.querySelector('b') as HTMLElement).textContent = name;
+    (this.modeEl.querySelector('.bm-move span') as HTMLElement).textContent = `${t('Move')} (V)`;
+    (this.modeEl.querySelector('.bm-x span') as HTMLElement).textContent = t('Cancel');
+    this.modeEl.querySelector('.bm-move')!.addEventListener('click', () => { this.h.cancelBuild(); this.h.setTool('pan'); });
+    this.modeEl.querySelector('.bm-x')!.addEventListener('click', () => { this.h.cancelBuild(); this.h.setTool('pan'); });
+  }
   /** Why a building is still locked (the town level it needs), or null. Set by the game. */
   lockOf?: (tool: string) => string | null;
   private reportEl = el('div', 'day-report');
@@ -807,6 +855,13 @@ export class Hud {
 
   setSpeed(s: number) {
     this.speedBtns.forEach((btn, i) => btn.classList.toggle('active', SPEEDS[i] === s));
+    if (this.spPause) {
+      this.spPause.innerHTML = icon(s === 0 ? 'play' : 'pause');
+      this.spPause.classList.toggle('paused', s === 0);
+      this.spPause.title = s === 0 ? t('Play') : t('Pause');
+      this.spCur.innerHTML = `<b>${s === 0 ? (this.lastSpeed || 1) : s}×</b>${icon('down')}`;
+      this.spOpts.forEach((o) => o.classList.toggle('active', Number(o.dataset.speed) === s));
+    }
     this.speed = s;
     if (s > 0) this.lastSpeed = s;
     this.playBtn.innerHTML = icon(s === 0 ? 'play' : 'pause');
