@@ -2240,3 +2240,31 @@ body.pov-mode .build-mode, body.photo-mode .build-mode { display: none !importan
   .pd-wrap.picked .pd-list { display: none; }
   .pd-back { display: inline-block; }
 }
+
+/* ---- phones: money, food and stone in the top bar, everything else behind "More" ---- */
+.res-more { display: none !important; }
+@media (max-width: 760px) {
+  body.ui2 .topbar .chips .chip:not([data-k="city"]):not([data-k="money"]):not([data-k="food"]):not([data-k="stone"]):not(.res-more) { display: none !important; }
+  body.ui2 .topbar .chips .chip-group:not(:has(.chip[data-k="city"], .chip[data-k="money"], .chip[data-k="food"], .chip[data-k="stone"])) { display: none !important; }
+  body.ui2 .topbar .chips .chip-fold { display: none !important; }
+  .res-more { display: inline-flex !important; align-items: center; gap: 4px; }
+  .res-more svg { width: 15px; height: 15px; }
+}
+.res-pop { position: fixed; z-index: 30; left: 8px; right: 8px; top: calc(var(--top-h, 52px) + 6px); max-height: calc(100vh - var(--top-h, 52px) - 120px); overflow: auto; display: none;
+  padding: 10px; border-radius: 16px; background: rgba(21,24,29,.98); border: 1px solid var(--frame-line, #2c3139); box-shadow: 0 16px 40px rgba(0,0,0,.55); color: var(--text); pointer-events: auto; }
+.res-pop.show { display: block; animation: ml-in .15s ease-out; }
+.rpp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.rpp-head b { font-family: var(--font-display); font-size: 15px; }
+.rpp-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.rpp-sec { grid-column: 1 / -1; margin: 6px 0 0; font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.rpp-card { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); text-align: left; cursor: pointer; min-width: 0; }
+.rpp-card.bad { border-color: rgba(255,122,110,.55); background: rgba(255,122,110,.08); }
+.rpp-pic { width: 34px; height: 34px; border-radius: 10px; flex: none; display: grid; place-items: center; font-size: 19px; background: rgba(255,255,255,.06); }
+.rpp-pic svg { width: 22px; height: 22px; }
+.rpp-card > div { min-width: 0; }
+.rpp-card small { display: block; font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rpp-card b { display: block; font-size: 14.5px; }
+.rpp-card i { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); }
+.rpp-card i:empty { display: none; }
+@media (min-width: 761px) { .res-pop { left: auto; right: calc(var(--side-w, 300px) + 12px); width: 380px; } }
+@media (max-width: 760px) { .res-more .v { display: none; } .res-more { padding: 0 9px !important; border-color: var(--accent) !important; } }

@@ -3332,4 +3332,6 @@ export const UZ: Record<string, string> = {
   "Their ID card, family, education, work and money open here.": "Shu yerda uning pasporti, oilasi, ma'lumoti, ishi va puli ochiladi.",
   "Under 18": "18 yoshgacha",
   "List": "Ro'yxat",
+  "Goods in the stores": "Ombordagi tovarlar",
+  "homes": "uy",
 };

@@ -3694,6 +3694,7 @@ export class Game implements ToolHost {
     this.hud!.setStats({
       cityName: e.city.name, cities: e.cities.size, happiness: e.city.happiness,
       money: e.money, iron: e.iron, daily: e.city.balance.net, stone: e.stone, wood: e.wood, food: e.food, bricks: e.city.bricks,
+      goods: ([['bricks', 'Bricks'], ['planks', 'Planks'], ['coal', 'Coal'], ['grain', 'Grain'], ['flour', 'Flour'], ['milk', 'Milk'], ['feed', 'Corn feed'], ['cotton', 'Cotton'], ['garments', 'Clothes'], ['furniture', 'Furniture'], ['steel', 'Steel']] as [Res, string][]).map(([k, l]) => [k, l, e.city[k]] as [string, string, number]),
       foodDaily: this.foodBalance(), powered: e.powered, water: e.city.water,
       population: this.life.populationByCity().get(e.active) ?? 0, workers: this.buildings.list.reduce((a, b) => a + (b.city === e.active && b.built >= 1 && !b.removed ? b.workers : 0), 0), workforce: counts.workforce,
       vacancies: this.buildings.list.reduce((a, b) => a + (b.city === e.active && b.built >= 1 && !b.removed ? Math.max(0, BUILDINGS[b.kind].jobs - b.workers) : 0), 0),

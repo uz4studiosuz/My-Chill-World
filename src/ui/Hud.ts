@@ -198,6 +198,8 @@ export interface HudStats {
   needs?: string[];
   /** People marked as favourites: tap one to follow them. */
   favs?: { id: number; name: string; doing: string }[];
+  /** Every other good in the stores (bricks, planks, coal…), for the resources sheet on phones. */
+  goods?: [string, string, number][];
   /** The town's level (Village, Town, City, Metropolis) and the people needed for the next one. */
   level?: string;
   nextLevel?: string;
@@ -408,6 +410,13 @@ export class Hud {
     fold.title = t('More');
     fold.addEventListener('click', () => chips.classList.toggle('open'));
     chips.appendChild(fold);
+    // phones: money, food and stone stay; "More" opens every resource with its picture
+    const resMore = el('button', 'chip res-more');
+    resMore.innerHTML = `${icon('dots')}<span class="v"></span>`;
+    (resMore.querySelector('.v') as HTMLElement).textContent = t('More');
+    resMore.addEventListener('click', (e) => { e.stopPropagation(); this.toggleResPop(); });
+    chips.appendChild(resMore);
+    document.addEventListener('pointerdown', (e) => { if (!this.resPop.contains(e.target as Node) && !resMore.contains(e.target as Node)) this.resPop.classList.remove('show'); }, true);
     top.appendChild(chips);
     const spacer = el('div', 'top-spacer');
     top.appendChild(spacer);
@@ -579,7 +588,7 @@ export class Hud {
     try { sideMin = localStorage.getItem('mcw_side_min') === '1'; } catch { /* ignore */ }
     setSide(sideMin);
     sideToggle.addEventListener('click', () => setSide(!document.body.classList.contains('side-min')));
-    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle, this.costEl, this.reportEl, this.modeEl);
+    this.root.append(top, this.side, this.hint, this.toastEl, this.pendingEl, this.dock, sideToggle, this.costEl, this.reportEl, this.modeEl, this.resPop);
     parent.appendChild(this.root);
     this.toggleDrawer('buildings');
   }
@@ -773,6 +782,60 @@ export class Hud {
   }
 
   private costEl = el('div', 'build-cost');
+  private resPop = el('div', 'res-pop');
+  private lastStats?: HudStats;
+
+  private toggleResPop() {
+    this.resPop.classList.toggle('show');
+    this.renderResPop();
+  }
+
+  /** The resources sheet (phones): every readout and every good, with its picture and amount. */
+  private renderResPop() {
+    const s = this.lastStats;
+    if (!s || !this.resPop.classList.contains('show')) return;
+    const f = (v: number) => Math.floor(v).toLocaleString('en-US');
+    const main: [string, IconName, string, string, string?, boolean?][] = [
+      ['money', 'r_money', 'Money', `$${f(s.money)}`, `${s.daily >= 0 ? '+' : '−'}$${f(Math.abs(s.daily))}/${t('day')}`, s.daily < 0],
+      ['food', 'r_food', 'Food', f(s.food), `${s.foodDaily >= 0 ? '+' : ''}${f(s.foodDaily)}/${t('day')}`, s.food < s.population * 2],
+      ['stone', 'r_stone', 'Stone', f(s.stone)],
+      ['wood', 'r_wood', 'Wood', f(s.wood), undefined, s.wood < 15],
+      ['iron', 'r_iron', 'Iron', f(s.iron)],
+      ['energy', 'r_energy', 'Electricity', `${Math.round(s.powered * 100)}%`, undefined, s.powered < 0.8],
+      ['water', 'r_water', 'Water', `${Math.round(s.water * 100)}%`, undefined, s.water < 0.9],
+      ['pop', 'r_people', 'Population', f(s.population), `${f(s.households)}/${f(s.homeUnits)} ${t('homes')}`],
+      ['happy', 'r_happy', 'Happiness', `${Math.round(s.happiness)}%`, undefined, s.happiness < 45],
+      ['jobs', 'r_jobs', 'Working / jobs', `${f(s.workers)}/${f(s.workers + s.vacancies)}`],
+    ];
+    const EMOJI: Record<string, string> = { bricks: '🧱', planks: '🪵', coal: '⚫', grain: '🌾', flour: '🥡', milk: '🥛', cotton: '☁️', garments: '👕', furniture: '🛋️', steel: '🔩', feed: '🌽' };
+    const key = JSON.stringify([main.map((m) => m[3] + (m[4] ?? '')), s.goods]);
+    if (this.resPop.dataset.key === key) return;
+    this.resPop.dataset.key = key;
+    this.resPop.replaceChildren();
+    const head = el('div', 'rpp-head');
+    head.innerHTML = `<b></b><button class="ml-x">${icon('close')}</button>`;
+    (head.querySelector('b') as HTMLElement).textContent = t('All resources');
+    head.querySelector('button')!.addEventListener('click', () => this.resPop.classList.remove('show'));
+    const grid = el('div', 'rpp-grid');
+    const card = (pic: string, label: string, value: string, sub?: string, bad?: boolean, open?: () => void) => {
+      const c = el('button', `rpp-card${bad ? ' bad' : ''}`);
+      c.innerHTML = `<span class="rpp-pic">${pic}</span><div><small></small><b></b><i></i></div>`;
+      (c.querySelector('small') as HTMLElement).textContent = label;
+      (c.querySelector('b') as HTMLElement).textContent = value;
+      (c.querySelector('i') as HTMLElement).textContent = sub ?? '';
+      if (open) c.addEventListener('click', () => { this.resPop.classList.remove('show'); open(); });
+      grid.appendChild(c);
+    };
+    for (const [k, ic, label, value, sub, bad] of main) card(icon(ic), t(label), value, sub, bad, () => this.h.openResource(k === 'jobs' ? 'pop' : k));
+    const goods = (s.goods ?? []).filter(([, , v]) => v >= 1);
+    if (goods.length) {
+      const h2 = el('div', 'rpp-sec');
+      h2.textContent = t('Goods in the stores');
+      grid.appendChild(h2);
+      for (const [k, label, v] of goods) card(EMOJI[k] ?? '📦', t(label), f(v));
+    }
+    this.resPop.append(head, grid);
+  }
   private modeEl = el('div', 'build-mode');
 
   /** While a build tool is on: what it is, and buttons back to Move or to cancel. */
@@ -926,6 +989,8 @@ export class Hud {
     this.lastStone = s.stone;
     this.lastWood = s.wood;
     this.lastIron = s.iron;
+    this.lastStats = s;
+    this.renderResPop();
     this.lastBricks = s.bricks ?? 0;
     this.renderCost();
     if (this.drawerCat) this.refreshCards();
