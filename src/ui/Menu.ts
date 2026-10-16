@@ -1,4 +1,5 @@
 import { dateLabel } from '../sim/Calendar';
+import { exportWorld, importWorld } from '../save/Transfer';
 import { SaveStore, WorldMeta } from '../save/SaveStore';
 import { el, icon, IconName } from './dom';
 import { Lang, getLang, setLang, t } from '../i18n/i18n';
@@ -25,6 +26,8 @@ export interface MenuHandlers {
   exitToMenu: () => void;
   openGallery: (from: 'main' | 'pause') => void;
   languageChanged: () => void;
+  /** Save and export the world being played. */
+  exportCurrent?: () => void;
 }
 
 /** Main menu, new-world form, world list and the in-game pause menu. */
@@ -87,6 +90,7 @@ export class Menu {
       w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${dateLabel(w.day)} · ${t('{n} people', { n: w.population })}`, true, 'play') : null,
       homeItem('New World', () => this.showNew(), t('A fresh valley, a small village'), !w, 'plus'),
       worlds.length ? homeItem('Load World', () => this.showLoad(), t('{n} saved worlds', { n: worlds.length }), false, 'folder') : null,
+      homeItem('Import a world', () => this.pickImport(), t('Open a world file from another computer or phone'), false, 'folder'),
       worlds.length ? homeItem('Records', () => this.showRecords(), undefined, false, 'trophy') : null,
       homeItem('Gallery', () => this.h.openGallery('main'), t('Every model in 3D'), false, 'gallery'),
       homeItem('Model editor', () => { location.href = 'editor.html'; }, undefined, false, 'office'),
@@ -191,7 +195,7 @@ export class Menu {
     if (!worlds.length) return this.showMain();
     const list = el('div', 'worlds');
     for (const w of worlds) list.appendChild(this.worldRow(w));
-    this.renderHome([list, homeItem('Back', () => this.showMain())], 'Your Worlds');
+    this.renderHome([list, homeItem('Import a world', () => this.pickImport(), t('Open a world file from another computer or phone'), false, 'folder'), homeItem('Back', () => this.showMain())], 'Your Worlds');
   }
 
   /** Local records: every saved world ranked by its city score. */
@@ -219,11 +223,37 @@ export class Menu {
       button('Resume', () => this.h.resume(), 'primary', undefined, 'play'),
       button('Save', (b) => { this.h.save(); b.querySelector('.mtxt b')!.textContent = t('Saved ✓'); }, '', undefined, 'save'),
       button('Gallery', () => this.h.openGallery('pause'), '', undefined, 'gallery'),
+      button('Export this world', () => { this.h.exportCurrent?.(); }, '', undefined, 'save'),
       button('Main Menu', () => this.h.exitToMenu(), '', undefined, 'home'),
       this.audioRow(),
       this.languagePicker(() => this.showPause()),
     ]);
   }
+
+  /** Choose a world file (.mcw) and add it to the saved worlds. */
+  private pickImport() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.mcw,.json,application/json,application/gzip';
+    input.addEventListener('change', () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      void importWorld(f).then((name) => { this.showLoad(); this.flash(t('World "{name}" imported — press Play to go on', { name })); },
+        (e) => this.flash(t('Could not import: {why}', { why: t(String((e as Error).message ?? e)) })));
+    });
+    input.click();
+  }
+
+  /** A short message at the bottom of the menu. */
+  private flash(text: string) {
+    let f = document.querySelector('.menu-flash') as HTMLDivElement | null;
+    if (!f) { f = el('div', 'menu-flash'); document.body.appendChild(f); }
+    f.textContent = text;
+    f.classList.add('show');
+    clearTimeout(this.flashT);
+    this.flashT = window.setTimeout(() => f!.classList.remove('show'), 4500);
+  }
+  private flashT = 0;
 
   showLoading(text: string) {
     this.render(text, '', []);
@@ -240,6 +270,8 @@ export class Menu {
     const play = button('Play', () => this.h.loadWorld(w.id), 'primary small', undefined, 'play');
     const thumb = el('div', 'world-thumb');
     thumb.textContent = '🏙️';
+    const exp = button('Export', () => { void exportWorld(w.id).then((f) => this.flash(t('Saved to your downloads: {f}', { f })), (e) => this.flash(String((e as Error).message ?? e))); }, 'small', undefined, 'save');
+    exp.title = t('Save this world as a file to open it on another computer or phone');
     const del = button('Delete', () => {
       if (del.dataset.confirm) {
         SaveStore.remove(w.id);
@@ -250,7 +282,7 @@ export class Menu {
         del.classList.add('danger');
       }
     }, 'small');
-    row.append(thumb, info, play, del);
+    row.append(thumb, info, play, exp, del);
     return row;
   }
 

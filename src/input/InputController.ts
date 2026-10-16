@@ -17,7 +17,7 @@ export interface InputActions {
 const TOOL_KEYS: Record<string, ToolId> = {
   Digit1: 'pan', Digit2: 'road', Digit3: 'path', Digit4: 'canal', Digit5: 'house', KeyX: 'bulldoze', KeyV: 'pan',
 };
-// CrazyGames requirement: these keys must not scroll the parent page
+// inside an embedded page (itch.io) these keys must not scroll the parent page
 const BLOCKED_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ']);
 const TAP_PX = 8;
 

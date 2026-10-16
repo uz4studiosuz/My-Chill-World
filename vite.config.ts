@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import pkg from './package.json';
 
-// base: './' — CrazyGames o'yinni o'z CDN papkasidan ochadi, shuning uchun nisbiy yo'llar kerak
+// base: './' — the game opens from any folder (itch.io), so paths are relative
 export default defineConfig({
   base: './',
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },

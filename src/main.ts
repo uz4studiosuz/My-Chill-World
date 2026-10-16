@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import './style.css';
 import { IS_TOUCH } from './config';
-import { Platform } from './platform/Platform';
 import { Game, GameOptions } from './game/Game';
 import { Menu } from './ui/Menu';
 import { Gallery } from './gallery/Gallery';
+import { exportWorld } from './save/Transfer';
 import { SaveStore } from './save/SaveStore';
 import { renderThumbnails } from './models/catalog';
 import { getLang, setLang, t } from './i18n/i18n';
@@ -23,15 +23,6 @@ async function boot() {
     document.getElementById('loading')?.classList.add('done');
     return;
   }
-  await Platform.init();
-  // on CrazyGames the language comes from the player's settings (unless they picked one in the game)
-  const loc = Platform.locale;
-  let chosen = false;
-  try { chosen = !!localStorage.getItem('mcw_lang'); } catch { /* storage blocked */ }
-  if (loc && !chosen) { const l = loc.toLowerCase().startsWith('uz') ? 'uz' : 'en'; if (l !== getLang()) setLang(l); }
-  // while an ad plays: the game stops and the sound is off
-  Platform.onAd = (on) => { sound.suspend(on || document.hidden); game?.setAdPaused(on); };
-  Platform.loadingStart();
 
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_TOUCH || devicePixelRatio < 2, powerPreference: 'high-performance' });
@@ -71,18 +62,11 @@ async function boot() {
   };
 
   const openMainMenu = () => {
-    Platform.gameplayStop();
     setGame(new Game(canvas, { demo: true }));
     menu.showMain();
   };
-  /** A world was already played this session (a short ad may come when the next one opens). */
-  let playedBefore = false;
-
   const start = async (opts: GameOptions) => {
     menu.showLoading(t('Generating world…'));
-    // opening another world is a natural break for a short ad (never before the first world; the screen waits)
-    if (playedBefore) await Platform.midgameAd();
-    playedBefore = true;
     // let the loading text paint before the (synchronous) world generation
     setTimeout(() => {
       let g: Game;
@@ -98,14 +82,12 @@ async function boot() {
       setGame(g);
       if (opts.create) g.save();
       menu.hide();
-      Platform.gameplayStart();
     }, 30);
   };
 
   const pause = () => {
     game?.setMenuPaused(true);
     menu.showPause();
-    Platform.gameplayStop();
   };
 
   const gallery = new Gallery(canvas, ui, () => {
@@ -124,9 +106,9 @@ async function boot() {
     resume: () => {
       menu.hide();
       game?.setMenuPaused(false);
-      Platform.gameplayStart();
     },
     save: () => game?.save(true),
+    exportCurrent: () => { if (!game) return; game.save(); void exportWorld(game.meta.id); },
     exitToMenu: () => {
       game?.save();
       openMainMenu();
@@ -143,10 +125,7 @@ async function boot() {
     },
   });
 
-  if (Platform.environment !== 'disabled' && !SaveStore.list().length) {
-    openMainMenu();
-    void start({ create: { name: t('My World {n}', { n: 1 }), seed: Math.floor(Math.random() * 1e9), calm: false, towns: 3 } });
-  } else openMainMenu();
+  openMainMenu();
 
   const clock = new THREE.Clock();
   // automatic quality: if the device can't keep ~40 fps, drop shadows and render resolution
@@ -192,7 +171,6 @@ async function boot() {
   });
 
   document.getElementById('loading')!.classList.add('done');
-  Platform.loadingStop();
 }
 
 boot().catch((e) => {

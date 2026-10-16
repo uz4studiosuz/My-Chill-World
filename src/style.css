@@ -2279,3 +2279,7 @@ body.pov-mode .build-mode, body.photo-mode .build-mode { display: none !importan
 .pd-dots { color: var(--muted); padding: 0 2px; }
 .pd-pinfo { margin-left: auto; font-size: 11.5px; color: var(--muted); }
 @media (max-width: 760px) { .pd-wrap.picked .pd-left { display: none; } }
+
+.menu-flash { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); z-index: 80; max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 12px;
+  background: rgba(21,24,29,.97); border: 1px solid var(--accent, #f2b33d); color: #eceef1; font: 600 13px Nunito, system-ui, sans-serif; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+.menu-flash.show { opacity: 1; transform: translate(-50%, 0); }
