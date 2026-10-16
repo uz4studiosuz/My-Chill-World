@@ -97,7 +97,7 @@ async function boot() {
   }, (ids) => renderThumbnails(renderer, ids, 80));
 
   const menu = new Menu(ui, {
-    newWorld: (name, seed, calm, towns) => start({ create: { name, seed, calm, towns } }),
+    newWorld: (name, seed, calm, towns, creative) => start({ create: { name, seed, calm, towns, creative } }),
     loadWorld: (id) => {
       const save = SaveStore.load(id);
       if (save) start({ save });

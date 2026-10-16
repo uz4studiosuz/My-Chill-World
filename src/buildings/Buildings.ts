@@ -109,6 +109,10 @@ export interface Building {
   shares?: { city: number; pct: number }[];
   /** A bus depot's own route drawn by the player: the stops in order (empty = the buses find their own). */
   route?: number[];
+  /** Workers on strike until this day. */
+  strike?: number;
+  /** Game day the building was started (the timelapse shows the town growing). */
+  born?: number;
   /** A fire truck is already on its way. */
   fireCrew?: boolean;
   /** Cemetery: buried records. */
@@ -304,6 +308,8 @@ export class Buildings {
   private dying: { mesh: THREE.Object3D; t: number }[] = [];
   /** Status shown above a construction site (progress, builders or why it is waiting). */
   siteLabel?: (b: Building) => { text: string; ok: boolean };
+  /** Today (set by the game): new buildings remember it. */
+  day = 0;
   private labelT = 0;
   /** Called when a building finishes construction. */
   onBuilt: (b: Building) => void = () => {};
@@ -357,7 +363,7 @@ export class Buildings {
       id, kind, city: opts.city ?? 0, x, z, rot, access, workers: 0, present: 0, stored: opts.stored ?? 0, trucks: 0, removed: false,
       mesh, grow: opts.animate === false ? 1 : 0, cropT: Math.random() * 0.5,
       irrigated: false, powered: true, fire: 0,
-      built: opts.built ?? (opts.animate === false ? 1 : 0), level: opts.level ?? 1, owner: opts.owner ?? -1,
+      built: opts.built ?? (opts.animate === false ? 1 : 0), level: opts.level ?? 1, owner: opts.owner ?? -1, born: this.day,
     };
     if (b.built < 1) {
       const h = 0.7 + s * 0.55;

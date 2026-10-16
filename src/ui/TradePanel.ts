@@ -30,6 +30,9 @@ export interface TradeHost {
   /** Long deals: the active ones with a town, and making / ending one. */
   contracts(id: number): { good: Good; perDay: number; days: number; price: number; selling: boolean; missed: number }[];
   contract(id: number, g: Good, perDay: number, days: number, selling: boolean): void;
+  /** Export orders from abroad (offers and those being delivered), the season and the economy. */
+  orders(): { linked: boolean; list: { id: number; good: Good; amount: number; delivered: number; daysLeft: number; price: number; bonus: number; from: string; accepted: boolean; stock: number }[]; season: string; economy: string };
+  orderAnswer(id: number, accept: boolean): void;
   endContract(id: number, g: Good): void;
 }
 
@@ -120,6 +123,11 @@ export class TradePanel {
     };
     chip('best', t('Best price'));
     for (const n of towns) chip(n.id, n.name, n.tint);
+    // the season and the economy move prices
+    const od = this.host.orders();
+    const mood = el('div', 'trade-season');
+    mood.textContent = `${od.season}${od.economy ? ` · ${od.economy}` : ''}`;
+    body.appendChild(mood);
     // what was traded today and yesterday
     const sum = el('div', 'trade-sum');
     const cell = (label: string, v: number, cls: string, sub: string) => {
@@ -158,6 +166,7 @@ export class TradePanel {
     hint.textContent = t('Tap a good to see its price. A town pays more for what it has little of and sells cheap what it has a lot of.');
     body.appendChild(hint);
     this.board(body, sec, all);
+    this.ordersBlock(body, sec, od);
     if (sel) { this.townTable(body, sec, city, sel); this.extras(body, sec); this.finish(head, body, scroll, lines); return; }
     sec(t('Goods'));
     const table = el('div', 'trade-table');
@@ -326,6 +335,31 @@ export class TradePanel {
     const n = el('div', 'rp-note');
     n.textContent = t('Green: the cheapest town to buy from. Amber: the town that pays the most. ▲▼ the change over the last week.');
     body.appendChild(n);
+  }
+
+  /** Export orders: offers to accept or decline, accepted ones with how much has been shipped. */
+  private ordersBlock(body: HTMLElement, sec: (s: string) => void, od: ReturnType<TradeHost['orders']>) {
+    sec(t('Export orders'));
+    if (!od.linked) { const n = el('div', 'rp-note'); n.textContent = t('Orders from abroad come to towns with a working train station or airport.'); body.appendChild(n); if (!od.list.length) return; }
+    if (!od.list.length) { const n = el('div', 'rp-note'); n.textContent = t('No orders right now — new ones come every few days.'); body.appendChild(n); return; }
+    const box = el('div', 'orders');
+    for (const o of od.list) {
+      const c = el('div', `order${o.accepted ? ' on' : ''}`);
+      const p = Math.min(1, o.delivered / o.amount);
+      c.innerHTML = '<div class="or-top"><b></b><small></small></div><div class="or-bar"><i></i></div><div class="or-foot"><span></span></div>';
+      (c.querySelector('b') as HTMLElement).textContent = `${o.amount} ${t(GOOD_NAME[o.good]).toLowerCase()} · ${t(o.from)}`;
+      (c.querySelector('small') as HTMLElement).textContent = `$${o.price.toFixed(1)} ${t('each')} · +${Math.round(o.bonus * 100)}% ${t('bonus in time')} · ${t('{n} days', { n: o.daysLeft })}`;
+      (c.querySelector('.or-bar i') as HTMLElement).style.width = `${Math.round(p * 100)}%`;
+      (c.querySelector('.or-foot span') as HTMLElement).textContent = o.accepted ? t('Shipped {a} of {b} · in stock {s}', { a: o.delivered, b: o.amount, s: Math.floor(o.stock) }) : t('Worth ${n} with the bonus · in stock {s}', { n: Math.round(o.amount * o.price * (1 + o.bonus)), s: Math.floor(o.stock) });
+      if (!o.accepted) {
+        const foot = c.querySelector('.or-foot') as HTMLElement;
+        const yes = el('button', 'btn-mini sell'); yes.textContent = t('Accept'); yes.addEventListener('click', () => { this.host.orderAnswer(o.id, true); this.render(); });
+        const no = el('button', 'btn-mini ghost'); no.textContent = t('Decline'); no.addEventListener('click', () => { this.host.orderAnswer(o.id, false); this.render(); });
+        foot.append(yes, no);
+      }
+      box.appendChild(c);
+    }
+    body.appendChild(box);
   }
 
   /** The latest deals and every other price of the town (cars, homes, bills, shops, wages). */

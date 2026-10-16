@@ -1,3 +1,4 @@
+import { LAWS, BUDGET_AREAS } from '../sim/Laws';
 import * as THREE from 'three';
 import { levelMult, waterOf } from '../buildings/Upgrades';
 import { UNIFORM_OF, type Uniform } from '../models/people/uniforms';
@@ -802,6 +803,7 @@ export class Life {
     pop.day = eco.day;
     this.checkDepleted();
     this.metroDay();
+    this.mortgages();
     this.buySaws();
     for (const f of pop.families.values()) { f.earnY = f.earn ?? {}; f.earn = {}; }
     const cities = [...eco.cities.values()];
@@ -817,7 +819,7 @@ export class Life {
       };
       const own = buildings.list.filter((b) => b.city === city.id && b.built >= 1);
       const hasHall = own.some((b) => b.kind === 'weddinghall');
-      const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * levelMult(b) * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0);
+      const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * levelMult(b) * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0) * ((city.budget?.health ?? 100) / 100);
       const meal = this.meals.get(city.id) ?? { eaten: 1, short: 0 };
       const fed = meal.eaten + meal.short > 0 ? meal.eaten / (meal.eaten + meal.short) : 1;
       const portions = Math.round((this.people.get(city.id) ?? 0) * fed + (fed >= 0.999 ? 1000 : 0));
@@ -826,7 +828,7 @@ export class Life {
         shops: { market: false, grocery: false, clothes: false },
         taxRate: city.taxRate, calm: this.calm,
         safety: Math.min(0.95, this.policeCover(city.id) * 0.75 + (own.some((b) => b.kind === 'military' && b.workers > 0) ? MILITARY.safety : 0)),
-        eduBoost: own.some((b) => b.kind === 'academy' && b.workers > 0) ? 0.3 : 0,
+        eduBoost: (own.some((b) => b.kind === 'academy' && b.workers > 0) ? 0.3 : 0) + (city.laws?.includes('meals') ? 0.2 : 0) + ((city.budget?.edu ?? 100) - 100) / 100,
         waterAt: (home) => this.homeWater.get(home) ?? city.water,
         foodPrice: city.priceFactor,
       });
@@ -865,7 +867,7 @@ export class Life {
         } else if (b.kind === 'carmarket') {
           turnover = b.workers > 0 ? r.carSales / Math.max(1, working('carmarket').length) : 0;
         } else if (d.revenue) {
-          turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5);
+          turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5) * this.econFactor;
         }
         const items = b.sold;
         b.sold = undefined;
@@ -1087,6 +1089,28 @@ export class Life {
         this.connectWater('apartment', x, z);
         this.privateBuild.set(cityId, eco.day);
         say(t('The {family} family is building an apartment block to rent out', { family: investor.surname }));
+        return true;
+      })) return;
+    }
+    // 2a') a young family renting a flat takes a mortgage at the bank and builds a house of its own
+    const bank = buildings.list.some((b) => b.kind === 'bank' && b.city === cityId && b.built >= 1 && b.workers > 0);
+    if (bank && Math.random() < 0.3) {
+      const cost = Math.round((BUILDINGS.house.money + BUILDINGS.house.stone * TRADE_PRICE.stone + BUILDINGS.house.wood * TRADE_PRICE.wood) * 1.1);
+      const renter = [...pop.families.values()].find((f) => {
+        const h = buildings.get(f.home);
+        return h && h.city === cityId && BUILDINGS[h.kind].units > 1 && !f.mortgage && !f.loan && f.money > cost * 0.1 && (f.income ?? 0) > 8;
+      });
+      const home = renter && buildings.get(renter.home);
+      if (renter && home && this.privateSite('house', home, (x, z) => {
+        const owe = Math.round(cost * 1.25);
+        renter.money -= Math.round(cost * 0.1);
+        const b = buildings.place('house', x, z, { city: cityId, owner: renter.id });
+        this.connectWater('house', x, z);
+        renter.mortgage = { left: owe, perDay: Math.max(5, Math.round(owe / 60)), house: b.id };
+        renter.home = b.id;
+        for (const c of pop.members(renter)) { c.at = c.state === 'home' ? b.id : c.at; if (c.age >= 18) pop.note(c, 'The family took a mortgage of ${n} and is building its own house', { n: owe }); }
+        this.privateBuild.set(cityId, eco.day);
+        say(t('The {family} family took a mortgage of ${n} at the bank and is building its own house', { family: renter.surname, n: owe }));
         return true;
       })) return;
     }
@@ -1806,6 +1830,9 @@ export class Life {
     }
   }
 
+  /** The economy: 1 normal, below 1 in a crisis, above 1 in a boom (set by the game). Sales, prices and mood follow it. */
+  econFactor = 1;
+
   /** Snow on the roads (set for a day by a snowstorm): traffic drives slower. */
   snowstorm = 0;
 
@@ -1841,6 +1868,39 @@ export class Life {
       const old = this.moodBoost.get(cityId);
       this.moodBoost.set(cityId, { v: (old && old.until >= eco.day ? old.v : 0) - 6, until: eco.day + 3 });
       this.cityEvent(cityId, t('Flood! The river rose and {n} homes by the water were flooded (repairs ${m}). Flood walls keep homes dry', { n, m: n * 60 }));
+    }
+  }
+
+  /**
+   * Once a day: families pay their mortgage to the bank (the town's). A family that cannot pay for days loses the
+   * house to the bank: it stays there as tenants, paying rent.
+   */
+  private mortgages() {
+    const { pop, buildings, eco } = this.c;
+    for (const f of pop.families.values()) {
+      const m = f.mortgage;
+      if (!m) continue;
+      const house = buildings.get(m.house);
+      const city = house && eco.cities.get(house.city);
+      if (!house || house.removed || !city) { f.mortgage = undefined; continue; }
+      const pay = Math.min(m.perDay, m.left);
+      if (f.money >= pay) {
+        f.money -= pay;
+        m.left -= pay;
+        eco.add(city, 'money', pay, 'Mortgage payments');
+        if (m.left <= 0) {
+          f.mortgage = undefined;
+          for (const c of pop.members(f)) if (c.age >= 18) pop.note(c, 'Paid off the mortgage: the house is all theirs');
+          this.cityEvent(city.id, t('The {family} family paid off their mortgage — the house is theirs', { family: f.surname }));
+        }
+      } else if (f.debtDays >= 3) {
+        // the bank takes the house; the family stays as tenants
+        f.mortgage = undefined;
+        house.owner = -1;
+        f.debtDays = 0;
+        for (const c of pop.members(f)) if (c.age >= 18) pop.note(c, 'Could not pay the mortgage: the bank took the house');
+        this.cityEvent(city.id, t('The {family} family could not pay the mortgage: the bank took the house, they stay as tenants', { family: f.surname }));
+      }
     }
   }
 
@@ -2106,7 +2166,7 @@ export class Life {
     for (const h of own) {
       if (!BUILDINGS[h.kind].units) continue;
       homes++;
-      h.trash = Math.min(village ? TRASH.full - 1 : 30, (h.trash ?? 0) + (people.get(h.id) ?? 0) * TRASH.perPerson);
+      h.trash = Math.min(village ? TRASH.full - 1 : 30, (h.trash ?? 0) + (people.get(h.id) ?? 0) * TRASH.perPerson * (this.c.eco.cities.get(h.city)?.laws?.includes('recycle') ? 0.7 : 1));
       if (h.trash >= TRASH.full) {
         full++;
         // rubbish piling up makes people ill
@@ -2191,7 +2251,8 @@ export class Life {
     this.updateWageIndex(city);
     const days = city.food / Math.max(1, this.mouths.get(city.id) ?? 1);
     const adj = city.foodAdj ?? 0;
-    const want = (days < 1 ? 1.8 : days < 2 ? 1.4 : days < 4 ? 1.1 : days > 10 ? 0.85 : 1) * this.priceLevel(city.id) * (1 + adj);
+    const season = seasonOf(monthOf(this.c.eco.day));
+    const want = (days < 1 ? 1.8 : days < 2 ? 1.4 : days < 4 ? 1.1 : days > 10 ? 0.85 : 1) * this.priceLevel(city.id) * (1 + adj) * (season === 'summer' ? 0.9 : season === 'winter' ? 1.15 : 1) * this.econFactor;
     // cheaper food set by the town hall: the treasury pays the difference to the shops every day
     if (adj < 0) this.c.eco.add(city, 'money', -Math.round((this.mouths.get(city.id) ?? 0) * -adj * 2), 'Food subsidy');
     const before = city.priceFactor;
@@ -2249,7 +2310,7 @@ export class Life {
       return;
     }
     // spreading: family members, then a few others in town
-    const rate = FLU.spread * (pharmacy ? 0.5 : 1) * (hospital ? 0.7 : 1) * (winter ? 1 : 0.4);
+    const rate = FLU.spread * (pharmacy ? 0.5 : 1) * (hospital ? 0.7 : 1) * (winter ? 1 : 0.4) * (city.laws?.includes('nosmoke') ? 0.75 : 1);
     for (const c of ill) {
       const f = pop.families.get(c.family);
       const fit = (m: Citizen) => (m.fit ?? 0) > eco.day ? 0.4 : 1;
@@ -2411,6 +2472,10 @@ export class Life {
     const mood: [string, number][] = [['Base mood', 50]];
     const add = (label: string, v: number) => { if (Math.abs(v) >= 0.05) mood.push([label, v]); };
     if (this.festival) add('Festival', 12);
+    if (this.econFactor < 1) add('Economic crisis', -4); else if (this.econFactor > 1) add('Economic boom', 3);
+    { let lm = 0; for (const id of city.laws ?? []) lm += LAWS.find((l) => l.id === id)?.mood ?? 0; if (lm) add('Laws', lm); }
+    { let bm = 0; for (const a of BUDGET_AREAS) { const v = city.budget?.[a.id] ?? 100; bm += v < 100 ? -(100 - v) / 20 : (v - 100) / 40; } if (Math.abs(bm) >= 0.1) add('Town budget', bm); }
+    { const famous = people.filter((c) => c.fame).length; if (famous) add('Famous citizens', Math.min(4, famous)); }
     if ((city.parkingFee ?? 0) > 0) add('Parking fees', -(city.parkingFee ?? 0) * 1.2);
     if ((city.metroRiders ?? 0) > 0) add('Metro', Math.min(5, (city.metroRiders ?? 0) / 20));
     if ((city.thefts ?? 0) > 0) add('Thefts', -Math.min(8, (city.thefts ?? 0) * 1.5));
@@ -3032,9 +3097,10 @@ export class Life {
     if (!range || !f || b.workers <= 0 || f.money < 20) return;
     const food = b.kind === 'grocery' || b.kind === 'market' || b.kind === 'bakery' || b.kind === 'supermarket';
     const price = food ? this.c.eco.cities.get(b.city)?.priceFactor ?? 1 : this.priceLevel(b.city);
-    let spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1) * price);
+    let spend = Math.round((range[0] + Math.random() * (range[1] - range[0])) * (this.festival ? 1.5 : 1) * price * this.econFactor);
     const town = this.c.eco.cities.get(b.city);
     // clothes from the factory sell best; raw cotton a little; furniture sells in the markets
+    if ((b.kind === 'casino' || b.kind === 'teahouse') && town?.laws?.includes('quiet')) spend = Math.round(spend * 0.8);
     let item = food ? 'Food baskets' : b.kind === 'pharmacy' ? 'Medicine' : b.kind === 'clothes' ? 'Clothes' : 'Purchases';
     if (b.kind === 'dairyshop') {
       // milk, yogurt and cheese: the milk of the ranches becomes the family's food
@@ -3532,7 +3598,7 @@ export class Life {
       df.money += share - tax;
       this.cash(depot.city, tax, 'incomeTax');
     }
-    this.cash(depot.city, BUS.fare - share, 'fares');
+    if (!this.c.eco.cities.get(depot.city)?.laws?.includes('freebus')) this.cash(depot.city, BUS.fare - share, 'fares');
     depot.sales = (depot.sales ?? 0) + BUS.fare;
     this.tally(depot, 'Bus tickets');
   }

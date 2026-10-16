@@ -23,6 +23,7 @@ export interface WorldMeta {
   /** City score for the records table. */
   score?: number;
   calm?: boolean;
+  creative?: boolean;
 }
 
 export interface WorldSave {
@@ -37,7 +38,7 @@ export interface WorldSave {
   sandbox?: boolean;
   cleared: number[];
   stumps?: [number, number][];
-  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number; crop?: string; cropManual?: boolean; built?: number; level?: number; owner?: number; parent?: number; rot?: number; wageF?: number; forSale?: number; investor?: number; shares?: { city: number; pct: number }[]; route?: number[]; total?: { revenue: number; items: Record<string, number>; days: number }; books?: { revenue: number; wages: number; tax: number; profit: number; items?: Record<string, number> }; sold?: Record<string, number>; sales?: number }[];
+  buildings: { id: number; kind: BuildingKind; city?: number; x: number; z: number; stored: number; cropT?: number; graves?: any[]; cattleCount?: number; crop?: string; cropManual?: boolean; built?: number; level?: number; owner?: number; parent?: number; rot?: number; wageF?: number; forSale?: number; investor?: number; shares?: { city: number; pct: number }[]; route?: number[]; strike?: number; born?: number; total?: { revenue: number; items: Record<string, number>; days: number }; books?: { revenue: number; wages: number; tax: number; profit: number; items?: Record<string, number> }; sold?: Record<string, number>; sales?: number }[];
   /** Roads ordered and still being laid by the builders. */
   roadJobs?: { tiles: [number, number][]; done: number; lit: boolean; city: number; money: number; stone: number; kind?: string; style?: number; wood?: number; iron?: number }[];
   population: PopulationSave;
@@ -49,6 +50,7 @@ export interface WorldSave {
   lit?: number[];
   rails?: number[];
   calm?: boolean;
+  creative?: boolean;
   leisure?: LeisureSave;
   pipes?: number[];
   /** Pipes are the only water mains (older saves get pipes under their roads once). */
@@ -62,6 +64,10 @@ export interface WorldSave {
   zones?: number[];
   /** People marked as favourites. */
   favourites?: number[];
+  /** People who died or moved away (for the family trees). */
+  archive?: import('../people/Population').ArchivedPerson[];
+  /** The economy of the region: a crisis or a boom until a day. */
+  cycle?: { kind: 'crisis' | 'boom'; until: number };
   /** Tunnels bored through the mountains (roads and railways may run through them). */
   bores?: number[];
   trade?: { relation: number[] };

@@ -38,6 +38,12 @@ export interface City {
   metroRiders?: number;
   /** Town level reached (0 village … 3 metropolis). */
   level?: number;
+  /** Laws in force (ids from sim/Laws). */
+  laws?: string[];
+  /** Export orders from abroad: offers waiting for an answer and the ones being delivered. */
+  orders?: ExportOrder[];
+  /** Budget of each area in % of the usual (education, health, safety, transport). */
+  budget?: Record<string, number>;
   /** Street parking fee per car and day set by the town hall (0 = free). */
   parkingFee?: number;
   /** Credit rating 0..100: paying on time and a healthy treasury lower the loan interest. */
@@ -110,6 +116,9 @@ export interface City {
 export type PromiseKind = 'tax' | 'park' | 'hospital' | 'school' | 'jobs';
 
 /** Resources that are counted in the city's books. */
+/** An order from abroad: a good, how much, by which day, at what price and the bonus on time; offered or accepted. */
+export interface ExportOrder { id: number; good: string; amount: number; delivered: number; until: number; price: number; bonus: number; from: string; accepted: boolean }
+
 export type Res = 'money' | 'stone' | 'wood' | 'iron' | 'food' | 'grain' | 'flour' | 'planks' | 'milk' | 'bricks' | 'steel' | 'coal' | 'cotton' | 'feed' | 'garments' | 'furniture';
 /** Where each resource came from / went to: reason (English key) → signed amount. */
 export type Ledger = Record<Res, Record<string, number>>;
@@ -118,7 +127,7 @@ export const LEDGER_DAYS = 7;
 
 export interface CitySave {
   id: number; name: string; founded: number; money: number; stone: number; wood: number; food: number; iron?: number; grain?: number; flour?: number; planks?: number; milk?: number; bricks?: number; steel?: number; coal?: number; cotton?: number; feed?: number; garments?: number; furniture?: number; brokeDays: number; loan?: number; happiness?: number; taxRate?: number; mayor?: number; elected?: number;
-  jobPriority?: Record<string, 'high' | 'low'>; jobReq?: Record<string, 0 | 1 | 2>; foodAdj?: number; parkingFee?: number; credit?: number; level?: number; contracts?: City['contracts']; wageAuto?: boolean; wages?: Record<string, number>; ai?: boolean; tint?: string; relation?: number; style?: string; owes?: City['owes']; arrivals?: City['arrivals']; balance?: Balance; foodYesterday?: { made: number; eaten: number }; campaign?: City['campaign']; promise?: City['promise'];
+  jobPriority?: Record<string, 'high' | 'low'>; jobReq?: Record<string, 0 | 1 | 2>; foodAdj?: number; parkingFee?: number; credit?: number; level?: number; laws?: string[]; budget?: Record<string, number>; orders?: ExportOrder[]; contracts?: City['contracts']; wageAuto?: boolean; wages?: Record<string, number>; ai?: boolean; tint?: string; relation?: number; style?: string; owes?: City['owes']; arrivals?: City['arrivals']; balance?: Balance; foodYesterday?: { made: number; eaten: number }; campaign?: City['campaign']; promise?: City['promise'];
 }
 
 export interface EconomyState { day: number; dayT: number; active: number; cities: CitySave[] }
@@ -185,11 +194,16 @@ export class Economy {
 
   get timeOfDay() { return this.dayT / DAY_SECONDS; }
 
+  /** Creative mode: everything can be built, nothing is paid for. */
+  creative = false;
+
   canAfford(money: number, stone: number, wood = 0, iron = 0) {
+    if (this.creative) return true;
     return this.money >= money && this.stone >= stone && this.wood >= wood && this.iron >= iron;
   }
 
   spend(money: number, stone: number, wood = 0, iron = 0, reason = 'Construction') {
+    if (this.creative) return;
     const c = this.city;
     this.add(c, 'money', -money, reason);
     this.add(c, 'stone', -stone, reason);
@@ -278,7 +292,7 @@ export class Economy {
       day: this.day, dayT: this.dayT, active: this.active,
       cities: [...this.cities.values()].map((c) => ({
         id: c.id, name: c.name, founded: c.founded, money: c.money, stone: c.stone, wood: c.wood, food: c.food, iron: Math.round(c.iron), grain: Math.round(c.grain), flour: Math.round(c.flour), planks: Math.round(c.planks), milk: Math.round(c.milk), bricks: Math.round(c.bricks), steel: Math.round(c.steel), coal: Math.round(c.coal), cotton: Math.round(c.cotton), feed: Math.round(c.feed), garments: Math.round(c.garments), furniture: Math.round(c.furniture), brokeDays: c.brokeDays, loan: c.loan, happiness: Math.round(c.happiness), taxRate: c.taxRate, mayor: c.mayor, elected: c.elected,
-        jobPriority: c.jobPriority, jobReq: c.jobReq, foodAdj: c.foodAdj, parkingFee: c.parkingFee, level: c.level, credit: c.credit === undefined ? undefined : Math.round(c.credit), contracts: c.contracts, wageAuto: c.wageAuto, wages: c.wages, ai: c.ai, tint: c.tint, style: c.style, owes: c.owes, arrivals: c.arrivals, balance: c.balance, foodYesterday: c.foodYesterday, relation: c.relation === undefined ? undefined : Math.round(c.relation), campaign: c.campaign, promise: c.promise,
+        jobPriority: c.jobPriority, jobReq: c.jobReq, foodAdj: c.foodAdj, parkingFee: c.parkingFee, level: c.level, laws: c.laws?.length ? c.laws : undefined, budget: c.budget, orders: c.orders?.length ? c.orders : undefined, credit: c.credit === undefined ? undefined : Math.round(c.credit), contracts: c.contracts, wageAuto: c.wageAuto, wages: c.wages, ai: c.ai, tint: c.tint, style: c.style, owes: c.owes, arrivals: c.arrivals, balance: c.balance, foodYesterday: c.foodYesterday, relation: c.relation === undefined ? undefined : Math.round(c.relation), campaign: c.campaign, promise: c.promise,
       })),
     };
   }
@@ -311,6 +325,9 @@ export class Economy {
       city.foodAdj = c.foodAdj ?? 0;
       city.parkingFee = c.parkingFee ?? 0;
       city.level = c.level;
+      city.laws = c.laws ?? [];
+      city.budget = c.budget ?? {};
+      city.orders = c.orders ?? [];
       city.credit = c.credit ?? 60;
       city.contracts = c.contracts ?? [];
       city.wageAuto = c.wageAuto ?? true;

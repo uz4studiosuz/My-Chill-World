@@ -25,6 +25,7 @@ export interface DeskHost {
   view(id: number): InspectorView | null;
   show(id: number): void;
   story(id: number): void;
+  tree?(id: number): void;
 }
 
 type Filter = 'all' | 'm' | 'f' | 'child' | 'elder' | 'work' | 'jobless' | 'student' | 'rich';
@@ -214,6 +215,7 @@ export class PassportDesk {
     const id = this.picked;
     mk(t('Show on the map'), 'eye', () => this.host.show(id));
     mk(t('Life story'), 'book', () => this.host.story(id));
+    if (this.host.tree) mk(t('Family tree'), 'people', () => this.host.tree!(id));
     this.cardEl.appendChild(acts);
   }
 }

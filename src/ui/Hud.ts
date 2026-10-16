@@ -242,6 +242,8 @@ export interface HudHandlers {
   openTutorial?: () => void;
   /** The town hall's full report of the active town. */
   openHall?: () => void;
+  /** Watch the town grow from its first day (timelapse). */
+  openTimelapse?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -567,7 +569,7 @@ export class Hud {
     qt.textContent = t('More');
     const quick = el('div', 'side-quick');
     for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['production', 'Production chains', () => h.openChains?.()], ['globe', 'Embassy', () => h.openEmbassy?.()], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals],
-      ['list', 'Chronicle', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['book', 'Guide', h.openGuide], ['play', 'Tutorial', () => h.openTutorial?.()]] as [IconName, string, () => void][]) {
+      ['list', 'Chronicle', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['film', 'City timelapse', () => h.openTimelapse?.()], ['book', 'Guide', h.openGuide], ['play', 'Tutorial', () => h.openTutorial?.()]] as [IconName, string, () => void][]) {
       const b = el('button', 'side-btn');
       b.dataset.panel = ic;
       b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;

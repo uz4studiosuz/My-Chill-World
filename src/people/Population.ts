@@ -55,6 +55,11 @@ export interface Citizen {
   night?: boolean;
   /** A woodcutter's own chainsaw (bought in a shop): trees come down much faster. */
   saw?: boolean;
+  /** Mother and father (citizen ids; they may have died or moved away — see the archive). */
+  mom?: number;
+  dad?: number;
+  /** A famous citizen: 'scientist', 'athlete', 'artist', 'doctor' or 'business' (English key). */
+  fame?: string;
   /** Life story: day, age, English text key and its parameters. */
   story?: StoryEntry[];
   /** A believer (set once they work at or go to the mosque; otherwise decided at birth). */
@@ -64,6 +69,9 @@ export interface Citizen {
   gambled?: number;
   lost?: boolean;
 }
+
+/** Someone in the town's records: who they were, their parents and spouse, when they died or left. */
+export interface ArchivedPerson { id: number; name: string; surname: string; sex: Sex; age: number; mom?: number; dad?: number; spouse?: number; day: number; how: 'died' | 'left'; fame?: string }
 
 export interface StoryEntry { d: number; a: number; k: string; p?: Record<string, string | number> }
 
@@ -102,6 +110,8 @@ export interface Family {
   earnY?: Record<string, number>;
   /** Yesterday's household bills. */
   bills?: { electricity: number; water: number };
+  /** A bank mortgage for the family's house: what is still owed, the daily payment and the house. */
+  mortgage?: { left: number; perDay: number; house: number };
 }
 
 export interface DeathReport {
@@ -238,6 +248,8 @@ export class Population {
       const maxAge = Math.min(30, dadAge - 19);
       this.addCitizen(f, Math.random() < 0.5 ? 'm' : 'f', Math.max(0, Math.round(rand(0, maxAge))), 'child');
     }
+    const pa = this.members(f).filter((c) => c.role === 'parent');
+    for (const c of this.members(f)) if (c.role === 'child') { c.dad = pa.find((p) => p.sex === 'm')?.id; c.mom = pa.find((p) => p.sex === 'f')?.id; }
     for (const c of this.members(f)) {
       this.note(c, 'Born', undefined, this.day - Math.floor(c.age * DAYS_PER_YEAR));
       this.note(c, 'Moved to the city with the {family} family', { family: f.surname });
@@ -269,14 +281,20 @@ export class Population {
     if (st.length > MAX_STORY) st.splice(1, 1); // keep the birth, drop the oldest after it
   }
 
-  removeCitizen(c: Citizen) {
+  /** The town's records of people who died or moved away (for the family trees). */
+  archive = new Map<number, ArchivedPerson>();
+
+  removeCitizen(c: Citizen, how: 'died' | 'left' = 'died') {
     const f = this.families.get(c.family);
+    const spouse = c.role === 'parent' && f ? this.members(f).find((m) => m.id !== c.id && m.role === 'parent')?.id : undefined;
+    this.archive.set(c.id, { id: c.id, name: c.name, surname: f?.surname ?? '', sex: c.sex, age: Math.floor(c.age), mom: c.mom, dad: c.dad, spouse, day: this.day, how, fame: c.fame });
+    if (this.archive.size > 4000) this.archive.delete(this.archive.keys().next().value!);
     if (f) f.members = f.members.filter((id) => id !== c.id);
     this.citizens.delete(c.id);
   }
 
   removeFamily(f: Family) {
-    for (const c of this.members(f)) this.citizens.delete(c.id);
+    for (const c of this.members(f)) this.removeCitizen(c, 'left');
     this.families.delete(f.id);
   }
 
@@ -288,7 +306,7 @@ export class Population {
       if (b.built < 1) continue;
       const d = BUILDINGS[b.kind];
       // a woodcutter or quarry with nothing left to take does not hire (its people work elsewhere for now)
-      if (d.jobs && !(b.depleted ?? 0)) free.set(b.id, d.jobs);
+      if (d.jobs && !(b.depleted ?? 0) && b.strike === undefined) free.set(b.id, d.jobs);
       if (d.students) seats.set(b.id, seatsOf(b));
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
@@ -615,7 +633,7 @@ export class Population {
         if (pair && this.citizens.has(pair[0].id) && this.citizens.has(pair[1].id)) {
           r.incidents.push({ kind: 'murder', a: pair[0].name, b: pair[1].name });
           die(pair[0], 'murder');
-          this.removeCitizen(pair[1]);
+          this.removeCitizen(pair[1], 'left');
         }
       }
     }
@@ -628,6 +646,8 @@ export class Population {
       const mom = people.find((c) => c.role === 'parent' && c.sex === 'f' && c.age >= 20 && c.age <= 42);
       if (dad && mom && people.length < BUILDINGS.house.housing && mom.hunger > 40 && Math.random() < 0.35 * PER_YEAR) {
         const baby = this.addCitizen(f, Math.random() < 0.5 ? 'm' : 'f', 0, 'child');
+        baby.mom = mom.id;
+        baby.dad = dad.id;
         r.births++;
         this.note(baby, 'Born into the {family} family', { family: f.surname });
         for (const p of [dad, mom]) this.note(p, p.sex === 'm' ? 'Became a father: {name} was born' : 'Became a mother: {name} was born', { name: baby.name });
@@ -698,11 +718,11 @@ export class Population {
     return [...this.families.values()].map((f) => ({
       id: f.id, surname: f.surname, home: f.home, money: Math.round(f.money), income: f.income,
       car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, bike: f.bike || undefined, debtDays: f.debtDays, loan: f.loan ? Math.round(f.loan) : undefined, pantry: f.pantry === undefined ? undefined : Math.round(f.pantry * 10) / 10,
-      earn: f.earn, earnY: f.earnY, bills: f.bills,
+      earn: f.earn, earnY: f.earnY, bills: f.bills, mortgage: f.mortgage,
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, night: c.night, saw: c.saw || undefined, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, gambled: c.gambled, lost: c.lost || undefined,
+        story: c.story, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));
   }
@@ -711,7 +731,7 @@ export class Population {
     this.citizens.clear();
     this.families.clear();
     for (const fd of data) {
-      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan, pantry: fd.pantry, bike: fd.bike, earn: fd.earn, earnY: fd.earnY, bills: fd.bills };
+      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan, pantry: fd.pantry, bike: fd.bike, earn: fd.earn, earnY: fd.earnY, bills: fd.bills, mortgage: fd.mortgage };
       this.families.set(f.id, f);
       this.nextFamily = Math.max(this.nextFamily, f.id + 1);
       for (const m of fd.members) {
