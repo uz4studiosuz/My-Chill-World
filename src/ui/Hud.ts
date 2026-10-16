@@ -598,6 +598,9 @@ export class Hud {
   /** Fly to a person and follow them (set from the handlers). */
   openPersonById?: (id: number) => void;
 
+  /** Phones: close the town sheet (wide screens keep the panel). */
+  closeSide() { if (window.innerWidth <= 760) this.side.classList.remove('open'); }
+
   /** Show the town panel (unfolded on wide screens, the sheet on phones). */
   showSide() {
     if (window.innerWidth <= 760) this.side.classList.add('open');

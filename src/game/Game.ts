@@ -570,15 +570,7 @@ export class Game implements ToolHost {
       openNews: () => { this.newsOpened++; this.stats?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.news?.toggle(); },
       openPetitions: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.toggle(); },
       toggleSound: () => { const on = !sound.sfxOn; sound.setSfx(on); sound.setNature(on); return on; },
-      openPerson: (id) => {
-        const c = this.pop.citizens.get(id);
-        const p = c && this.personPos(c);
-        if (!c || !p) { this.favourites.delete(id); return; }
-        this.cam.setState(p.x, p.z, this.cam.yaw, Math.min(this.cam.viewHalf, 7));
-        this.select({ type: 'person', id });
-        this.following = true;
-        this.refreshInspector();
-      },
+      openPerson: (id) => { if (!this.pop.citizens.has(id)) this.favourites.delete(id); else this.focusPerson(id); },
       cycleCity: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
       confirmBuild: () => this.tool?.confirm(),
       cancelBuild: () => this.tool?.cancel(),
@@ -5440,10 +5432,21 @@ export class Game implements ToolHost {
     const c = this.pop.citizens.get(id);
     const p = c && this.personPos(c);
     if (!c || !p) return;
-    this.cam.setState(p.x, p.z, this.cam.yaw, Math.min(this.cam.viewHalf, 7));
+    // every window closes so the person can be seen; the camera follows them
+    this.closeAllPanels();
+    if (this.tool?.tool !== 'pan') this.setTool('pan');
+    this.cam.setState(p.x, p.z, this.cam.yaw, Math.min(this.cam.viewHalf, 6));
     this.select({ type: 'person', id });
     this.following = true;
     this.refreshInspector();
+  }
+
+  /** Close every open window (to look at the map). */
+  private closeAllPanels() {
+    for (const p of [this.cityReport, this.stats, this.tradePanel, this.worldPanel, this.resPanel, this.embassy, this.chainView, this.goalsPanel, this.eventLog, this.petitions, this.news, this.buildingList, this.desk, this.lifeBook, this.guide] as ({ hide?: () => void; visible?: boolean } | undefined)[]) {
+      try { p?.hide?.(); } catch { /* ignore */ }
+    }
+    this.hud?.closeSide();
   }
 
   /** The register of the passport desk: every resident of the active town. */
