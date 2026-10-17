@@ -60,6 +60,9 @@ export class WorldPanel {
     parent.appendChild(this.root);
   }
 
+  /** Open on one town's page. */
+  openTab(id: number) { this.tab = id; if (!this.visible) this.toggle(); else this.render(); }
+
   toggle() { if (this.visible) this.hide(); else { this.visible = true; this.root.classList.add('show'); this.render(); } }
   hide() { this.visible = false; this.root.classList.remove('show'); }
 
@@ -102,38 +105,6 @@ export class WorldPanel {
   }
 
   /** All towns side by side: a table, bars and the history of people and money. */
-  /** Another player's town: what they show of it, and what we can do together. */
-  private playerTown(body: HTMLElement, tw: WorldTown) {
-    const p = tw.player!;
-    const card = el('div', 'wt-card');
-    card.style.gridColumn = '1 / -1';
-    const head = el('div', 'wt-top');
-    head.innerHTML = '<i class="nb-dot"></i><div class="wt-name"><b></b><small></small></div><span class="wt-mood"></span>';
-    (head.querySelector('.nb-dot') as HTMLElement).style.background = tw.tint;
-    (head.querySelector('b') as HTMLElement).textContent = `🌐 ${tw.name}`;
-    (head.querySelector('small') as HTMLElement).textContent = t('A friend\'s town (another player)');
-    const st = head.querySelector('.wt-mood') as HTMLElement;
-    st.textContent = p.online ? `● ${t('playing now')}` : `○ ${t('away · the town runs on autopilot')}`;
-    st.style.color = p.online ? '#6fcf97' : '#8e96a1';
-    const grid = el('div', 'wt-card-grid ol-facts');
-    for (const [k, v] of [[t('People'), num(tw.people)], [t('Treasury'), `$${short(tw.money)}`], [t('Happiness'), `${Math.round(tw.happiness)}%`]]) {
-      const f = el('div', 'wt-fact');
-      f.innerHTML = '<span></span><b></b>';
-      (f.querySelector('span') as HTMLElement).textContent = k;
-      (f.querySelector('b') as HTMLElement).textContent = v;
-      grid.appendChild(f);
-    }
-    const acts = el('div', 'emb-acts');
-    const mk = (label: string, what: 'chat' | 'gift' | 'invest' | 'goods' | 'show', cls = 'btn-mini') => { const b = el('button', cls); b.textContent = label; b.addEventListener('click', () => this.onPlayer?.(p.userId, what)); acts.appendChild(b); };
-    mk(`📍 ${t('Show on the map')}`, 'show', 'btn-mini ghost');
-    mk(`💬 ${t('Chat')}`, 'chat');
-    mk(`🎁 ${t('Gift')} $500`, 'gift');
-    mk(`💰 ${t('Invest')} $2,000`, 'invest');
-    mk(`📦 ${t('Send or sell goods')}`, 'goods', 'btn-mini ghost');
-    card.append(head, grid, acts);
-    body.appendChild(card);
-  }
-
   private overview(body: HTMLElement, towns: WorldTown[], charts: (() => void)[]) {
     const help = el('div', 'snote');
     help.textContent = t('Neighbour towns run themselves: you cannot build on their land or change them. Trade with them, send gifts and answer their letters — friends pay more and sell cheaper.');
@@ -310,7 +281,6 @@ export class WorldPanel {
   onPlayer?: (userId: string, what: 'chat' | 'gift' | 'invest' | 'goods' | 'show') => void;
 
   private town(body: HTMLElement, tw: WorldTown, charts: (() => void)[]) {
-    if (tw.player && !tw.metrics.length) return this.playerTown(body, tw);
     const mood = MOOD[tw.mood] ?? MOOD.stable;
     const top = el('div', 'wt-card');
     top.style.gridColumn = '1 / -1';

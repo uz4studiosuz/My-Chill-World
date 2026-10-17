@@ -9,8 +9,13 @@ export interface TownLayout { b: [string, number, number, number, number][]; r: 
  * Friends' towns on my map (online): the buildings and streets they built, drawn where their town lies, with their
  * town's name above it. Only a picture — nothing in them moves, and they appear once the friend has joined and played.
  */
+/** One building of a friend's town, found by the tile it stands on. */
+export interface GhostBuilding { owner: string; town: string; kind: BuildingKind; x: number; z: number; level: number }
+
 export class GhostTowns {
   private towns = new Map<string, { key: string; group: THREE.Group }>();
+  /** Tile → the friend's building on it (so it can be tapped). */
+  private tiles = new Map<number, GhostBuilding>();
   private mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private roadMat = new THREE.MeshLambertMaterial({ color: '#4a4f57' });
   private roadGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -37,6 +42,7 @@ export class GhostTowns {
       m.castShadow = true;
       m.receiveShadow = true;
       g.add(m);
+      for (let dz = 0; dz < d.size; dz++) for (let dx = 0; dx < d.size; dx++) this.tiles.set((z + dz) * N + x + dx, { owner: id, town: name, kind: kind as BuildingKind, x, z, level });
       if (kind === 'townhall') { sx = m.position.x; sz = m.position.z; n = -1; }
       else if (n >= 0) { sx += m.position.x; sz += m.position.z; n++; }
     }
@@ -54,8 +60,12 @@ export class GhostTowns {
     this.towns.set(id, { key, group: g });
   }
 
+  /** The friend's building on this tile, if any. */
+  at(k: number) { return this.tiles.get(k); }
+
   /** Remove a friend's town (they left the world). */
   drop(id: string) {
+    for (const [k, b] of this.tiles) if (b.owner === id) this.tiles.delete(k);
     const t = this.towns.get(id);
     if (!t) return;
     this.scene.remove(t.group);

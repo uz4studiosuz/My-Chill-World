@@ -69,7 +69,7 @@ import { DayWatch } from '../ui/DayWatch';
 import { Online, worldSeconds } from '../online/Online';
 import { OnlineSync, OnlineDebt } from '../online/OnlineSync';
 import { OnlinePanel } from '../ui/OnlinePanel';
-import { GhostTowns, TownLayout } from '../online/GhostTowns';
+import { GhostTowns, TownLayout, GhostBuilding } from '../online/GhostTowns';
 import { confetti } from '../ui/Tutorial';
 import { GARAGE_CARS, METRO_FARE } from './Life';
 import { DriveMode } from './DriveMode';
@@ -1154,6 +1154,33 @@ export class Game implements ToolHost {
     this.syncScale = left > 8 ? Math.min(40, 1 + left / 25) : left < -8 ? 0 : 1;
   }
 
+  /** The card of a friend's building (online): what it is, whose it is, and what we can do with them. */
+  private showGhost(g: GhostBuilding) {
+    const d = BUILDINGS[g.kind];
+    const s = this.online;
+    const m = s?.members.find((x) => x.user_id === g.owner);
+    const [emoji, color] = KIND_BADGE[g.kind] ?? ['🏠', '#6b7380'];
+    this.select(null);
+    this.inspector?.show({
+      key: `ghost:${g.owner}:${g.x}:${g.z}`, badge: emoji, badgeColor: color,
+      title: t(d.name), subtitle: `🌐 ${g.town} · ${t('A friend\'s town (another player)')}`,
+      tags: [{ text: m && s?.online(m) ? `● ${t('playing now')}` : `○ ${t('away · the town runs on autopilot')}`, tone: m && s?.online(m) ? 'good' : 'info' }],
+      rows: [
+        [t('Owner'), `${g.town} (${t('Friend')})`],
+        [t('Level'), `${g.level || 1}`],
+        ...(d.jobs ? [[t('Jobs'), `${d.jobs}`] as [string, string]] : []),
+        ...(d.units ? [[t('Homes'), t('{n} families', { n: d.units * (g.level || 1) })] as [string, string]] : []),
+        ...(d.power ? [[t('Power'), `${d.power} kW`] as [string, string]] : []),
+        [t('Size'), `${d.size}×${d.size}`],
+      ],
+      actions: [
+        { label: t('Chat'), icon: 'mail', onClick: () => { this.inspector?.hide(); this.onlinePanel?.open('chat'); } },
+        { label: t('Their town'), icon: 'globe', onClick: () => { this.inspector?.hide(); this.worldPanel?.openTab?.(-1000 - (m?.slot ?? 0)); } },
+        { label: t('Send or sell goods'), icon: 'coin', onClick: () => { this.inspector?.hide(); this.onlinePanel?.openFor(g.owner); } },
+      ],
+    });
+  }
+
   /** A button on a friend's town in the world window. */
   private async friendAction(uid: string, what: 'chat' | 'gift' | 'invest' | 'goods' | 'show') {
     const s = this.online;
@@ -2077,6 +2104,8 @@ export class Game implements ToolHost {
       if (best) return this.select({ type: 'person', id: best.id });
     }
     const b = tile ? this.buildings.at(idx(tile.x, tile.z)) : undefined;
+    const ghost = !b && tile ? this.ghosts?.at(idx(tile.x, tile.z)) : undefined;
+    if (ghost) { this.showGhost(ghost); return; }
     if (b?.kind === 'townhall' && !this.eco.cities.get(b.city)?.ai) {
       this.eco.active = b.city;
       this.refreshHud();
@@ -5554,8 +5583,10 @@ export class Game implements ToolHost {
       const tint = ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6];
       const player = { userId: m.user_id, online: this.online.online(m) };
       if (sm.town) { out.push({ ...(sm.town as WorldTown), id: -1000 - m.slot, name: m.city_name, tint, mine: false, relation: undefined, news: [], dealings: [], player }); continue; }
+      const lb = sm.layout?.b ?? [];
+      const kinds = lb.map((x) => BUILDINGS[x[0] as BuildingKind]).filter(Boolean);
       out.push({ id: -1000 - m.slot, name: m.city_name, tint, mine: false, mood: 'stable',
-        people: sm.people ?? 0, growth: 0, money: sm.money ?? 0, happiness: sm.happy ?? 0, tax: 0, loan: 0, buildings: 0, jobs: '—', homes: 0, millionaires: 0, richest: [],
+        people: sm.people ?? 0, growth: 0, money: sm.money ?? 0, happiness: sm.happy ?? 0, tax: 0.25, loan: 0, buildings: lb.length, jobs: kinds.length ? `?/${kinds.reduce((a, d) => a + d.jobs, 0)}` : '—', homes: kinds.reduce((a, d) => a + d.units, 0), millionaires: 0, richest: [],
         news: [], res: [], history: [], dealings: [], metrics: [], player: { userId: m.user_id, online: this.online.online(m) } });
     }
     return out.sort((a, b) => Number(b.mine) - Number(a.mine) || Number(!!a.player) - Number(!!b.player) || b.people - a.people);
