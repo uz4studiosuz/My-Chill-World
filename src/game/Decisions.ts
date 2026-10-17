@@ -21,8 +21,20 @@ export interface DecisionCtx {
   people: number;
 }
 
-export interface DecisionOption { label: string; note: string; act: (c: DecisionCtx) => void }
-export interface Decision { id: string; title: string; text: string; when?: (c: DecisionCtx) => boolean; options: DecisionOption[] }
+export interface DecisionOption {
+  label: string;
+  note: string;
+  act: (c: DecisionCtx, amount: number) => void;
+  /** The note for the amount the player picked (when the decision has an amount). */
+  noteFor?: (amount: number) => string;
+  /** Why this answer cannot be given now (e.g. not enough in the stores): shown in the window, which stays open. */
+  check?: (amount: number) => string | null;
+}
+export interface Decision {
+  id: string; title: string; text: string; when?: (c: DecisionCtx) => boolean; options: DecisionOption[];
+  /** The player chooses how much (a slider and a number), e.g. how much food to send to a neighbour. */
+  amount?: { min: number; max: number; value: number; step: number; label: string; have?: number };
+}
 
 /**
  * Random events that ask the town hall for a decision. Texts are English keys (translated in the UI).

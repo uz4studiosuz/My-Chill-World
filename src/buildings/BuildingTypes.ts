@@ -3,7 +3,7 @@ export type BuildingKind =
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
-  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop' | 'garage' | 'metro' | 'cctv' | 'levee' | 'embassy'
+  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop' | 'greenhouse' | 'apiary' | 'poultry' | 'garage' | 'metro' | 'cctv' | 'levee' | 'embassy'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
   | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
@@ -124,6 +124,9 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   metro: def({ kind: 'metro', name: 'Metro Station', size: 1, money: 2600, stone: 30, iron: 20, jobs: 2, salary: 14, publicJob: true, upkeep: 6, energy: 4 }),
   cctv: def({ kind: 'cctv', name: 'Security Camera', size: 1, money: 220, iron: 2, upkeep: 1, energy: 0.3, needsRoad: false }),
   levee: def({ kind: 'levee', name: 'Flood Wall', size: 1, money: 160, stone: 12, needsRoad: false }),
+  greenhouse: def({ kind: 'greenhouse', name: 'Greenhouse', size: 2, money: 900, stone: 10, wood: 10, iron: 5, jobs: 3, salary: 12, food: 24, energy: 2, needsRoad: false }),
+  apiary: def({ kind: 'apiary', name: 'Apiary', size: 1, money: 260, wood: 8, jobs: 1, salary: 9, food: 10, needsRoad: false }),
+  poultry: def({ kind: 'poultry', name: 'Poultry Farm', size: 2, money: 700, stone: 8, wood: 12, jobs: 2, salary: 10, food: 22, energy: 1, needsRoad: false }),
   dairyshop: def({ kind: 'dairyshop', name: 'Dairy Shop', size: 1, money: 600, stone: 8, wood: 6, jobs: 2, salary: 11, energy: 1.5 }),
   kiosk: def({ kind: 'kiosk', name: 'Coffee Cart', size: 1, money: 150, wood: 4, jobs: 1, salary: 8, needsRoad: false, energy: 0.5 }),
   airport: def({ kind: 'airport', name: 'Airport', size: 3, money: 6000, stone: 100, wood: 20, iron: 50, jobs: 10, salary: 22, publicJob: true, upkeep: 14, energy: 8 }),
@@ -285,7 +288,7 @@ export const DEGREE_JOBS: Partial<Record<BuildingKind, boolean>> = {
 
 /** Lower = filled first when people look for work (water, food, energy and materials keep the town alive). */
 export const JOB_PRIORITY: Partial<Record<BuildingKind, number>> = {
-  watertower: 0, farm: 1, orchard: 1, ranch: 1, fishery: 1, powerplant: 1, construction: 1, woodcutter: 2, grocery: 2, quarry: 2, ironmine: 2, hospital: 3, townhall: 3, busdepot: 3, police: 3, firestation: 3, hotel: 4,
+  watertower: 0, farm: 1, orchard: 1, ranch: 1, fishery: 1, greenhouse: 1, poultry: 1, apiary: 2, powerplant: 1, construction: 1, woodcutter: 2, grocery: 2, quarry: 2, ironmine: 2, hospital: 3, townhall: 3, busdepot: 3, police: 3, firestation: 3, hotel: 4,
 };
 /** Emergency purchase of building materials from travelling merchants. */
 export const MERCHANT = { stone: { amount: 10, price: 80 }, wood: { amount: 10, price: 50 }, iron: { amount: 10, price: 140 } };

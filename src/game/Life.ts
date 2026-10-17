@@ -397,7 +397,7 @@ export class Life {
       } else if (f.car.lot !== undefined) {
         // a car out at a parking lot: in its own space (never on another car; one more than the lot holds waits on the kerb)
         const lot = buildings.get(f.car.lot);
-        if (!lot) continue;
+        if (!lot || lot.kind === 'garage') continue;
         const p = buildings.slot(lot, f.car.slot!);
         if (free(p.x, p.z) && (lotUse.get(lot.id) ?? 0) < BUILDINGS[lot.kind].slots.length) { put(p, color); lotUse.set(lot.id, (lotUse.get(lot.id) ?? 0) + 1); }
         else { const h = buildings.get(f.home); if (h) overflow.push({ h, color }); }
@@ -407,6 +407,7 @@ export class Life {
     // (the home's side first, then across), as far down the street as it takes
     const garages = buildings.list.filter((b) => (b.kind === 'parking' || b.kind === 'garage') && b.built >= 1 && !b.removed);
     const inGarage = new Map<number, number>();
+    for (const g of garages) if (g.kind === 'garage') inGarage.set(g.id, this.spotsUsed(g));
     for (const { h, color } of overflow) {
       const lot = garages.filter((g) => Math.abs(g.x - h.x) + Math.abs(g.z - h.z) <= 8).sort((a, b) => Math.abs(a.x - h.x) + Math.abs(a.z - h.z) - (Math.abs(b.x - h.x) + Math.abs(b.z - h.z)));
       let done = false;
@@ -414,7 +415,8 @@ export class Life {
         if (g.kind === 'garage') {
           // a multi-storey car park: the car goes inside (up to its floors' room)
           const n = inGarage.get(g.id) ?? 0;
-          if (n < GARAGE_CARS * (g.level || 1)) { inGarage.set(g.id, n + 1); done = true; break; }
+          const cap = GARAGE_CARS * (g.level || 1);
+          if (n < cap - Math.max(4, Math.floor(cap / 4)) || (n < cap && this.spotsUsed(g) > 0)) { inGarage.set(g.id, n + 1); done = true; break; }
           continue;
         }
         const slots = BUILDINGS[g.kind].slots.length;
@@ -1721,6 +1723,12 @@ export class Life {
       if (b.kind === 'fishery') f *= seasonOf(month) === 'winter' ? 0.3 : 1;
       if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : month === 3 || month === 4 || month === 10 ? 0.4 : 0;
       if (b.kind === 'ranch') f *= (seasonOf(month) === 'winter' ? 0.7 : 1) * ((b.cattleCount ?? 4) / 4) * (b.cornFed ? 1.3 : 1);
+      // a greenhouse grows vegetables all year, but only with electricity for its lamps and heating
+      if (b.kind === 'greenhouse') f *= b.powered ? 1 : 0.35;
+      // bees make honey from spring to the end of summer, more with orchards, fields and flowers around
+      if (b.kind === 'apiary') f *= (month >= 3 && month <= 8 ? 1 : 0) * (1 + Math.min(0.8, buildings.list.filter((o) => o.city === b.city && (o.kind === 'orchard' || o.kind === 'farm' || o.kind === 'flowerbed' || o.kind === 'park') && dist(o, b) <= 6).length * 0.2));
+      // hens lay eggs all year, a little less in winter; corn feed makes them lay more
+      if (b.kind === 'poultry') { const feed = Math.min(city.feed ?? 0, 2 * share); if (feed > 0) this.c.eco.add(city, 'feed', -feed, 'Poultry feed'); f *= (seasonOf(month) === 'winter' ? 0.8 : 1) * (feed >= 2 * share * 0.99 ? 1.3 : 1); }
       if (b.kind === 'farm') {
         // what the field gives depends on the crop: tractors and trucks take it on along its chain
         const crop = b.cropKind ?? 'wheat';
@@ -1746,7 +1754,7 @@ export class Life {
       }
       this.c.eco.add(city, 'food', f * share, BUILDINGS[b.kind].name);
       city.foodMade += f * share;
-      if (b.kind === 'orchard' || b.kind === 'fishery') this.chainTruck(b, f * share, ['grocery', 'market', 'supermarket'], 'veg');
+      if (b.kind === 'orchard' || b.kind === 'fishery' || b.kind === 'greenhouse' || b.kind === 'poultry' || b.kind === 'apiary') this.chainTruck(b, f * share, ['grocery', 'market', 'supermarket'], 'veg');
     }
     this.chains(share);
 
@@ -2483,6 +2491,8 @@ export class Life {
     add('Leisure, letters and sport', this.leisure.bonus(city.id, own));
     // parks, fountains and decorations near the homes
     add('Decorations and greenery', Math.min(8, (this.leisure.beautyOf.get(city.id) ?? 0) * 1.5));
+    // people who went to a park or a square lately (from homes far away too) are happier for a few days
+    add('Walks in parks and squares', Math.min(5, (people.filter((c) => (c.joy ?? -99) >= this.c.eco.day - 3).length / n) * 25));
     add('Air pollution', -Math.min(15, city.pollution * 4));
     // the faithful who prayed lately are calm and kind, and it rubs off on others; gamblers bring worry and quarrels
     const today = this.c.eco.day;
@@ -2686,11 +2696,10 @@ export class Life {
     const fam = [...pop.families.values()].find((f) => f.home === h.id);
     if (!city || !fam) return { level: 1, missing: [] };
     const has = (k: string) => buildings.list.some((b) => b.kind === k && b.city === h.city && b.built >= 1 && (!BUILDINGS[b.kind].jobs || b.workers > 0));
-    const near = (k: string, r: number) => buildings.list.some((b) => b.kind === k && b.city === h.city && b.built >= 1 && dist(b, h) <= r);
     const tiers: [string, boolean][][] = [
       [['Clean water', (this.homeWater.get(h.id) ?? city.water) >= 0.95], ['Enough food', !pop.members(fam).some((c) => c.hunger < 30)]],
       [['Electricity', h.powered], ['Bread from a bakery', has('bakery')], ['A food shop', has('grocery') || has('market') || has('supermarket')], ['A school', has('school')]],
-      [['A park nearby', near('park', 10) || near('playground', 6)], ['A hospital', has('hospital')], ['A clothing store', has('clothes')], ['A coffee cart', has('kiosk')]],
+      [['A park in town', has('park') || has('bigpark') || has('playground')], ['A hospital', has('hospital')], ['A clothing store', has('clothes')], ['A coffee cart', has('kiosk')]],
     ];
     let level = 0;
     for (const tier of tiers) { if (tier.every(([, ok]) => ok)) level++; else break; }
@@ -2886,7 +2895,7 @@ export class Life {
         const car = f.car;
         car.at = 'moving';
         car.fuel = Math.max(0, car.fuel - (6 + Math.random() * 4));
-        const slotPos = buildings.slot(spot.lot, spot.slot);
+        const slotPos = this.lotPos(spot.lot, spot.slot);
         const ok = traffic.spawn({
           kind: 'car', from: home.access, to: spot.lot.access, color: colorOf(car.color),
           fromPos: buildings.slot(home, 0), toPos: slotPos,
@@ -2901,6 +2910,15 @@ export class Life {
             car.at = 'away'; car.lot = spot.lot.id; car.slot = spot.slot;
             // a public car park charges a small fee
             if (spot.lot.kind === 'parking') this.charge(c, spot.lot.city, SERVICE_FEE.parking);
+            // the multi-storey car park: the ticket goes to its till (the attendant is paid from it), or to the town hall when nobody works there
+            if (spot.lot.kind === 'garage') {
+              const fee = Math.max(1, this.c.eco.cities.get(spot.lot.city)?.parkingFee ?? 0);
+              if (f.money >= fee) {
+                f.money -= fee;
+                if (spot.lot.workers > 0) { spot.lot.sales = (spot.lot.sales ?? 0) + fee; this.countSale(spot.lot, 'Cars parked'); }
+                else this.c.eco.add(this.c.eco.cities.get(spot.lot.city)!, 'money', fee, 'Car park fees');
+              }
+            }
             if (!this.alive(c)) return;
             c.drove = true;
             c.activity = purpose === 'work' ? 'Walking to work' : 'Out for a walk';
@@ -2991,7 +3009,7 @@ export class Life {
     if (c.drove && car?.at === 'away' && car.lot !== undefined) {
       const lot = buildings.get(car.lot);
       if (lot && lot.access >= 0 && home.access >= 0) {
-        const slotPos = buildings.slot(lot, car.slot!);
+        const slotPos = this.lotPos(lot, car.slot!);
         const key = `${lot.id}:${car.slot}`;
         this.walk(c, from, fromTile, null, () => {
           car.fuel = Math.max(0, car.fuel - (6 + Math.random() * 4));
@@ -4077,6 +4095,14 @@ export class Life {
         if (!this.spots.has(`${lot.id}:${i}`)) return { lot, slot: i };
       }
     }
+    // a multi-storey car park within the walking distance: the car drives in through its gate
+    const garages = buildings.list.filter((b) => b.kind === 'garage' && b.built >= 1 && !b.removed && b.access >= 0 && dist(b, dest) <= PARK_RADIUS)
+      .sort((a, b) => dist(a, dest) - dist(b, dest));
+    for (const g of garages) {
+      const cap = GARAGE_CARS * (g.level || 1);
+      if ((this.garageUse.get(g.id) ?? 0) >= cap) continue;
+      for (let i = 0; i < cap; i++) if (!this.spots.has(`${g.id}:${i}`)) return { lot: g, slot: i };
+    }
     const fallback = buildings.list
       .filter((b) => b.kind !== 'house' && b.access >= 0 && BUILDINGS[b.kind].slots.length && dist(b, dest) <= PARK_RADIUS)
       .sort((a, b) => dist(a, dest) - dist(b, dest));
@@ -4094,10 +4120,17 @@ export class Life {
       const [lotId, slot] = key.split(':').map(Number);
       const lot = buildings.get(lotId);
       if (!lot) continue;
+      if (lot.kind === 'garage') continue;
       const slotPos = buildings.slot(lot, slot);
       if (Math.hypot(slotPos.x - x, slotPos.z - z) < 0.4) return famId;
     }
     return undefined;
+  }
+
+  /** Where a car stops in a parking space; in a multi-storey car park, at its gate (it then drives inside). */
+  private lotPos(lot: Building, slot: number): { x: number; z: number; rot: number } {
+    if (lot.kind === 'garage') { const d = this.c.buildings.door(lot); return { x: d.x, z: d.z, rot: lot.rot }; }
+    return this.c.buildings.slot(lot, slot);
   }
 
   spotsUsed(b: Building) {

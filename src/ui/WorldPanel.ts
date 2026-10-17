@@ -133,7 +133,38 @@ export class WorldPanel {
         table.appendChild(c);
       });
     }
-    box.append(tt, table);
+    // phones: the same figures as one card per town (no sideways scrolling)
+    const cards = el('div', 'wt-cards');
+    for (const tw of towns) {
+      const mood = MOOD[tw.mood] ?? MOOD.stable;
+      const card = el('div', 'wt-card');
+      const head = el('button', 'wt-card-head');
+      head.innerHTML = '<i class="wt-dot"></i><b></b><small></small>';
+      (head.querySelector('i') as HTMLElement).style.background = tw.tint;
+      (head.querySelector('b') as HTMLElement).textContent = tw.name;
+      (head.querySelector('small') as HTMLElement).textContent = t(mood[0]);
+      (head.querySelector('small') as HTMLElement).style.color = mood[1];
+      head.addEventListener('click', () => { this.tab = tw.id; this.render(); });
+      const grid = el('div', 'wt-card-grid');
+      const facts: [string, string, string?][] = [
+        [t('People'), num(tw.people)], [t('Last week'), `${tw.growth >= 0 ? '+' : ''}${tw.growth}`, tw.growth > 0 ? 'pos' : tw.growth < 0 ? 'neg' : ''],
+        [t('Treasury'), `$${short(tw.money)}`, tw.money < 0 ? 'neg' : ''], [t('Happiness'), `${Math.round(tw.happiness)}%`, tw.happiness >= 60 ? 'pos' : tw.happiness < 45 ? 'neg' : ''],
+        [t('Tax'), `${Math.round(tw.tax * 100)}%`], [t('Homes'), `${tw.homes}`], [t('Buildings'), `${tw.buildings}`], [t('Millionaires'), `${tw.millionaires}`],
+        [t('Relations'), tw.relation === undefined ? t('You') : `${Math.round(tw.relation)}`, tw.relation === undefined ? '' : tw.relation >= 50 ? 'pos' : tw.relation < 25 ? 'neg' : ''],
+      ];
+      for (const [k, v, cls] of facts) {
+        const f = el('div', 'wt-fact');
+        f.innerHTML = '<span></span><b></b>';
+        (f.querySelector('span') as HTMLElement).textContent = k;
+        const vb = f.querySelector('b') as HTMLElement;
+        vb.textContent = v;
+        if (cls) vb.className = cls;
+        grid.appendChild(f);
+      }
+      card.append(head, grid);
+      cards.appendChild(card);
+    }
+    box.append(tt, table, cards);
     body.appendChild(box);
     this.matrix(body, towns);
     // bars: people and treasury

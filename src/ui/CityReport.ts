@@ -72,7 +72,8 @@ function drawDonut(c: HTMLCanvasElement, parts: [string, number, string][]) {
     const da = (v / total) * Math.PI * 2;
     g.strokeStyle = col;
     g.beginPath();
-    g.arc(cx, cy, r * 0.8, a, a + da - 0.01);
+    // a tiny slice: an end angle before the start would draw a full ring
+    if (da > 0.012) g.arc(cx, cy, r * 0.8, a, a + da - 0.01);
     g.stroke();
     a += da;
   }

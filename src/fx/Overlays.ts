@@ -66,7 +66,7 @@ export class Overlays {
     this.grid.count = 0;
     this.grid.frustumCulled = false;
     this.grid.renderOrder = 6;
-    this.tiles = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6, depthWrite: false }), 8000);
+    this.tiles = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6, depthWrite: false }), 20000);
     this.tiles.count = 0;
     this.tiles.frustumCulled = false;
     this.tiles.renderOrder = 6;
@@ -81,7 +81,7 @@ export class Overlays {
     const c = new THREE.Color();
     let n = 0;
     for (const tl of list) {
-      if (n >= 8000) break;
+      if (n >= 20000) break;
       m.makeScale(0.96, 1, 0.96).setPosition(tl.x, 0.06, tl.z);
       this.tiles.setColorAt(n, c.set(tl.color));
       this.tiles.setMatrixAt(n++, m);

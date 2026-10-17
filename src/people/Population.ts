@@ -66,6 +66,8 @@ export interface Citizen {
   faith?: boolean;
   /** Last day they prayed at the mosque, and the last day they gambled at the casino (and lost money there). */
   prayed?: number;
+  /** Last day they enjoyed a park, a fountain or another decoration (a few happy days follow). */
+  joy?: number;
   gambled?: number;
   lost?: boolean;
 }
@@ -306,7 +308,8 @@ export class Population {
       if (b.built < 1) continue;
       const d = BUILDINGS[b.kind];
       // a woodcutter or quarry with nothing left to take does not hire (its people work elsewhere for now)
-      if (d.jobs && !(b.depleted ?? 0) && b.strike === undefined) free.set(b.id, d.jobs);
+      // out of season (fields in winter…) or on strike: no work there now
+      if (d.jobs && !(b.depleted ?? 0) && b.strike === undefined && !b.resting) free.set(b.id, d.jobs);
       if (d.students) seats.set(b.id, seatsOf(b));
     }
     const homeOf = (c: Citizen) => buildings.get(this.families.get(c.family)?.home ?? -1);
@@ -722,7 +725,7 @@ export class Population {
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, gambled: c.gambled, lost: c.lost || undefined,
+        story: c.story, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));
   }

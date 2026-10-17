@@ -116,7 +116,10 @@ export const ITEMS: ToolItem[] = [
 
   b('powerplant', 'production', '+90 energy/day', 'Burns wood. Power reaches only buildings connected to it by road.', 'powerplant'),
   b('farm', 'production', '+90 food/day', 'Crop field (3×3). Needs water from a canal or rain. Grows March–October.', 'farm'),
-  b('orchard', 'production', '+30 food/day', 'Fruit trees — best harvest in summer and autumn.', 'orchard'),
+  b('orchard', 'production', '+30 food/day', 'Fruit trees — best harvest in summer and autumn; wrapped up and closed from December to March.', 'orchard'),
+  b('greenhouse', 'production', 'Vegetables all year', 'Glass tunnels of tomatoes and cucumbers: food in every season, even in winter. Needs electricity for its lamps and heating.', 'farm'),
+  b('apiary', 'production', 'Honey in summer', 'Beehives in a flower meadow: honey from April to September, more with orchards, fields, flowerbeds or a park nearby.', 'flower'),
+  b('poultry', 'production', 'Eggs all year', 'Hens in a barn and a yard: eggs and chicken all year (a little less in winter), more with corn feed from the fields.', 'farm'),
   b('ranch', 'production', '+35 food/day', 'Fenced pasture with cattle (3×3). Produces all year.', 'ranch'),
   b('bigpark', 'buildings', 'Big green space', 'A 3×3 park with a pond, a pavilion and many trees: heals people, makes homes far around happier.', 'orchard'),
   b('mosque', 'services', 'Faith', 'Believers come to pray five times a day and on Fridays. The imam and the muezzin work here. Lifts the mood of the whole town.', 'heart'),
@@ -160,7 +163,7 @@ const PRIORITY: Record<string, string[]> = {
   buildings: ['house', 'watertower', 'apartment', 'park', 'parking', 'cemetery', 'garage', 'embassy', 'bigpark', 'tower15', 'tower30', 'tower50'],
   services: ['school', 'kindergarten', 'hospital', 'police', 'firestation', 'sewage', 'landfill', 'weddinghall', 'busstop', 'busdepot', 'pharmacy', 'mosque', 'university', 'recycling', 'metro', 'cctv', 'levee', 'academy', 'stadium', 'concerthall', 'migration', 'military'],
   business: ['construction', 'grocery', 'market', 'bakery', 'supermarket', 'clothes', 'dairyshop', 'kiosk', 'gasstation', 'bank', 'office', 'hotel', 'carmarket', 'teahouse', 'barber', 'gym', 'cinema', 'casino', 'themepark'],
-  production: ['farm', 'woodcutter', 'quarry', 'powerplant', 'orchard', 'ranch', 'windturbine', 'solarfarm', 'battery', 'fishery', 'warehouse', 'mill', 'sawmill', 'brickworks', 'dairy', 'ironmine', 'factory', 'coalmine', 'coalplant', 'steelmill', 'bikefactory', 'carfactory', 'hydro', 'trainstation', 'airport'],
+  production: ['farm', 'woodcutter', 'quarry', 'powerplant', 'orchard', 'ranch', 'greenhouse', 'poultry', 'apiary', 'windturbine', 'solarfarm', 'battery', 'fishery', 'warehouse', 'mill', 'sawmill', 'brickworks', 'dairy', 'ironmine', 'factory', 'coalmine', 'coalplant', 'steelmill', 'bikefactory', 'carfactory', 'hydro', 'trainstation', 'airport'],
 };
 {
   const rank = (it: ToolItem) => { const l = PRIORITY[it.cat]; const i = l ? l.indexOf(it.tool) : -1; return i < 0 ? 999 : i; };
@@ -250,18 +253,18 @@ export const SPEEDS = [0, 1, 3, 10, 50];
 
 /** What the colours of every map layer mean (shown in a key while the layer is on). */
 const LEGENDS: Record<string, { title: string; icon: IconName; items: [string, string][]; tip: string }> = {
-  power: { title: 'Electricity map', icon: 'energy', items: [['#58d36b', 'Powered'], ['#f2b33d', 'On the grid, not enough power'], ['#ff5a4e', 'No cable to a power plant'], ['#ffe066', 'Power plants']],
-    tip: 'Yellow lines are the power cables. Lay a cable along the street to the red buildings; build another plant for the amber ones.' },
+  power: { title: 'Electricity map', icon: 'energy', items: [['#58d36b', 'Powered'], ['#f2b33d', 'On the grid, not enough power'], ['#ff5a4e', 'No cable to a power plant'], ['#ffe066', 'Power plants'], ['#8d96a0', 'Needs no electricity']],
+    tip: 'Yellow lines are the power cables. Lay a cable along the street to the red buildings; build another plant for the amber ones. Grey ones (fields, farms, parks…) work without electricity.' },
   water: { title: 'Water map', icon: 'water', items: [['#58d36b', 'Clean water'], ['#f2b33d', 'Not enough water'], ['#ff5a4e', 'No water pipe'], ['#4fa3ff', 'Water towers and sewage']],
     tip: 'Blue lines are the pipes. A home gets water only where a pipe runs under it.' },
   happy: { title: 'Happiness map', icon: 'heart', items: [['#58d36b', 'Happy (65%+)'], ['#f2b33d', 'So-so (45–65%)'], ['#ff5a4e', 'Unhappy (below 45%)']],
-    tip: 'Tap a home to see why its people feel that way.' },
+    tip: 'Every tile of the town: around the homes it is how their families feel, between them what the place gives (decorations raise it, smoke lowers it). Tap a home to see why its people feel that way.' },
   traffic: { title: 'Traffic map', icon: 'car', items: [['#58d36b', 'Free flow'], ['#f2b33d', 'Busy'], ['#ff5a4e', 'Jammed']],
     tip: 'Red streets need another road beside them, a roundabout, a bus line, a metro or a car park.' },
   land: { title: 'Land value map', icon: 'coin', items: [['#2f5fcf', 'Very dear (×1.7+)'], ['#4f8fe8', 'Dear (×1.4+)'], ['#8fc0f5', 'Above average'], ['#c9cdd2', 'Ordinary'], ['#c99a6b', 'Cheap'], ['#8a5a35', 'Very cheap (smoke)']],
-    tip: 'Every tile around your town: the closer to the town hall the dearer (up to 24 tiles); parks and decorations add within 5 tiles, a river or lake within 3, a metro station within 5; factories and mines lower it within 6. Build homes and shops on blue land, factories on brown. Property tax follows it.' },
+    tip: 'Every tile of your town and around its buildings: the closer to the town hall the dearer (up to 24 tiles); parks and decorations add within 5 tiles, a river or lake within 3, a metro station within 5; factories and mines lower it within 6. Build homes and shops on blue land, factories on brown. Property tax follows it.' },
   crime: { title: 'Crime map', icon: 'eye', items: [['#58d36b', 'Safe'], ['#f2b33d', 'Some thefts'], ['#ff5a4e', 'Dangerous']],
-    tip: 'Police stations (with staff) and security cameras make streets safe; jobs and a good income do too.' },
+    tip: 'Every tile of the town. Police stations (with staff) and security cameras make streets safe; jobs, a good income and dear land do too.' },
 };
 /** Readouts hidden behind the fold on narrow screens. */
 const SECONDARY = new Set(['stone', 'wood', 'iron', 'food', 'energy', 'water', 'jobs']);
@@ -309,27 +312,51 @@ export class Hud {
   }
 
   private legendEl = el('div', 'map-legend');
+  /** The key is folded to its title (the map stays on). */
+  private legendMini = false;
+  private legendCounts: string[] = [];
+  private legendLayer = '';
+
+  /** How many buildings (or tiles) of each colour the map shows now. */
+  setLegendCounts(l: string, counts: string[]) {
+    this.legendCounts = counts;
+    if (l !== this.legendLayer) return;
+    this.legendEl.querySelectorAll<HTMLElement>('.ml-row em').forEach((e, i) => { e.textContent = counts[i] ?? ''; });
+  }
 
   /** The key of the map layer that is on: what each colour means and what to do; it stays until the layer is off. */
   private renderLegend(l: string) {
     const L = LEGENDS[l];
     this.legendEl.classList.toggle('show', !!L);
+    if (l !== this.legendLayer) this.legendCounts = [];
+    this.legendLayer = l;
     if (!L) return;
+    this.legendEl.classList.toggle('mini', this.legendMini);
     this.legendEl.replaceChildren();
     const head = el('div', 'ml-head');
     head.innerHTML = `<span class="ml-ic">${icon(L.icon)}</span><b></b>`;
     (head.querySelector('b') as HTMLElement).textContent = t(L.title);
     const x = el('button', 'ml-x');
-    x.innerHTML = icon('close');
-    x.setAttribute('aria-label', t('Close'));
-    x.addEventListener('click', () => this.h.setLayer(l as 'power'));
-    head.appendChild(x);
+    x.innerHTML = icon(this.legendMini ? 'up' : 'down');
+    x.title = t(this.legendMini ? 'Show the key' : 'Fold the key (the map stays on)');
+    x.setAttribute('aria-label', x.title);
+    const fold = () => { this.legendMini = !this.legendMini; this.renderLegend(l); };
+    x.addEventListener('click', (e) => { e.stopPropagation(); fold(); });
+    head.addEventListener('click', () => { if (this.legendMini) fold(); });
+    const off = el('button', 'ml-x ml-off');
+    off.innerHTML = icon('close');
+    off.title = t('Switch the map off');
+    off.setAttribute('aria-label', off.title);
+    off.addEventListener('click', (e) => { e.stopPropagation(); this.h.setLayer(l as 'power'); });
+    head.append(x, off);
     const list = el('div', 'ml-list');
     for (const [color, label] of L.items) {
       const r = el('div', 'ml-row');
-      r.innerHTML = '<i></i><span></span>';
+      r.innerHTML = '<i></i><span></span><em></em>';
       (r.querySelector('i') as HTMLElement).style.background = color;
       (r.querySelector('span') as HTMLElement).textContent = t(label);
+      const n = this.legendCounts[L.items.findIndex(([c]) => c === color)];
+      (r.querySelector('em') as HTMLElement).textContent = n ?? '';
       list.appendChild(r);
     }
     const tip = el('div', 'ml-tip');

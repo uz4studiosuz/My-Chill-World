@@ -30,6 +30,9 @@ const NODES: Node[] = [
   { id: 'farm', type: 'building', label: 'Crop Farm', emoji: '🌾', col: 0, row: 0, info: 'Sow wheat, corn, cotton, vegetables or melons. Needs water from a canal or a river.' },
   { id: 'ranch', type: 'building', label: 'Cattle Ranch', emoji: '🐄', col: 0, row: 3, info: 'Cows give meat (food) and milk. Corn feed makes them give 30% more. Upgrade for more cows.' },
   { id: 'orchard', type: 'building', label: 'Fruit Orchard', emoji: '🍎', col: 0, row: 5, info: 'Fruit in summer and autumn, straight to the stores as food.' },
+  { id: 'poultry', type: 'building', label: 'Poultry Farm', emoji: '🥚', col: 0, row: 1, info: 'Eggs and chicken all year; corn feed makes the hens lay more.' },
+  { id: 'greenhouse', type: 'building', label: 'Greenhouse', emoji: '🍅', col: 0, row: 4, info: 'Vegetables in every season, even in winter (needs electricity).' },
+  { id: 'apiary', type: 'building', label: 'Apiary', emoji: '🍯', col: 0, row: 7, info: 'Honey from April to September, more with orchards and flowers nearby.' },
   { id: 'fishery', type: 'building', label: 'Fishery', emoji: '🐟', col: 0, row: 6, info: 'Fish from the water, less in winter.' },
   { id: 'woodcutter', type: 'building', label: 'Woodcutter', emoji: '🪓', col: 0, row: 8, info: 'Fells trees nearby (they grow back). Moves on when the forest is gone.' },
   { id: 'quarry', type: 'building', label: 'Quarry', emoji: '⛏️', col: 0, row: 10, info: 'Breaks stone from a mountain beside it; the rock shrinks as it is dug.' },
@@ -77,7 +80,7 @@ const NODES: Node[] = [
 
 /** Who feeds whom. */
 const EDGES: [string, string][] = [
-  ['farm', 'grain'], ['farm', 'feed'], ['farm', 'cotton'], ['farm', 'food'], ['ranch', 'milk'], ['ranch', 'food'], ['feed', 'ranch'], ['orchard', 'food'], ['fishery', 'food'],
+  ['farm', 'grain'], ['farm', 'feed'], ['farm', 'cotton'], ['farm', 'food'], ['ranch', 'milk'], ['ranch', 'food'], ['feed', 'ranch'], ['orchard', 'food'], ['fishery', 'food'], ['greenhouse', 'food'], ['apiary', 'food'], ['poultry', 'food'], ['feed', 'poultry'],
   ['woodcutter', 'wood'], ['quarry', 'stone'], ['ironmine', 'iron'], ['coalmine', 'coal'],
   ['grain', 'mill'], ['mill', 'flour'], ['flour', 'bakery'], ['bakery', 'food'],
   ['milk', 'dairy'], ['dairy', 'food'], ['milk', 'dairyshop'], ['dairyshop', 'homes'],

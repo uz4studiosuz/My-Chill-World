@@ -61,10 +61,10 @@ export interface LeisureSave { petitions: Petition[]; matches: MatchResult[]; tr
 
 /** The letter text for each request (English keys, translated in the UI). */
 export const PETITION_TEXT: Record<PetitionKind, string> = {
-  shop: 'There is no shop in our neighbourhood — we walk far for bread. Please build a grocery store!',
+  shop: 'There is no food shop in our town — we have nowhere to buy bread. Please build a grocery store!',
   school: 'Our children have grown up, but there are not enough school places. Please build a school!',
   light: 'Our street has no lamps and it is dark at night. Please light the street!',
-  park: 'There is nowhere green to walk near our homes. Please build a park!',
+  park: 'There is nowhere green to walk in our town. Please build a park!',
   hospital: 'When someone falls ill there is nowhere to go. Please build a hospital!',
   busstop: 'We have no car and the bus does not stop near us. Please build a bus stop!',
   playground: 'Our children have nowhere to play. Please build a playground!',
@@ -187,7 +187,14 @@ export class Leisure {
     if (this.matchDay && tod >= 0.72 && this.lastMatch !== this.c.eco.day) { this.lastMatch = this.c.eco.day; this.playMatches(); }
   }
 
-  /** Send people who are at home to a leisure place nearby. */
+  /** No decoration near the home: the family has to go somewhere to enjoy the greenery. */
+  private plainHome(c: Citizen) {
+    const { pop, buildings } = this.c;
+    const home = buildings.get(pop.families.get(c.family)?.home ?? -1);
+    if (!home) return false;
+    return !buildings.list.some((d) => d.city === home.city && DECOR[d.kind] && d.built >= 1 && near(d, home.x, home.z, DECOR_RANGE));
+  }
+
   /** Everyday rhythm: elders, evening visits, weekends, heatwaves and lunch at the coffee cart. */
   private routines(tod: number) {
     const { pop, buildings, eco } = this.c;
@@ -195,7 +202,9 @@ export class Leisure {
     const hasToddler = (c: Citizen) => { const f = pop.families.get(c.family); return !!f && pop.members(f).some((m) => m.age >= 3 && m.age < 6 && m.school >= 0); };
     if (tod > 0.4 && tod < 0.6) this.outings(['park', 'bigpark', 'teahouse'], (c) => c.age >= 65, 0.06, 6, Math.min(0.7, tod + 0.1), 12, 'Playing chess in the park');
     if (tod > 0.58 && tod < 0.62) this.outings(['kindergarten'], (c) => c.age >= 58 && hasToddler(c), 0.3, 6, tod + 0.05, 15, 'Picking up the grandchildren');
-    if (weekend && tod > 0.42 && tod < 0.6) this.outings(['park', 'bigpark', 'themepark', 'market', 'supermarket', 'fountain', 'kiosk'], (c) => c.age >= 3, 0.04, 12, Math.min(0.72, tod + 0.12), 14, 'Weekend family walk');
+    if (weekend && tod > 0.42 && tod < 0.6) this.outings(['park', 'bigpark', 'themepark', 'market', 'supermarket', 'fountain', 'kiosk', 'pond', 'gazebo', 'statue', 'clocktower', 'playground'], (c) => c.age >= 3, 0.04, 12, Math.min(0.72, tod + 0.12), 40, 'Weekend family walk');
+    // people who live far from any greenery go for a walk to a park or a square now and then
+    if (tod > 0.62 && tod < 0.74) this.outings(['park', 'bigpark', 'fountain', 'pond', 'gazebo', 'statue', 'playground'], (c) => c.age >= 6 && (c.joy ?? -99) < eco.day - 3 && this.plainHome(c), 0.03, 10, Math.min(0.82, tod + 0.08), 40, 'A walk in the park');
     if (this.host.weatherMood === 'heat' && tod > 0.45 && tod < 0.7) this.outings(['fountain', 'park', 'bigpark', 'kiosk'], (c) => c.age >= 3, 0.06, 10, Math.min(0.75, tod + 0.08), 12, 'Cooling off by the fountain');
     // evening: friends and neighbours visit each other
     if (tod > 0.76 && tod < 0.84) {
@@ -299,6 +308,7 @@ export class Leisure {
     if (price && f) { f.money -= price; b.sales = (b.sales ?? 0) + price; this.host.tally(b, 'Tickets'); }
     // whoever prays at the mosque is a believer, and leaves it at peace
     if (b.kind === 'mosque') { c.faith = true; c.prayed = eco.day; c.health = Math.min(100, c.health + 2); }
+    if (DECOR[b.kind] && (DECOR[b.kind] ?? 0) >= 0.5) c.joy = eco.day;
     if (b.kind === 'casino' && f) this.host.tally(b, 'Players');
     const visit = VISIT_PRICE[b.kind];
     if (b.kind === 'casino' && f) {
@@ -662,9 +672,10 @@ export class Leisure {
     const { pop, buildings } = this.c;
     const built = (kinds: string[], r: number) => own.some((b) => kinds.includes(b.kind) && near(b, p.x, p.z, r));
     switch (p.kind) {
-      case 'shop': return built(['grocery', 'market'], 12);
-      case 'park': return built(['park'], 10);
-      case 'playground': return built(['playground', 'park'], 8);
+      // a shop, a park or a playground anywhere in the town will do: people walk or drive there
+      case 'shop': return own.some((b) => b.kind === 'grocery' || b.kind === 'market' || b.kind === 'supermarket');
+      case 'park': return own.some((b) => b.kind === 'park' || b.kind === 'bigpark');
+      case 'playground': return own.some((b) => b.kind === 'playground' || b.kind === 'park' || b.kind === 'bigpark');
       case 'hospital': return own.some((b) => b.kind === 'hospital');
       case 'busstop': return built(['busstop'], 8);
       case 'light': {

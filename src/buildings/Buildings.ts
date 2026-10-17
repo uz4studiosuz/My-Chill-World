@@ -21,6 +21,7 @@ import { siteTapeGeometry } from '../models/sitetape';
 import { warehouseGeometry, bikeFactoryGeometry, migrationOfficeGeometry, gazeboGeometry, pondGeometry, clockTowerGeometry, flagpoleGeometry, planterGeometry, archwayGeometry } from '../models/chains2';
 import { tower15Geometry, tower30Geometry, tower50Geometry } from '../models/buildings';
 import { concertHallGeometry, barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
+import { greenhouseGeometry, apiaryGeometry, poultryGeometry, restingCoverGeometry } from '../models/chains2';
 import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, dairyShopGeometry, garageGeometry, metroGeometry, cctvGeometry, leveeGeometry, embassyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
 import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
 import { box, hash2, merge, shape } from '../utils/voxel';
@@ -111,6 +112,8 @@ export interface Building {
   route?: number[];
   /** Workers on strike until this day. */
   strike?: number;
+  /** Out of its season (a field in winter, an orchard or an apiary between harvests): no work, wrapped in canvas. */
+  resting?: boolean;
   /** Game day the building was started (the timelapse shows the town growing). */
   born?: number;
   /** A fire truck is already on its way. */
@@ -211,6 +214,9 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'airport': return airportGeometry();
     case 'pharmacy': return pharmacyGeometry();
     case 'dairyshop': return dairyShopGeometry();
+    case 'greenhouse': return greenhouseGeometry();
+    case 'apiary': return apiaryGeometry();
+    case 'poultry': return poultryGeometry();
     case 'garage': return garageGeometry();
     case 'metro': return metroGeometry();
     case 'cctv': return cctvGeometry();
@@ -537,6 +543,21 @@ export class Buildings {
     }
     const m = new THREE.Mesh(merge(parts), this.mat);
     m.name = 'levelDeco';
+    m.castShadow = true;
+    b.mesh.add(m);
+  }
+
+  /** Wrap a field, orchard or apiary in canvas while it is out of season (and unwrap it when the season comes). */
+  setResting(b: Building, on: boolean) {
+    b.resting = on || undefined;
+    const old = b.mesh.getObjectByName('restCover');
+    if (old) { b.mesh.remove(old); (old as THREE.Mesh).geometry.dispose(); }
+    if (!on) return;
+    const size = BUILDINGS[b.kind].size;
+    let g = this.geoCache.get(`rest:${size}`);
+    if (!g) { g = bakeShade(restingCoverGeometry(size)); this.geoCache.set(`rest:${size}`, g); }
+    const m = new THREE.Mesh(g.clone(), (b.mesh.children[0] as THREE.Mesh).material);
+    m.name = 'restCover';
     m.castShadow = true;
     b.mesh.add(m);
   }

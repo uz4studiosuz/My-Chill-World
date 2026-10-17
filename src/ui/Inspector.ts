@@ -23,6 +23,8 @@ export interface InspectorView {
   actions?: InspectorAction[];
   /** A person's ID card, drawn like a passport page. */
   passport?: Passport;
+  /** A bus seen from above: the driver and who sits in each seat (tap one to open them). */
+  seats?: { total: number; driver: string; riders: { id: number; name: string; icon: string; to: string }[] };
 }
 
 export interface Passport {
@@ -109,6 +111,37 @@ export class Inspector {
   private savedListScroll = 0;
   private page = 0;
 
+  /** The bus from above: the driver at the front, then rows of two seats, an aisle and two more. */
+  private seatPlan(s: NonNullable<InspectorView['seats']>) {
+    const bus = el('div', 'bus-plan');
+    const front = el('div', 'bp-front');
+    front.innerHTML = '<span class="bp-wheel">🛞</span><span class="bp-drv"></span><span class="bp-door"></span>';
+    (front.querySelector('.bp-drv') as HTMLElement).textContent = s.driver;
+    (front.querySelector('.bp-door') as HTMLElement).textContent = t('Door');
+    const grid = el('div', 'bp-grid');
+    for (let i = 0; i < s.total; i++) {
+      const r = s.riders[i];
+      const seat = el('button', `bp-seat${r ? ' taken' : ''}`);
+      // two seats, the aisle, two seats
+      if (i % 4 === 2) seat.classList.add('after-aisle');
+      if (r) {
+        seat.innerHTML = '<i></i><small></small>';
+        (seat.querySelector('i') as HTMLElement).textContent = r.icon;
+        (seat.querySelector('small') as HTMLElement).textContent = r.name;
+        seat.title = `${r.name} → ${r.to}`;
+        seat.addEventListener('click', () => this.onPerson(r.id));
+      } else {
+        seat.disabled = true;
+        seat.title = t('Free seat');
+      }
+      grid.appendChild(seat);
+    }
+    const foot = el('div', 'bp-foot');
+    foot.textContent = t('{n} of {m} seats taken', { n: s.riders.length, m: s.total });
+    bus.append(front, grid, foot);
+    return bus;
+  }
+
   show(v: InspectorView) {
     // nothing changed: keep the DOM (and the buttons under the cursor) as they are
     const sig = JSON.stringify(v);
@@ -140,6 +173,7 @@ export class Inspector {
     this.root.appendChild(head);
 
     if (v.passport) this.root.appendChild(passportCard(v.passport));
+    if (v.seats) this.root.appendChild(this.seatPlan(v.seats));
 
     if (v.tags?.length) {
       const tags = el('div', 'ins-tags');
