@@ -2402,3 +2402,21 @@ body.lapse-mode #ui { display: none !important; }
 .dc-err:empty { display: none; }
 .decision.shake { animation: dc-shake .35s; }
 @keyframes dc-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+
+/* ---- the family tree map (drawn like the production chain map) ---- */
+.fam-view { z-index: 46; }
+.fam-node.ok { border-color: #58c46d; }
+.fam-node.f.ok { border-color: #e88bb4; box-shadow: 0 0 14px rgba(232,139,180,.22), 0 6px 16px rgba(0,0,0,.35); }
+.fam-node.dead { opacity: .7; filter: grayscale(.9); border-color: #59616b; }
+.fam-node.left { border-style: dashed; border-color: #6fb6ff; opacity: .85; }
+.fam-node.me { outline: 3px solid #f2b33d; outline-offset: 3px; }
+.fam-node.picked { outline: 3px solid #f2c230; outline-offset: 2px; }
+.fam-edges path { fill: none; stroke-width: 2.2; }
+.fam-edges path.live { stroke: rgba(123,224,143,.7); stroke-dasharray: none; animation: none; }
+.fam-edges path.dead { stroke: rgba(140,150,160,.45); stroke-dasharray: 5 5; }
+.fam-edges path.couple { stroke: #e88bb4; stroke-width: 3; }
+.fam-edges path.hot { stroke: #f2c230; stroke-width: 3.6; }
+.fam-edges text.ring { font-size: 13px; }
+.fam-gen { position: absolute; left: -150px; width: 130px; text-align: right; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,.35); white-space: nowrap; }
+.cv-legend .dead { color: #8d96a1; } .cv-legend .left { color: #6fb6ff; }
+.fam-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }

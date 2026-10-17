@@ -5774,7 +5774,7 @@ export class Game implements ToolHost {
     }
     const a = this.pop.archive.get(id);
     if (!a) return null;
-    return { id, name: a.name, surname: a.surname, sex: a.sex === 'm' ? 'm' : 'f', age: a.age, alive: false, note: a.how === 'died' ? t('† {date}, aged {n}', { date: dateLabel(a.day), n: a.age }) : t('moved away ({date})', { date: dateLabel(a.day) }), famous: a.fame ? t(FAME_TITLE[a.fame]) : undefined };
+    return { id, name: a.name, surname: a.surname, sex: a.sex === 'm' ? 'm' : 'f', age: a.age, alive: false, left: a.how !== 'died', note: a.how === 'died' ? t('† {date}, aged {n}', { date: dateLabel(a.day), n: a.age }) : t('moved away ({date})', { date: dateLabel(a.day) }), famous: a.fame ? t(FAME_TITLE[a.fame]) : undefined };
   }
 
   /** The register of the passport desk: every resident of the active town. */
