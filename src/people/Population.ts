@@ -733,6 +733,10 @@ export class Population {
           nf.members.push(partner.id);
           // the new family carries the husband's surname: the bride takes it
           if (c.sex === 'f') nf.surname = pf.surname;
+          // Uzbek custom: the new family (and so the grandchildren) takes the name of the groom's father — Karim's son's family becomes the Karimovs
+          const groom = c.sex === 'm' ? c : partner;
+          const grandpa = groom.dad !== undefined ? (this.citizens.get(groom.dad) ?? this.archive.get(groom.dad)) : undefined;
+          if (grandpa && /(ov|ev|yev|ova|eva)$/i.test(nf.surname)) nf.surname = grandpa.name + (/[aeiouy]$/i.test(grandpa.name) ? 'yev' : 'ov');
           r.weddings.push([c.name, partner.name]);
           this.note(c, 'Married {name} at the Wedding Hall', { name: `${partner.name} ${pf.surname}`.trim() });
           this.note(partner, 'Married {name} at the Wedding Hall', { name: `${c.name} ${f.surname}` });
