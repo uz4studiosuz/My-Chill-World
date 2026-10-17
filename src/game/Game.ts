@@ -66,6 +66,7 @@ import { LAWS, BUDGET_AREAS } from '../sim/Laws';
 import { ACHIEVEMENTS, AchievementCtx } from './Achievements';
 import { AchievementsPanel } from '../ui/AchievementsPanel';
 import { DayWatch } from '../ui/DayWatch';
+import { Online } from '../online/Online';
 import { confetti } from '../ui/Tutorial';
 import { GARAGE_CARS, METRO_FARE } from './Life';
 import { DriveMode } from './DriveMode';
@@ -83,7 +84,7 @@ export interface GameOptions {
   /** Background world for the main menu: no input, no HUD, no saving. */
   demo?: boolean;
   save?: WorldSave;
-  create?: { name: string; seed: number; calm?: boolean; towns?: number; creative?: boolean };
+  create?: { name: string; seed: number; calm?: boolean; towns?: number; creative?: boolean; id?: string; online?: WorldMeta['online'] };
   thumbs?: Map<string, string>;
 }
 
@@ -323,8 +324,8 @@ export class Game implements ToolHost {
     this.thumbs = opts.thumbs ?? new Map();
     const seed = opts.save?.meta.seed ?? opts.create?.seed ?? DEMO_SEED;
     this.meta = opts.save?.meta ?? {
-      id: SaveStore.newId(), name: opts.create?.name ?? 'Demo', seed,
-      day: 1, population: 100, money: 5000, updated: Date.now(),
+      id: opts.create?.id ?? SaveStore.newId(), name: opts.create?.name ?? 'Demo', seed,
+      day: 1, population: 100, money: 5000, updated: Date.now(), online: opts.create?.online,
     };
 
     this.scene.background = SKY_DAY.clone();
@@ -1059,6 +1060,8 @@ export class Game implements ToolHost {
       }
       this.saveT += dt;
       if (this.saveT > AUTOSAVE_SECONDS) this.save();
+      // online: tell the other players how the town is doing (every half minute)
+      if (this.meta.online) { this.onlineT += dt; if (this.onlineT > 30) { this.onlineT = 0; this.pushOnline(); } }
     }
   }
 
@@ -1066,6 +1069,17 @@ export class Game implements ToolHost {
   setAdPaused(p: boolean) {
     this.adPaused = p;
     if (this.input) this.input.enabled = !p && !this.menuPaused;
+  }
+
+  private onlineT = 25;
+
+  /** My town's figures for the other players of the online world. */
+  private pushOnline() {
+    const o = this.meta.online;
+    if (!o) return;
+    const c = this.eco.city;
+    const people = this.life.populationByCity().get(c.id) ?? 0;
+    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people) });
   }
 
   setMenuPaused(p: boolean) {
@@ -1691,6 +1705,7 @@ export class Game implements ToolHost {
 
   private setSpeed(s: number) {
     s = Math.min(s, 50); // the fastest speed is 50×
+    if (this.meta.online && s > 1) { s = 1; this.hud?.toast(t('An online world runs at the same speed for everyone')); }
     if (s > 0) this.lastSpeed = s;
     this.speed = s;
     this.hud?.setSpeed(s);

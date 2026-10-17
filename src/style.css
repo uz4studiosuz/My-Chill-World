@@ -2626,3 +2626,10 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
 #ui .emb-yes { gap: 8px; }
 #ui .emb-yes i { flex: 1; max-width: none; min-width: 20px; }
 #ui .emb-yes span { flex: none; font-size: 11px; }
+
+/* online pages of the main menu */
+.home-note { font-size: 12.5px; color: var(--muted); line-height: 1.4; padding: 2px 4px; }
+.home-note:empty { display: none; }
+.home-note.bad { color: #ff9a8e; }
+.home-menu .world { display: flex; align-items: center; gap: 8px; }
+.home-menu .world .btn-mini { width: auto; flex: none; }

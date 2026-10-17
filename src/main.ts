@@ -98,6 +98,13 @@ async function boot() {
 
   const menu = new Menu(ui, {
     newWorld: (name, seed, calm, towns, creative) => start({ create: { name, seed, calm, towns, creative } }),
+    // my town in an online world: kept on this device under the world's id, started fresh the first time
+    playOnline: (w, city) => {
+      const id = `on_${w.id}`;
+      const save = SaveStore.load(id);
+      if (save) start({ save });
+      else start({ create: { id, name: city, seed: w.seed, towns: 2, online: { worldId: w.id, code: w.code, world: w.name, host: false, started: w.started_at, daySeconds: w.day_seconds } } });
+    },
     loadWorld: (id) => {
       const save = SaveStore.load(id);
       if (save) start({ save });

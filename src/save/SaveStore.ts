@@ -24,6 +24,8 @@ export interface WorldMeta {
   score?: number;
   calm?: boolean;
   creative?: boolean;
+  /** A town in an online world (shared with other players). */
+  online?: { worldId: string; code: string; world: string; host: boolean; started: string; daySeconds: number };
 }
 
 export interface WorldSave {
