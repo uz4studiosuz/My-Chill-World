@@ -121,3 +121,69 @@ grant execute on function public.is_member(uuid) to authenticated;
 do $$ begin
   alter publication supabase_realtime add table public.world_members;
 exception when duplicate_object then null; end $$;
+
+-- =====================================================================
+-- Stage 2–6: deals between players (gifts, sales, investments) and the chat
+-- =====================================================================
+create table if not exists public.offers (
+  id bigint generated always as identity primary key,
+  world_id uuid not null references public.worlds (id) on delete cascade,
+  from_user uuid not null references auth.users (id) on delete cascade,
+  to_user uuid not null references auth.users (id) on delete cascade,
+  -- gift: goods or money given; sell: goods for money; invest: money now, paid back with interest; repay: a part paid back
+  kind text not null check (kind in ('gift', 'sell', 'invest', 'repay')),
+  good text not null default 'money',
+  amount int not null check (amount > 0),
+  price int not null default 0,
+  status text not null default 'open' check (status in ('open', 'accepted', 'declined', 'done', 'cancelled')),
+  note text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists offers_to on public.offers (to_user, status);
+create index if not exists offers_from on public.offers (from_user, status);
+
+create table if not exists public.chat (
+  id bigint generated always as identity primary key,
+  world_id uuid not null references public.worlds (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  name text not null,
+  text text not null check (char_length(text) between 1 and 300),
+  created_at timestamptz not null default now()
+);
+create index if not exists chat_world on public.chat (world_id, id desc);
+
+alter table public.offers enable row level security;
+alter table public.chat enable row level security;
+
+drop policy if exists "my offers" on public.offers;
+create policy "my offers" on public.offers for select to authenticated using (from_user = auth.uid() or to_user = auth.uid());
+drop policy if exists "send offers" on public.offers;
+create policy "send offers" on public.offers for insert to authenticated
+  with check (from_user = auth.uid() and from_user <> to_user and public.is_member(world_id)
+    and exists (select 1 from public.world_members m where m.world_id = offers.world_id and m.user_id = offers.to_user));
+drop policy if exists "answer offers" on public.offers;
+create policy "answer offers" on public.offers for update to authenticated using (from_user = auth.uid() or to_user = auth.uid());
+
+drop policy if exists "read chat" on public.chat;
+create policy "read chat" on public.chat for select to authenticated using (public.is_member(world_id));
+drop policy if exists "write chat" on public.chat;
+create policy "write chat" on public.chat for insert to authenticated with check (user_id = auth.uid() and public.is_member(world_id));
+
+-- the chat cleans itself: messages older than 24 hours go, and at most the last 200 of a world are kept;
+-- finished deals older than 7 days go too
+create or replace function public.tidy_world() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.chat where world_id = new.world_id and created_at < now() - interval '24 hours';
+  delete from public.chat where world_id = new.world_id and id not in (select id from public.chat where world_id = new.world_id order by id desc limit 200);
+  delete from public.offers where world_id = new.world_id and status in ('done', 'cancelled', 'declined') and updated_at < now() - interval '7 days';
+  return new;
+end $$;
+drop trigger if exists chat_tidy on public.chat;
+create trigger chat_tidy after insert on public.chat for each row execute function public.tidy_world();
+drop trigger if exists offers_tidy on public.offers;
+create trigger offers_tidy after insert on public.offers for each row execute function public.tidy_world();
+
+do $$ begin alter publication supabase_realtime add table public.offers; exception when duplicate_object then null; end $$;
+do $$ begin alter publication supabase_realtime add table public.chat; exception when duplicate_object then null; end $$;

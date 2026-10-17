@@ -66,7 +66,9 @@ import { LAWS, BUDGET_AREAS } from '../sim/Laws';
 import { ACHIEVEMENTS, AchievementCtx } from './Achievements';
 import { AchievementsPanel } from '../ui/AchievementsPanel';
 import { DayWatch } from '../ui/DayWatch';
-import { Online } from '../online/Online';
+import { Online, worldSeconds } from '../online/Online';
+import { OnlineSync, OnlineDebt } from '../online/OnlineSync';
+import { OnlinePanel } from '../ui/OnlinePanel';
 import { confetti } from '../ui/Tutorial';
 import { GARAGE_CARS, METRO_FARE } from './Life';
 import { DriveMode } from './DriveMode';
@@ -585,6 +587,7 @@ export class Game implements ToolHost {
       openTutorial: () => this.startTutorial(),
       openTimelapse: () => this.startTimelapse(),
       openAchievements: () => this.achPanel?.toggle(),
+      ...(this.meta.online ? { openOnline: () => this.onlinePanel?.toggle() } : {}),
       openHall: () => { this.stats?.hide(); this.tradePanel?.hide(); this.cityReport?.open(this.eco.active); },
       openEmbassy: () => { if (this.hasEmbassy()) this.embassy?.toggle(); else this.hud?.toast(t('Build an Embassy first: it handles the deals with the neighbour towns')); },
       openResource: (key) => { this.news?.hide(); this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.resPanel?.toggle(key); },
@@ -757,6 +760,8 @@ export class Game implements ToolHost {
     this.desk?.hide();
     this.tree?.hide();
     this.achPanel?.hide();
+    this.onlinePanel?.hide();
+    if (this.online && this.meta.online) this.onlinePanel = new OnlinePanel(this.hud.root, this.online, this.meta.online.world, this.meta.online.code, () => this.eco.city.name);
     this.achPanel = new AchievementsPanel(this.hud.root, () => ({ ctx: this.achievementCtx(), got: this.achievements, dateOf: (d) => dateLabel(d) }));
     this.dayWatch?.hide();
     this.dayWatch = new DayWatch(this.hud.root, () => this.stopWatch(), (sp) => this.setSpeed(sp));
@@ -987,7 +992,8 @@ export class Game implements ToolHost {
     if (!this.seasonReady) { this.seasonReady = true; this.seasonRest(); this.refreshFlags(); }
     if (this.lapse) { this.updateLapse(dt); return; }
     // fast speeds are split into small steps so cars, walkers and the economy stay stable
-    const total = this.menuPaused || this.adPaused ? 0 : dt * this.speed;
+    if (this.meta.online && !this.demo) this.syncClock();
+    const total = this.menuPaused || this.adPaused ? 0 : dt * Math.max(this.speed, this.meta.online ? 1 : 0) * this.syncScale;
     const stepLen = this.speed >= 100 ? 0.4 : this.speed >= 20 ? 0.3 : 0.2;
     const steps = total > 0 ? Math.min(40, Math.ceil(total / stepLen)) : 1;
     const sdt = total / steps;
@@ -1072,6 +1078,59 @@ export class Game implements ToolHost {
   }
 
   private onlineT = 25;
+  /** The online world while this town is played: other players, deals and chat. */
+  private online?: OnlineSync;
+  private onlinePanel?: OnlinePanel;
+  private pendingDebts: OnlineDebt[] = [];
+  /** Time runs faster for a while to catch up with the shared clock (0 holds it when ahead). */
+  private syncScale = 1;
+  private onlineReady = false;
+
+  /** Online: connect, and keep the town's clock on the world's shared time (catching up with an autopilot). */
+  private syncClock() {
+    const o = this.meta.online!;
+    if (!this.onlineReady) {
+      this.onlineReady = true;
+      // a brand-new town starts at the world's present day and hour
+      if (this.eco.day <= 1 && this.eco.clock < DAY_SECONDS) this.eco.setClock(worldSeconds(o.started));
+      this.online = new OnlineSync(o.worldId, {
+        have: (g) => (g === 'money' ? this.eco.city.money : ((this.eco.city as unknown as Record<string, number>)[g] ?? 0)),
+        add: (g, n, why) => { this.eco.add(this.eco.city, g as Res, n, why); this.refreshHud(); },
+        toast: (m) => this.hud?.toast(m),
+        event: (m) => { this.life.events.unshift(m); this.hud?.toast(m); },
+        changed: () => { this.onlinePanel?.render(); this.hud?.setLogBadge(this.eventLog?.unread ?? 0); },
+      }, this.pendingDebts);
+      this.createUi();
+      void this.online.start();
+      this.pushOnline();
+    }
+    const gap = worldSeconds(o.started) - this.eco.clock;
+    // away for days: the autopilot lives through them in a moment and tells what happened
+    if (gap > DAY_SECONDS * 2 && !this.menuPaused) this.autopilot(Math.floor(gap / DAY_SECONDS) - 1);
+    const left = worldSeconds(o.started) - this.eco.clock;
+    this.syncScale = left > 8 ? Math.min(40, 1 + left / 25) : left < -8 ? 0 : 1;
+  }
+
+  /** Live through the days the player was away (at most 30, the rest pass quietly) and say what happened. */
+  private autopilot(days: number) {
+    const c = this.eco.city;
+    const pops = () => this.life.populationByCity().get(c.id) ?? 0;
+    const before = { people: pops(), money: c.money };
+    const run = Math.min(30, days);
+    for (let i = 0; i < run; i++) {
+      this.eco.endOfDay();
+      this.life.update(0.01);
+      if (this.eco.day !== this.lastDay) this.onNewDay();
+    }
+    if (days > run) this.eco.setClock(this.eco.clock + (days - run) * DAY_SECONDS);
+    const dp = pops() - before.people, dm = Math.round(c.money - before.money);
+    if (this.demo || !this.decision) return;
+    this.decision.show({
+      id: 'autopilot', title: t('While you were away'),
+      text: t('{n} days passed in the online world. Your town ran on autopilot: {p} people ({dp}), treasury ${m} ({dm}).', { n: days, p: pops(), dp: `${dp >= 0 ? '+' : ''}${dp}`, m: Math.round(c.money).toLocaleString('en-US'), dm: `${dm >= 0 ? '+' : '−'}$${Math.abs(dm).toLocaleString('en-US')}` }) + (days > run ? ' ' + t('(Only the last {n} days were lived through; before that the town rested.)', { n: run }) : ''),
+      options: [{ label: t('Back to work'), note: t('See what is new in the online world'), act: () => this.onlinePanel?.open('deals') }],
+    }, c.name, () => this.onlinePanel?.open('deals'));
+  }
 
   /** My town's figures for the other players of the online world. */
   private pushOnline() {
@@ -1100,6 +1159,7 @@ export class Game implements ToolHost {
   }
 
   dispose() {
+    this.online?.dispose();
     this.abort.abort();
     this.hud?.dispose();
     this.scene.traverse((o) => {
@@ -1773,6 +1833,7 @@ export class Game implements ToolHost {
     this.wills();
     this.neighbourLife();
     this.bondsDue();
+    void this.online?.daily();
     this.checkAchievements();
     this.recordTowns();
     this.creativeStock();
@@ -7139,6 +7200,7 @@ export class Game implements ToolHost {
     this.pop.archive.clear();
     for (const a of s.archive ?? []) this.pop.archive.set(a.id, a);
     this.achievements = { ...(s.achievements ?? {}) };
+    this.pendingDebts = s.onlineDebts ?? [];
     // older worlds: children get the parents of their family
     for (const f of this.pop.families.values()) {
       const ms = this.pop.members(f);
@@ -7195,6 +7257,7 @@ export class Game implements ToolHost {
       log: (this.eventLog?.entries ?? this.savedLog).slice(-80),
       archive: [...this.pop.archive.values()],
       achievements: Object.keys(this.achievements).length ? this.achievements : undefined,
+      onlineDebts: this.online?.debts.length ? this.online.debts : this.pendingDebts.length ? this.pendingDebts : undefined,
       cycle: this.cycle,
     };
   }

@@ -197,6 +197,12 @@ export class Economy {
   get totalFood() { let s = 0; for (const c of this.cities.values()) if (!c.ai) s += c.food; return s; }
 
   get timeOfDay() { return this.dayT / DAY_SECONDS; }
+  /** Game seconds since day 1 began. */
+  get clock() { return (this.day - 1) * DAY_SECONDS + this.dayT; }
+  /** Put the clock at this many game seconds since day 1 began (an online world's shared time). */
+  setClock(sec: number) { this.day = Math.floor(sec / DAY_SECONDS) + 1; this.dayT = sec % DAY_SECONDS; }
+  /** Almost the end of the day: the next tick starts a new one (the autopilot skipping days). */
+  endOfDay() { this.dayT = DAY_SECONDS - 0.001; }
 
   /** Creative mode: everything can be built, nothing is paid for. */
   creative = false;

@@ -254,6 +254,8 @@ export interface HudHandlers {
   openTimelapse?: () => void;
   /** The achievements earned and still to earn. */
   openAchievements?: () => void;
+  /** The online world: players, deals and chat (only set in an online world). */
+  openOnline?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -603,7 +605,7 @@ export class Hud {
     qt.textContent = t('More');
     const quick = el('div', 'side-quick');
     for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['production', 'Production chains', () => h.openChains?.()], ['globe', 'Embassy', () => h.openEmbassy?.()], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals],
-      ['list', 'Notifications', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['film', 'City timelapse', () => h.openTimelapse?.()], ['trophy', 'Achievements', () => h.openAchievements?.()], ['book', 'Guide', h.openGuide], ['play', 'Tutorial', () => h.openTutorial?.()]] as [IconName, string, () => void][]) {
+      ['list', 'Notifications', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['film', 'City timelapse', () => h.openTimelapse?.()], ['trophy', 'Achievements', () => h.openAchievements?.()], ...(h.openOnline ? [['globe', 'Online world', () => h.openOnline?.()]] : []), ['book', 'Guide', h.openGuide], ['play', 'Tutorial', () => h.openTutorial?.()]] as [IconName, string, () => void][]) {
       const b = el('button', 'side-btn');
       b.dataset.panel = ic;
       b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;

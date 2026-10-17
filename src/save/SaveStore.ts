@@ -55,6 +55,8 @@ export interface WorldSave {
   creative?: boolean;
   /** Achievements earned (id -> day). */
   achievements?: Record<string, number>;
+  /** Online: what the town still pays back to investors among the players. */
+  onlineDebts?: { to: string; city: string; left: number; perDay: number }[];
   leisure?: LeisureSave;
   pipes?: number[];
   /** Pipes are the only water mains (older saves get pipes under their roads once). */

@@ -92,7 +92,7 @@ export class Menu {
     this.renderHome([
       w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${dateLabel(w.day)} · ${t('{n} people', { n: w.population })}`, true, 'play') : null,
       homeItem('New World', () => this.showNew(), t('A fresh valley, a small village'), !w, 'plus'),
-      homeItem('Online', () => void this.showOnline(), t('Play together with friends in one world'), false, 'globe'),
+      homeItem('Online', () => this.onlineGate(), t('Play together with friends in one world'), false, 'globe'),
       worlds.length ? homeItem('Load World', () => this.showLoad(), t('{n} saved worlds', { n: worlds.length }), false, 'folder') : null,
       homeItem('Import a world', () => this.pickImport(), t('Open a world file from another computer or phone'), false, 'folder'),
       worlds.length ? homeItem('Records', () => this.showRecords(), undefined, false, 'trophy') : null,
@@ -104,6 +104,26 @@ export class Menu {
   }
 
   // ---------- online ----------
+
+  /** The online pages are behind a password while they are being tested (asked once per visit). */
+  private onlineGate(msg = '') {
+    let ok = false;
+    try { ok = sessionStorage.getItem('mcw_online_gate') === '1'; } catch { /* ignore */ }
+    if (ok) { void this.showOnline(); return; }
+    const pass = input('Password', '', 20);
+    pass.type = 'password';
+    const form = el('div', 'home-form');
+    form.appendChild(pass.parentElement!);
+    const status = this.note(msg, !!msg);
+    const enter = () => {
+      if (pass.value.trim() !== '123098') { this.onlineGate(t('Wrong password')); return; }
+      try { sessionStorage.setItem('mcw_online_gate', '1'); } catch { /* ignore */ }
+      void this.showOnline();
+    };
+    pass.addEventListener('keydown', (e) => { if (e.key === 'Enter') enter(); });
+    this.renderHome([form, status, homeItem('Open', enter, undefined, true, 'check'), homeItem('Back', () => this.showMain())], 'Online');
+    setTimeout(() => pass.focus(), 50);
+  }
 
   /** Online: sign in with email and password, then my worlds, create one (host) or join one with its code. */
   async showOnline(msg = '') {

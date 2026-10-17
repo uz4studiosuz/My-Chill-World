@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient, Session } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, Session, RealtimeChannel } from '@supabase/supabase-js';
 
 // The project's public address and publishable key (safe in the browser: the database rules protect the data).
 // A build can point elsewhere with VITE_SUPABASE_URL / VITE_SUPABASE_KEY.
@@ -24,6 +24,17 @@ export interface OnlineMember {
   last_seen: string;
   summary: { day?: number; people?: number; money?: number; happy?: number; level?: number };
 }
+
+export type OfferKind = 'gift' | 'sell' | 'invest' | 'repay';
+export type OfferStatus = 'open' | 'accepted' | 'declined' | 'done' | 'cancelled';
+
+/** A deal between two players: a gift, goods for sale, an investment or a part of it paid back. */
+export interface Offer {
+  id: number; world_id: string; from_user: string; to_user: string; kind: OfferKind;
+  good: string; amount: number; price: number; status: OfferStatus; note: string; created_at: string; updated_at: string;
+}
+
+export interface ChatMessage { id: number; world_id: string; user_id: string; name: string; text: string; created_at: string }
 
 /** What a town tells the others about itself. */
 export interface TownSummary { day: number; people: number; money: number; happy: number; level: number }
@@ -102,6 +113,49 @@ export const Online = {
     return (data ?? []) as OnlineMember[];
   },
 
+  async userId(): Promise<string | null> { return (await this.session())?.user.id ?? null; },
+
+  /** Deals I sent or got in this world (newest first). */
+  async offers(worldId: string): Promise<Offer[]> {
+    const { data } = await db().from('offers').select('*').eq('world_id', worldId).order('id', { ascending: false }).limit(120);
+    return (data ?? []) as Offer[];
+  },
+
+  async sendOffer(o: Pick<Offer, 'world_id' | 'to_user' | 'kind' | 'good' | 'amount' | 'price' | 'note'>): Promise<string | null> {
+    const me = await this.userId();
+    if (!me) return 'not signed in';
+    const { error } = await db().from('offers').insert({ ...o, from_user: me });
+    return error ? why(error) : null;
+  },
+
+  /** Move a deal on only if it is still in the state we saw (two clicks or two players cannot both win). */
+  async setOffer(id: number, from: OfferStatus, to: OfferStatus): Promise<boolean> {
+    const { data, error } = await db().from('offers').update({ status: to, updated_at: new Date().toISOString() }).eq('id', id).eq('status', from).select('id');
+    return !error && !!data?.length;
+  },
+
+  async chat(worldId: string): Promise<ChatMessage[]> {
+    const { data } = await db().from('chat').select('*').eq('world_id', worldId).order('id', { ascending: false }).limit(100);
+    return ((data ?? []) as ChatMessage[]).reverse();
+  },
+
+  async say(worldId: string, name: string, text: string): Promise<string | null> {
+    const me = await this.userId();
+    if (!me) return 'not signed in';
+    const { error } = await db().from('chat').insert({ world_id: worldId, user_id: me, name, text: text.slice(0, 300) });
+    return error ? why(error) : null;
+  },
+
+  /** Live news of a world: deals, chat and the towns' figures (the callback says which changed). */
+  subscribe(worldId: string, changed: (what: 'offers' | 'chat' | 'members') => void): () => void {
+    const ch: RealtimeChannel = db().channel(`world-${worldId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers', filter: `world_id=eq.${worldId}` }, () => changed('offers'))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat', filter: `world_id=eq.${worldId}` }, () => changed('chat'))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'world_members', filter: `world_id=eq.${worldId}` }, () => changed('members'))
+      .subscribe();
+    return () => { void db().removeChannel(ch); };
+  },
+
   /** My town's figures for the others (and that I am here now). */
   async pushSummary(worldId: string, summary: TownSummary) {
     const s = await this.session();
@@ -111,6 +165,11 @@ export const Online = {
 };
 
 /** The game day of an online world now: the same for everyone, from the moment it started. */
-export function worldDay(w: Pick<OnlineWorld, 'started_at' | 'day_seconds'>, now = Date.now()) {
-  return Math.floor((now - Date.parse(w.started_at)) / 1000 / w.day_seconds);
+export function worldDay(started: string, dayLength: number, now = Date.now()) {
+  return Math.floor((now - Date.parse(started)) / 1000 / dayLength) + 1;
+}
+
+/** Game seconds since an online world started (one real second is one game second at 1×). */
+export function worldSeconds(started: string, now = Date.now()) {
+  return Math.max(0, (now - Date.parse(started)) / 1000);
 }

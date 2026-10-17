@@ -2633,3 +2633,28 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
 .home-note.bad { color: #ff9a8e; }
 .home-menu .world { display: flex; align-items: center; gap: 8px; }
 .home-menu .world .btn-mini { width: auto; flex: none; }
+
+/* ---- the online world window ---- */
+.ol-player { padding: 10px 12px; border-radius: 13px; background: var(--raised); border: 1px solid var(--line); margin-bottom: 8px; display: grid; gap: 8px; }
+.ol-top { display: flex; align-items: center; gap: 10px; }
+.ol-top i { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.ol-top i.on { background: var(--good); } .ol-top i.off { background: #6b7380; }
+.ol-top b { display: block; font-size: 14.5px; }
+.ol-top small { color: var(--muted); font-size: 11.5px; }
+.ol-form { padding: 8px; border-radius: 10px; background: var(--base); border: 1px solid var(--line); display: grid; gap: 8px; }
+.ol-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.ol-form label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); font-weight: 700; }
+.ol-form select, .ol-form input, .ol-chatbar input { padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 600 13px var(--font-ui); min-width: 0; }
+.ol-deal { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--raised); border: 1px solid var(--line); margin-bottom: 6px; }
+.ol-deal > div { flex: 1; min-width: 0; }
+.ol-deal b { display: block; font-size: 13px; } .ol-deal small { font-size: 11px; color: var(--muted); }
+.ol-deal span { display: flex; gap: 5px; } .ol-deal .btn-mini { width: auto; }
+.ol-hist { font-size: 12px; color: var(--muted); padding: 4px 2px; border-bottom: 1px solid var(--line); }
+.ol-chat { display: flex; flex-direction: column; gap: 6px; min-height: 200px; }
+.ol-msg { max-width: 78%; align-self: flex-start; padding: 7px 10px; border-radius: 12px 12px 12px 4px; background: var(--raised); border: 1px solid var(--line); display: grid; gap: 2px; }
+.ol-msg.me { align-self: flex-end; border-radius: 12px 12px 4px 12px; border-color: var(--accent); }
+.ol-msg b { font-size: 11.5px; color: var(--accent); } .ol-msg span { font-size: 13px; line-height: 1.35; word-break: break-word; } .ol-msg small { font-size: 10px; color: var(--muted); justify-self: end; }
+.ol-chatbar { position: sticky; bottom: 0; display: flex; gap: 6px; padding: 8px 0 4px; background: var(--base); }
+.ol-chatbar input { flex: 1; }
+.ol-chatbar .btn-mini { width: auto; }
+.ol-chatnote { display: block; font-size: 10.5px; color: var(--muted); }
