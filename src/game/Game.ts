@@ -811,6 +811,7 @@ export class Game implements ToolHost {
       },
       trade: () => { this.embassy?.hide(); this.trade.newDay(this.eco.day); if (!this.tradePanel?.visible) this.tradePanel?.toggle(); },
       show: (bid) => { const b = this.buildings.get(bid); if (!b) return; this.embassy?.hide(); this.cam.flyTo(b.mesh.position.x, b.mesh.position.z, 6); this.select({ type: 'building', id: b.id }); },
+      buyShare: (bid) => { const b = this.buildings.get(bid); if (b) this.buyShare(b); },
     }, this.thumbs);
     this.chainView = new ChainView(this.hud.root, () => this.chainState(), (kind) => { this.cityReport?.hide(); this.stats?.hide(); this.setTool(kind as ToolId); });
     this.decision = new DecisionPanel(this.hud.root);
@@ -992,7 +993,7 @@ export class Game implements ToolHost {
     this.buildings.day = this.eco.day;
     if (this.watch) this.updateWatch();
     // a loaded world: fields out of season are wrapped up straight away
-    if (!this.seasonReady) { this.seasonReady = true; this.seasonRest(); }
+    if (!this.seasonReady) { this.seasonReady = true; this.seasonRest(); this.refreshFlags(); }
     if (this.lapse) { this.updateLapse(dt); return; }
     // fast speeds are split into small steps so cars, walkers and the economy stay stable
     const total = this.menuPaused || this.adPaused ? 0 : dt * this.speed;
@@ -1775,6 +1776,7 @@ export class Game implements ToolHost {
     this.economyCycle();
     this.exportOrders();
     this.payInvestors();
+    this.refreshFlags();
     this.thefts();
     this.dailyMoney();
     this.levelUp();
@@ -2281,13 +2283,14 @@ export class Game implements ToolHost {
       if (!b.shares?.length || b.removed) continue;
       const bk = b.books;
       const profit = bk ? Math.max(0, bk.revenue - bk.wages - bk.tax) : 0;
-      if (!profit) continue;
+      if (!profit) { for (const s of b.shares) if (!this.eco.cities.get(s.city)?.ai) this.logAbroad(b, 0, (bk?.tax ?? 0) + (bk?.wages ?? 0)); continue; }
       const owner = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
       const town = this.eco.cities.get(b.city);
       for (const s of b.shares) {
         const me = this.eco.cities.get(s.city);
         if (!me) continue;
         const d = Math.round(profit * s.pct);
+        if (!me.ai) this.logAbroad(b, Math.max(0, d), Math.max(0, profit - d) + (bk?.tax ?? 0) + (bk?.wages ?? 0), d > 0 ? `$${d}` : '');
         if (d <= 0) continue;
         if (owner) owner.money -= d; else if (town) this.eco.add(town, 'money', -d, 'Dividends paid');
         this.eco.add(me, 'money', d, 'Dividends from shares');
@@ -2350,6 +2353,9 @@ export class Game implements ToolHost {
     this.eco.add(me, 'money', -price, 'Shares bought');
     if (owner) owner.money += price; else if (town) this.eco.add(town, 'money', price, 'Shares sold');
     b.shares = [...(b.shares ?? []).filter((s) => s.city !== me.id), { city: me.id, pct: Math.round((held + 0.1) * 100) / 100 }];
+    b.paid = (b.paid ?? 0) + price;
+    this.refreshFlags();
+    this.embassy?.render();
     sound.play('coin');
     this.hud?.toast(t('You now hold {n}% of the {name}', { n: Math.round((held + 0.1) * 100), name: t(BUILDINGS[b.kind].name) }));
     this.refreshInspector();
@@ -3660,6 +3666,7 @@ export class Game implements ToolHost {
       if (mine < 0.49) actions.push({ label: t('Buy 10% · ${n}', { n: price }), icon: 'coin', onClick: () => this.buyShare(b) });
     }
     if (b.investor !== undefined) tags.push({ text: t('Your investment: half of what it earns or makes comes to {city}', { city: this.eco.cities.get(b.investor)?.name ?? '' }), tone: 'good' });
+    if (b.abroadSum && (b.investor !== undefined || b.shares?.length)) rows.push([t('Brought us so far'), `$${b.abroadSum.us.toLocaleString('en-US')}${b.paid ? ` · ${t('{p}% of what we put in', { p: Math.round((b.abroadSum.us / b.paid) * 100) })}` : ''}`, 'good'], [t('Brought them so far'), `$${b.abroadSum.them.toLocaleString('en-US')}`]);
     // a city-owned shop, business or block of flats can be put up for sale: a family with the money buys it
     if (b.built >= 1 && b.owner < 0 && !this.cityOf(b).ai && sellable(b.kind)) {
       const price = Math.round(BUILDINGS[b.kind].money * (1 + 0.5 * ((b.level || 1) - 1)) * 1.1 / 10) * 10;
@@ -5700,7 +5707,35 @@ export class Game implements ToolHost {
         chance: Object.fromEntries(options.map((o) => [o.kind, this.yesChance(c, o.kind as BuildingKind)])),
         blocked: (c.relation ?? 40) < 30 ? t('{city} does not trust you yet (relations {n}/100, they need 30): send a gift or trade with them first', { city: c.name, n: Math.round(c.relation ?? 40) }) : '', contracts: (me.contracts ?? []).filter((k) => k.town === c.id).length };
     });
-    return { towns, options, money: me.money, total };
+    const holdings = this.ownedAbroad().map(({ b, type, pct }) => {
+      const town = this.cityOf(b);
+      const L = b.abroad ?? [];
+      const y = L.find((e) => e.d === this.eco.day) ?? L[L.length - 1];
+      const spark: number[] = [];
+      for (let d = this.eco.day - 13; d <= this.eco.day; d++) spark.push(L.find((e) => e.d === d)?.us ?? 0);
+      return {
+        id: b.id, kind: b.kind, name: t(BUILDINGS[b.kind].name), town: town.name, townId: town.id, tint: town.tint ?? '#aab4be', type, pct,
+        building: b.built < 1, workers: b.workers, jobs: BUILDINGS[b.kind].jobs,
+        yUs: y?.us ?? 0, yThem: y?.them ?? 0, yNote: y?.n ?? '',
+        mUs: L.reduce((a, e) => a + e.us, 0), mThem: L.reduce((a, e) => a + e.them, 0),
+        totalUs: b.abroadSum?.us ?? 0, totalThem: b.abroadSum?.them ?? 0,
+        paid: b.paid ?? (type === 'joint' ? Math.round(BUILDINGS[b.kind].money / 2) : 0), spark,
+      };
+    });
+    const days: { d: number; us: number; them: number }[] = [];
+    for (let d = this.eco.day - 29; d <= this.eco.day; d++) {
+      let us = 0, them = 0;
+      for (const { b } of this.ownedAbroad()) { const e = b.abroad?.find((x) => x.d === d); if (e) { us += e.us; them += e.them; } }
+      days.push({ d, us, them });
+    }
+    const shares = Object.fromEntries([...this.eco.cities.values()].filter((c) => c.ai).map((c) => [c.id, this.buildings.list
+      .filter((b) => b.city === c.id && b.built >= 1 && !b.removed && b.investor === undefined && (BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind] || VISIT_PRICE[b.kind]))
+      .map((b) => {
+        const held = b.shares?.find((s) => s.city === me.id)?.pct ?? 0;
+        const bk = b.books;
+        return { id: b.id, kind: b.kind, name: t(BUILDINGS[b.kind].name), held, price: Math.round(BUILDINGS[b.kind].money * 0.12 * (1 + 0.5 * ((b.level || 1) - 1)) / 10) * 10, profit: bk ? Math.max(0, Math.round(bk.revenue - bk.wages - bk.tax)) : 0 };
+      }).sort((a, b) => b.profit - a.profit).slice(0, 12)]));
+    return { towns, options, money: me.money, total, holdings, days, shares, dateOf: (d: number) => dateLabel(d) };
   }
 
   /** A joint project from the embassy: you pay half, the neighbour pays half, builds it and staffs it; the profit is shared. */
@@ -5724,7 +5759,7 @@ export class Game implements ToolHost {
       return this.hud?.toast(t('{city} has no room or materials for it right now', { city: town.name }));
     }
     const b = [...this.buildings.list].reverse().find((x) => x.city === town.id && x.kind === kind && x.built < 1);
-    if (b) b.investor = me.id;
+    if (b) { b.investor = me.id; b.paid = (b.paid ?? 0) + half; this.refreshFlags(); }
     town.relation = Math.min(100, rel + 6);
     this.deal(town.id, t('Joint {name}: you paid half (${n}), the profit is shared', { name: t(d.name), n: half }), -half);
     sound.play('coin');
@@ -5753,6 +5788,54 @@ export class Game implements ToolHost {
    * Once a day: every building the player paid for on a neighbour's land hands over half of what it earned
    * (a business: half of its takings after wages and tax) or half of what it made (fields, mines, workshops).
    */
+  /** Write down what a building abroad brought us and its town today (kept for 30 days, and in total). */
+  private logAbroad(b: Building, us: number, them: number, note = '') {
+    const d = this.eco.day;
+    const L = (b.abroad ??= []);
+    let e = L[L.length - 1];
+    if (!e || e.d !== d) { e = { d, us: 0, them: 0 }; L.push(e); if (L.length > 30) L.shift(); }
+    e.us += Math.round(us); e.them += Math.round(them);
+    if (note) e.n = e.n ? `${e.n}, ${note}` : note;
+    b.abroadSum = { us: (b.abroadSum?.us ?? 0) + Math.round(us), them: (b.abroadSum?.them ?? 0) + Math.round(them) };
+  }
+
+  /** Buildings in neighbour towns that are (partly) ours: joint projects and shares. */
+  private ownedAbroad(): { b: Building; type: 'joint' | 'share'; pct: number }[] {
+    const mine = new Set([...this.eco.cities.values()].filter((c) => !c.ai).map((c) => c.id));
+    const out: { b: Building; type: 'joint' | 'share'; pct: number }[] = [];
+    for (const b of this.buildings.list) {
+      if (b.removed || mine.has(b.city)) continue;
+      if (b.investor !== undefined && mine.has(b.investor)) out.push({ b, type: 'joint', pct: 0.5 });
+      else { const s = b.shares?.filter((x) => mine.has(x.city)).reduce((a, x) => a + x.pct, 0) ?? 0; if (s > 0) out.push({ b, type: 'share', pct: s }); }
+    }
+    return out;
+  }
+
+  /** A little flag in our town's colour over every building abroad that is (partly) ours, so it is easy to spot. */
+  private refreshFlags() {
+    const ours = new Set(this.ownedAbroad().map((o) => o.b.id));
+    const tint = this.eco.city.tint ?? '#f2b33d';
+    for (const b of this.buildings.list) {
+      const old = b.mesh.getObjectByName('ourFlag');
+      if (!ours.has(b.id) || b.removed) { if (old) b.mesh.remove(old); continue; }
+      if (old) continue;
+      const box3 = new THREE.Box3().setFromObject(b.mesh);
+      const h = box3.max.y - b.mesh.position.y;
+      const s = BUILDINGS[b.kind].size;
+      const g = new THREE.Group();
+      g.name = 'ourFlag';
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.85, 0.045), new THREE.MeshLambertMaterial({ color: '#e9e4d8' }));
+      pole.position.set(0, 0.425, 0);
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.27, 0.02), new THREE.MeshLambertMaterial({ color: tint, emissive: new THREE.Color(tint).multiplyScalar(0.55) }));
+      flag.position.set(0.24, 0.7, 0);
+      const star = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.03), new THREE.MeshBasicMaterial({ color: '#fff3c4' }));
+      star.position.set(0.24, 0.7, 0.005);
+      g.add(pole, flag, star);
+      g.position.set(-s * 0.3, h, -s * 0.3);
+      b.mesh.add(g);
+    }
+  }
+
   private payInvestors() {
     const OUT: Partial<Record<BuildingKind, [Res, string[]][]>> = {
       woodcutter: [['wood', ['Woodcutters']]], quarry: [['stone', ['Quarries (trucks)', 'Quarries (on foot)']]], coalmine: [['coal', ['Coal mines']]], ironmine: [['iron', ['Iron mines']]],
@@ -5765,10 +5848,13 @@ export class Game implements ToolHost {
       const town = this.eco.cities.get(b.city), me = this.eco.cities.get(b.investor);
       if (!town || !me) continue;
       const got: string[] = [];
+      let us = 0, them = 0;
       // a business: half of its takings after wages and tax
       const bk = b.books;
+      if (bk) them += bk.wages + bk.tax;
       if (bk && bk.revenue > 0) {
         const m = Math.max(0, Math.round((bk.revenue - bk.wages - bk.tax) * 0.5));
+        us += m; them += Math.max(0, Math.round(bk.revenue - bk.wages - bk.tax) - m);
         if (m > 0) { this.eco.add(town, 'money', -m, 'Investors\' share'); this.eco.add(me, 'money', m, 'Investments in neighbour towns'); got.push(`$${m}`); }
       }
       // a producer: half of its part of what the town made of that good yesterday
@@ -5779,8 +5865,9 @@ export class Game implements ToolHost {
         const same = this.buildings.list.filter((o) => o.city === town.id && o.kind === b.kind && o.built >= 1 && !o.removed).length || 1;
         const made = why.reduce((a, w) => a + Math.max(0, y[res]?.[w] ?? 0), 0) / same;
         const n = Math.floor(Math.min(made * 0.5, town[res]));
-        if (n >= 1) { this.eco.add(town, res, -n, 'Investors\' share'); this.eco.add(me, res, n, 'Investments in neighbour towns'); got.push(`${n} ${t(GOOD_NAME[res as Good] ?? res).toLowerCase()}`); }
+        if (n >= 1) { this.eco.add(town, res, -n, 'Investors\' share'); this.eco.add(me, res, n, 'Investments in neighbour towns'); got.push(`${n} ${t(GOOD_NAME[res as Good] ?? res).toLowerCase()}`); const v = Math.round(n * (TRADE_PRICE[res] ?? 2)); us += v; them += v; }
       }
+      this.logAbroad(b, us, them, got.join(', '));
       if (got.length) this.deal(town.id, t('Your {name} in {city} brought {what}', { name: t(BUILDINGS[b.kind].name), city: town.name, what: got.join(', ') }), 0);
     }
   }
@@ -6866,6 +6953,9 @@ export class Game implements ToolHost {
       if (b.strike !== undefined) nb.strike = b.strike;
       nb.born = b.born;
       if (b.shares) nb.shares = b.shares;
+      if (b.abroad) nb.abroad = b.abroad;
+      if (b.abroadSum) nb.abroadSum = b.abroadSum;
+      if (b.paid) nb.paid = b.paid;
       if (b.total) nb.total = b.total;
       if (b.books) nb.books = b.books;
       if (b.sold) nb.sold = b.sold;
@@ -6937,7 +7027,7 @@ export class Game implements ToolHost {
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
         graves: b.graves, cattleCount: b.cattleCount, crop: b.cropKind, cropManual: b.cropManual || undefined,
         built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, parent: b.parent, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
-        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF, forSale: b.forSale, investor: b.investor, shares: b.shares, route: b.route, strike: b.strike, born: b.born, total: b.total, books: b.books, sold: b.sold, sales: b.sales ? Math.round(b.sales) : undefined,
+        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF, forSale: b.forSale, investor: b.investor, shares: b.shares, abroad: b.abroad, abroadSum: b.abroadSum, paid: b.paid, route: b.route, strike: b.strike, born: b.born, total: b.total, books: b.books, sold: b.sold, sales: b.sales ? Math.round(b.sales) : undefined,
       })),
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },

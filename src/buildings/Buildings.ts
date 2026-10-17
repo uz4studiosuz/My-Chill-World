@@ -108,6 +108,12 @@ export interface Building {
   investor?: number;
   /** Shares other towns (the player) hold in this business: town id and fraction of the profit. */
   shares?: { city: number; pct: number }[];
+  /** What a building abroad brought its foreign investor (us) and its own town (them), day by day (last 30 days). */
+  abroad?: { d: number; us: number; them: number; n?: string }[];
+  /** All it ever brought: to the investor and to its town. */
+  abroadSum?: { us: number; them: number };
+  /** What the investor put into it (half the price of a joint project, the price of the shares). */
+  paid?: number;
   /** A bus depot's own route drawn by the player: the stops in order (empty = the buses find their own). */
   route?: number[];
   /** Workers on strike until this day. */
