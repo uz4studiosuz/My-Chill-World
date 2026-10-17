@@ -81,6 +81,8 @@ export class EmbassyPanel {
   }
 
   open() { this.visible = true; this.root.classList.add('show'); this.last = ''; this.render(); }
+  /** Open on one neighbour town (to build something for them or buy shares). */
+  openTown(id: number) { this.tab = 'towns'; this.town = id; this.open(); }
   hide() { this.visible = false; this.root.classList.remove('show'); }
   toggle() { if (this.visible) this.hide(); else this.open(); }
 

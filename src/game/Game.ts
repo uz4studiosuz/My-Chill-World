@@ -798,17 +798,7 @@ export class Game implements ToolHost {
     this.embassy = new EmbassyPanel(this.hud.root, {
       data: () => this.embassyData(),
       propose: (id, kind, full) => { const town = this.eco.cities.get(id); if (town) this.jointProject(town, kind as BuildingKind, full); this.embassy?.render(); },
-      gift: (id, m) => {
-        const me = this.eco.city, town = this.eco.cities.get(id);
-        if (!town) return;
-        if (me.money < m) return this.hud?.toast(t('Not enough money'));
-        this.eco.add(me, 'money', -m, 'Help to neighbour towns');
-        this.eco.add(town, 'money', m, 'Help from a neighbour town');
-        town.relation = Math.min(100, (town.relation ?? 40) + m / 250);
-        this.deal(id, t('Gave ${m} as help (relations +{r})', { m, r: Math.round(m / 250) }), -m);
-        sound.play('coin');
-        this.embassy?.render();
-      },
+      gift: (id, m) => this.giftTown(id, m),
       trade: () => { this.embassy?.hide(); this.trade.newDay(this.eco.day); if (!this.tradePanel?.visible) this.tradePanel?.toggle(); },
       show: (bid) => { const b = this.buildings.get(bid); if (!b) return; this.embassy?.hide(); this.cam.flyTo(b.mesh.position.x, b.mesh.position.z, 6); this.select({ type: 'building', id: b.id }); },
       buyShare: (bid) => { const b = this.buildings.get(bid); if (b) this.buyShare(b); },
@@ -3100,7 +3090,7 @@ export class Game implements ToolHost {
     const view = aptFam && aptFam.home === b.id ? this.familyView(aptFam, b) : flats ? this.apartmentView(b) : b.kind === 'house' ? this.houseView(b) : this.buildingView(b);
     const foreign = !!this.cityOf(b).ai;
     view.actions = foreign
-      ? (view.actions ?? []).filter((a) => a.icon === 'info' || a.icon === 'people' || a.icon === 'house' || a.icon === 'roads')
+      ? (view.actions ?? []).filter((a) => a.icon === 'info' || a.icon === 'people' || a.icon === 'house' || a.icon === 'roads' || a.icon === 'coin')
       : [...(view.actions ?? []), ...this.buildingActions(b)];
     if (foreign && !view.actions.some((a) => a.icon === 'info')) view.actions.push({ label: t('Info'), icon: 'info', onClick: () => this.showInfo(b) });
     view.rows = [[t('Owner'), this.ownerText(b)], ...(view.rows ?? [])];
@@ -3123,6 +3113,29 @@ export class Game implements ToolHost {
       });
     }
     if (foreign) view.tags = [{ text: t('Neighbour town: {city}', { city: this.cityOf(b).name }), tone: 'info' }, ...(view.tags ?? [])];
+    // one of ours abroad: what we hold, what we put in and what it brings us and them
+    const ours = foreign ? this.ownedAbroad().find((o) => o.b.id === b.id) : undefined;
+    if (ours) {
+      const L = b.abroad ?? [];
+      const y = L[L.length - 1];
+      const m = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+      const paid = b.paid ?? (ours.type === 'joint' ? Math.round(BUILDINGS[b.kind].money / 2) : 0);
+      const back = b.abroadSum?.us ?? 0;
+      view.tags = [{ text: ours.type === 'joint' ? t('🏳️ Ours: built with {city} · {n}% of the profit is ours', { city: this.cityOf(b).name, n: Math.round(ours.pct * 100) }) : t('🏳️ We hold {n}% of it', { n: Math.round(ours.pct * 100) }), tone: 'good' }, ...(view.tags ?? [])];
+      view.sections = [{ title: t('Our investment'), rows: [
+        [t('Our part'), ours.type === 'joint' ? t('{n}% of the profit (built together)', { n: Math.round(ours.pct * 100) }) : t('{n}% of the shares', { n: Math.round(ours.pct * 100) }), 'good'],
+        [t('We put in'), m(paid)],
+        [t('Paid back'), paid ? `${m(back)} · ${Math.round((back / paid) * 100)}%` : m(back), paid && back >= paid ? 'good' : undefined],
+        [t('Yesterday to us'), `${m(y?.us ?? 0)}${y?.n && !y.n.startsWith('$') ? ` (${y.n})` : ''}`, (y?.us ?? 0) > 0 ? 'good' : undefined],
+        [t('Yesterday to them'), m(y?.them ?? 0)],
+        [t('30 days to us'), m(L.reduce((a, e) => a + e.us, 0)), 'good'],
+        [t('30 days to them'), m(L.reduce((a, e) => a + e.them, 0))],
+        [t('All time to us'), m(back)],
+        [t('All time to them'), m(b.abroadSum?.them ?? 0)],
+      ] }, ...(view.sections ?? [])];
+      if (paid) view.bars = [{ label: t('Paid back'), value: Math.min(1, back / paid), color: back >= paid ? '#6fcf97' : '#f2a93b', text: `${Math.round((back / paid) * 100)}%` }, ...(view.bars ?? [])];
+      view.actions = [{ label: t('Our buildings abroad'), icon: 'globe', onClick: () => { this.embassy?.open(); } }, ...(view.actions ?? [])];
+    }
     this.inspector.show(view);
   }
 
@@ -3131,8 +3144,13 @@ export class Game implements ToolHost {
     const city = this.cityOf(b);
     const fam = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
     const town = city.ai ? t('Neighbour town {city}', { city: city.name }) : t('Town hall of {city}', { city: city.name });
-    if (fam) return `${t('{family} family', { family: fam.surname })}${city.ai ? ` · ${city.name}` : ''}`;
-    if (BUSINESS_KINDS.includes(b.kind)) return `${town} · ${t('for sale')}`;
+    // ours abroad: built together with us, or partly ours through shares
+    const me = this.eco.city;
+    if (city.ai && b.investor === me.id) return t('{us} {a}% · {them} {b}%', { us: me.name, a: Math.round((b.investShare ?? 0.5) * 100), them: city.name, b: Math.round((1 - (b.investShare ?? 0.5)) * 100) });
+    const share = b.shares?.find((s) => s.city === me.id)?.pct ?? 0;
+    const tail = share ? ` · ${t('{us} {a}%', { us: me.name, a: Math.round(share * 100) })}` : '';
+    if (fam) return `${t('{family} family', { family: fam.surname })}${city.ai ? ` · ${city.name}` : ''}${tail}`;
+    if (BUSINESS_KINDS.includes(b.kind)) return `${town}${tail || ` · ${t('for sale')}`}`;
     if (b.kind === 'house') {
       const res = this.pop.familyAt(b.id);
       return res ? `${town} · ${t('lived in by the {family} family', { family: res.surname })}` : town;
@@ -3659,14 +3677,13 @@ export class Game implements ToolHost {
       const lines = this.railway.lines.filter(([a, c]) => a.id === b.id || c.id === b.id).length;
       rows.push([t('Railway'), track ? (lines ? t('Joined — {n} train lines', { n: lines }) : t('Track joined — lay it on to another station')) : t('Not joined — draw a railway from beside the station'), track && lines ? 'good' : 'bad']);
     }
-    if (b.built >= 1 && (BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind] || VISIT_PRICE[b.kind]) && (b.owner >= 0 || this.cityOf(b).ai)) {
+    if (b.built >= 1 && b.investor === undefined && (BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind] || VISIT_PRICE[b.kind]) && (b.owner >= 0 || this.cityOf(b).ai)) {
       const mine = b.shares?.find((s) => s.city === this.eco.active)?.pct ?? 0;
       const price = Math.round(BUILDINGS[b.kind].money * 0.12 * (1 + 0.5 * ((b.level || 1) - 1)) / 10) * 10;
       if (mine) rows.push([t('Your share'), `${Math.round(mine * 100)}% · ${t('dividends from its profit every day')}`, 'good']);
       if (mine < 0.49) actions.push({ label: t('Buy 10% · ${n}', { n: price }), icon: 'coin', onClick: () => this.buyShare(b) });
     }
     if (b.investor !== undefined) tags.push({ text: t('Your investment: half of what it earns or makes comes to {city}', { city: this.eco.cities.get(b.investor)?.name ?? '' }), tone: 'good' });
-    if (b.abroadSum && (b.investor !== undefined || b.shares?.length)) rows.push([t('Brought us so far'), `$${b.abroadSum.us.toLocaleString('en-US')}${b.paid ? ` · ${t('{p}% of what we put in', { p: Math.round((b.abroadSum.us / b.paid) * 100) })}` : ''}`, 'good'], [t('Brought them so far'), `$${b.abroadSum.them.toLocaleString('en-US')}`]);
     // a city-owned shop, business or block of flats can be put up for sale: a family with the money buys it
     if (b.built >= 1 && b.owner < 0 && !this.cityOf(b).ai && sellable(b.kind)) {
       const price = Math.round(BUILDINGS[b.kind].money * (1 + 0.5 * ((b.level || 1) - 1)) * 1.1 / 10) * 10;
@@ -4600,6 +4617,29 @@ export class Game implements ToolHost {
       ] });
     } else {
       const d = this.dealings.get(id) ?? [];
+      const me = this.eco.city;
+      const ours = this.ownedAbroad().filter((o) => o.b.city === id);
+      const con = (me.contracts ?? []).filter((k) => k.town === id);
+      const m30 = (b: Building) => (b.abroad ?? []).reduce((x, e) => x + e.us, 0);
+      const rel = city.relation ?? 40;
+      tabs.push({ id: 'diplomacy', label: t('Diplomacy'), sections: [
+        { title: t('{city} and us', { city: city.name }), wide: true, kpis: [
+          [t('Relations'), `${Math.round(rel)}/100`, t(this.friendship(rel)), rel >= 50],
+          [t('Our buildings here'), `${ours.length}`, t('{m} to us in 30 days', { m: money(ours.reduce((a, o) => a + m30(o.b), 0)) }), ours.length > 0],
+          [t('Contracts'), `${con.length}`, con.length ? t('deliveries running') : t('none yet')],
+          [t('Their treasury'), money(city.money), ''],
+        ],
+          actions: [
+            { label: `📜 ${t('Trade and contracts')}`, onClick: () => this.openTradeWith(id) },
+            { label: `🏗️ ${t('Build something for them')}`, onClick: () => this.openEmbassyFor(id) },
+            { label: `📈 ${t('Buy shares in their businesses')}`, onClick: () => this.openEmbassyFor(id) },
+            { label: `🎁 ${t('Gift')} $500`, onClick: () => this.giftTown(id, 500), off: me.money < 500 },
+            { label: `🎁 ${t('Gift')} $2,000`, onClick: () => this.giftTown(id, 2000), off: me.money < 2000 },
+          ],
+          note: this.hasEmbassy() ? t('Friends agree to more projects and trade at better prices: gifts, trade and help raise the relations.') : t('Projects and shares go through an Embassy: build one in your town first. Trade and gifts work without it.') },
+        { title: t('Contracts with {city}', { city: city.name }), rows: con.length ? con.map((k) => [`${k.selling ? t('We sell') : t('We buy')} ${k.perDay} ${t(GOOD_NAME[k.good as Good] ?? k.good).toLowerCase()}/${t('day')}`, t('{n} days left · ${p} each', { n: k.days, p: k.price }), k.missed ? 'bad' : 'good'] as [string, string, ('good' | 'bad')?]) : [[t('No contracts yet — open Trade and contracts to sign one'), '—']] },
+        { title: t('Our buildings in {city}', { city: city.name }), rows: ours.length ? ours.map((o) => [`🏳️ ${t(BUILDINGS[o.b.kind].name)} · ${Math.round(o.pct * 100)}%`, t('{m} in 30 days', { m: money(m30(o.b)) }), 'good', () => { this.cityReport?.hide(); this.cam.flyTo(o.b.mesh.position.x, o.b.mesh.position.z, 6); this.select({ type: 'building', id: o.b.id }); }] as [string, string, ('good' | 'bad')?, (() => void)?]) : [[t('None yet — build something for them or buy shares'), '—']] },
+      ] });
       tabs.push({ id: 'trade', label: t('Dealings with you'), sections: [
         { title: t('Dealings with you'), rows: d.length ? d.map((x) => [`${dateLabel(x.day)} · ${x.text}`, x.money ? `${x.money > 0 ? '+' : '−'}${money(Math.abs(x.money))}` : '—', x.money > 0 ? 'good' : x.money < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]) : [[t('No deals yet — open Trade to sell them what they need'), '—']] },
       ] });
@@ -4620,9 +4660,18 @@ export class Game implements ToolHost {
         };
         hv.actions = [moveAction, ...(hv.actions ?? []).filter((a) => a.icon !== 'info' && a.icon !== 'buildings' && a.icon !== 'pan')];
       } else {
-        hv.actions = (hv.actions ?? []).filter((a) => a.icon === 'people');
+        // a neighbour's town hall: what we can do with them
+        hv.actions = [
+          { label: t('Diplomacy'), icon: 'globe', onClick: () => this.cityReport?.open(id, 'diplomacy') },
+          { label: t('Trade and contracts'), icon: 'coin', onClick: () => this.openTradeWith(id) },
+          { label: t('Build something for them'), icon: 'buildings', onClick: () => this.openEmbassyFor(id) },
+          { label: `${t('Gift')} $500`, icon: 'heart', onClick: () => this.giftTown(id, 500) },
+          ...(hv.actions ?? []).filter((a) => a.icon === 'people'),
+        ];
       }
       tabs.unshift({ id: 'hall', label: t('Town hall'), hall: hv });
+      // a neighbour's window: diplomacy right after its town hall
+      if (city.ai) { const i = tabs.findIndex((x) => x.id === 'diplomacy'); if (i > 1) tabs.splice(1, 0, ...tabs.splice(i, 1)); }
     }
     // ---- relations with the neighbour towns ----
     const towns = [...this.eco.cities.values()].filter((c) => c.ai && c.id !== id);
@@ -5636,6 +5685,35 @@ export class Game implements ToolHost {
   }
 
   /** Has the player's active town a finished embassy? */
+  /** A gift of money to a neighbour town: they become friendlier. */
+  private giftTown(id: number, m: number) {
+    const me = this.eco.city, town = this.eco.cities.get(id);
+    if (!town) return;
+    if (me.money < m) return this.hud?.toast(t('Not enough money — needs ${n}', { n: m }));
+    this.eco.add(me, 'money', -m, 'Help to neighbour towns');
+    this.eco.add(town, 'money', m, 'Help from a neighbour town');
+    town.relation = Math.min(100, (town.relation ?? 40) + m / 250);
+    this.deal(id, t('Gave ${m} as help (relations +{r})', { m, r: Math.round(m / 250) }), -m);
+    sound.play('coin');
+    this.embassy?.render();
+    if (this.cityReport?.visible) this.cityReport.render();
+    this.refreshHud();
+  }
+
+  /** The embassy on one neighbour town (needs an embassy in the active town). */
+  private openEmbassyFor(id: number) {
+    if (!this.hasEmbassy()) return this.hud?.toast(t('Build an Embassy first: it handles the deals with the neighbour towns'));
+    this.cityReport?.hide();
+    this.embassy?.openTown(id);
+  }
+
+  /** Trade and contracts with one neighbour town. */
+  private openTradeWith(id: number) {
+    this.cityReport?.hide();
+    this.trade.newDay(this.eco.day);
+    this.tradePanel?.openTown(id);
+  }
+
   private hasEmbassy() { return this.buildings.list.some((b) => b.kind === 'embassy' && b.city === this.eco.active && b.built >= 1 && !b.removed); }
 
   /** What a neighbour town would build together with you (what it needs, else a business it lacks). */

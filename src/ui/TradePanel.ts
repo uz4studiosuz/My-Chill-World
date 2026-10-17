@@ -72,6 +72,8 @@ export class TradePanel {
 
   toggle() { if (this.visible) this.hide(); else { this.visible = true; this.render(); } }
   open() { this.visible = true; this.render(); }
+  /** Open on one neighbour town. */
+  openTown(id: number) { this.town = id; this.visible = true; this.render(); }
   /** The window element (it can be shown inside the town hall window). */
   get element() { return this.root; }
 
