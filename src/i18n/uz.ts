@@ -3822,4 +3822,5 @@ export const UZ: Record<string, string> = {
   "{city} agreed! They are building the {name}: 75% of its profit will be yours": "{city} rozi bo'ldi! Ular {name} qurmoqda: foydasining 75%i sizniki bo'ladi",
   "{city} thanks you for the gift: relations +{r}": "{city} sovg'a uchun rahmat aytdi: munosabat +{r}",
   "No electricity: it has stopped — lay a power cable to it": "Elektr yo'q: to'xtab qoldi — unga elektr kabeli torting",
+  "Mountains: lay it through a tunnel (the marks on the rock) or bore one first": "Tog': uni tunnel orqali torting (tog' ustidagi belgilar) yoki avval tunnel qazing",
 };

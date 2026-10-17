@@ -1120,7 +1120,7 @@ export class Game implements ToolHost {
       for (const tl of path) {
         const k = idx(tl.x, tl.z);
         if (this.map.water[k] && !this.net.type[k]) return { ok: false, reason: t('Cables cannot cross water without a bridge') };
-        if (this.map.height[k] > 0 && !this.bores[k] && !this.net.type[k]) return { ok: false, reason: t('Too steep — mountains') };
+        if (this.map.height[k] > 0 && !this.bores[k] && !this.net.type[k]) return { ok: false, reason: t('Mountains: lay it through a tunnel (the marks on the rock) or bore one first') };
         if (!this.cables.tiles[k]) fresh++;
       }
       const money = fresh * CABLE_COST.money, iron = fresh * CABLE_COST.iron;
@@ -1152,7 +1152,8 @@ export class Game implements ToolHost {
       let fresh = 0;
       for (const tl of path) {
         const k = idx(tl.x, tl.z);
-        if ((this.map.water[k] || this.map.height[k] > 0) && !this.net.type[k]) return { ok: false, reason: t('Pipes need dry, flat land') };
+        if (this.map.water[k] && !this.net.type[k]) return { ok: false, reason: t('Pipes need dry, flat land') };
+        if (this.map.height[k] > 0 && !this.bores[k] && !this.net.type[k]) return { ok: false, reason: t('Mountains: lay it through a tunnel (the marks on the rock) or bore one first') };
         if (!this.pipes.tiles[k]) fresh++;
       }
       const money = fresh * PIPE_COST.money, iron = fresh * PIPE_COST.iron;
@@ -2703,7 +2704,7 @@ export class Game implements ToolHost {
   /** Tunnels are drawn over the rock while the player lays roads, railways or tunnels (and on the traffic map). */
   private showTunnelMarks() {
     const tl = this.tool?.tool;
-    return tl === 'road' || tl === 'litroad' || tl === 'rail' || tl === 'tunnel' || tl === 'bulldoze' || this.mapLayer === 'traffic';
+    return tl === 'road' || tl === 'litroad' || tl === 'rail' || tl === 'tunnel' || tl === 'cable' || tl === 'pipe' || tl === 'bulldoze' || this.mapLayer === 'traffic';
   }
 
   /** Fly to a family's home and open it (from the town hall window). */
