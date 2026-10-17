@@ -43,10 +43,13 @@ export class Preview {
     this.ghostGroup.visible = false;
   }
 
+  /** Height of the ground at a tile (set by the game): a line drawn over a mountain shows on top of it. */
+  heightAt?: (x: number, z: number) => number;
+
   show(tiles: Tile[], color: THREE.Color) {
     const n = Math.min(tiles.length, this.mesh.instanceMatrix.count);
     for (let i = 0; i < n; i++) {
-      this.m.makeTranslation(tileToWorld(tiles[i].x), 0.06, tileToWorld(tiles[i].z));
+      this.m.makeTranslation(tileToWorld(tiles[i].x), this.heightAt?.(tiles[i].x, tiles[i].z) ?? 0.06, tileToWorld(tiles[i].z));
       this.mesh.setMatrixAt(i, this.m);
       this.mesh.setColorAt(i, color);
     }

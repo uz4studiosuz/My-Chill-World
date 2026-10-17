@@ -5,3 +5,4 @@ export * from './people/baby';
 export * from './people/log';
 export * from './people/personMesh';
 export { PERSON_VARIANTS } from './people/_shared';
+export * from './people/stoneCrate';

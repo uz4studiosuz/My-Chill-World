@@ -1132,17 +1132,18 @@ export class Game implements ToolHost {
       if (town) return { ok: false, reason: t('This land belongs to the neighbour town {city}', { city: town.name }) };
     }
     if (kind === 'rail') {
-      let fresh = 0;
+      let fresh = 0, bore = 0;
       for (const tl of path) {
         const k = idx(tl.x, tl.z);
         if (this.buildings.at(k)?.kind === 'trainstation') continue; // the track ends at the station
-        if (this.map.height[k] > 0 && !this.bores[k]) return { ok: false, reason: t('Mountains: bore a tunnel first (Roads → Tunnel)') };
         if (this.buildings.occ[k] !== -1 || this.net.isIsland(k)) return { ok: false, reason: t('Something is in the way') };
         if (!this.railway.tiles[k]) fresh++;
+        // through a mountain the railway bores its own tunnel
+        if (this.map.height[k] > 0 && !this.bores[k] && !this.net.type[k]) bore++;
       }
-      const money = fresh * RAIL_COST.money, iron = fresh * RAIL_COST.iron;
-      if (!this.eco.canAfford(money, 0, 0, iron)) return { ok: false, reason: t('Needs {cost}', { cost: costText(money, 0, 0, iron) }) };
-      return { ok: true, money, iron };
+      const money = fresh * RAIL_COST.money + bore * TUNNEL_COST.money, iron = fresh * RAIL_COST.iron, stone = bore * TUNNEL_COST.stone;
+      if (!this.eco.canAfford(money, stone, 0, iron)) return { ok: false, reason: t('Needs {cost}', { cost: costText(money, stone, 0, iron) }) };
+      return { ok: true, money, stone, iron };
     }
     if (kind === 'pipe') {
       // pipes run underground: anywhere on land, under roads, paths and buildings
@@ -1183,7 +1184,7 @@ export class Game implements ToolHost {
       const tl = path[i];
       const k = idx(tl.x, tl.z);
       // through a mountain the road runs in a tunnel (dearer than a road, cheaper than going round)
-      if (this.map.height[k] > 0 && !this.net.type[k]) { if (!this.bores[k]) return { ok: false, reason: t('Mountains: bore a tunnel first (Roads → Tunnel)') }; money += ROAD_COST[2].money; stone += ROAD_COST[2].stone; tunnels++; if (this.buildings.occ[k] !== -1) return { ok: false, reason: t('A building is in the way') }; if (kind === 'litroad' && !this.lights.lit[k]) money += LAMP.price; continue; }
+      if (this.map.height[k] > 0 && !this.net.type[k]) { if (!this.bores[k]) { money += TUNNEL_COST.money; stone += TUNNEL_COST.stone; } money += ROAD_COST[2].money; stone += ROAD_COST[2].stone; tunnels++; if (this.buildings.occ[k] !== -1) return { ok: false, reason: t('A building is in the way') }; if (kind === 'litroad' && !this.lights.lit[k]) money += LAMP.price; continue; }
       if (this.buildings.occ[k] !== -1) return { ok: false, reason: t('A building is in the way') };
       if (this.net.isIsland(k)) return { ok: false, reason: t("Can't drive through a roundabout island") };
       if (this.net.isRing(k)) {
@@ -1289,8 +1290,11 @@ export class Game implements ToolHost {
         const tl = job.tiles[job.done];
         const k = idx(tl.x, tl.z);
         const was = this.lineDone(job, k);
-        if (!was && job.prog < 1) break;
-        if (!was) job.prog -= 1;
+        const rock = (job.kind === 'road' || job.kind === 'rail') && !was && this.map.height[k] > 0 && !this.bores[k];
+        const need = rock ? 3 : 1;
+        if (!was && job.prog < need) break;
+        if (!was) job.prog -= need;
+        if (rock) { this.bores[k] = 1; this.tunnelsDirty = true; }
         if (job.kind === 'road') {
           this.net.buildPath(job.done > 0 ? [job.tiles[job.done - 1], tl] : [tl], ROAD_TWO_LANE);
           if (job.lit) this.lights.setLit([k], true);
@@ -1310,6 +1314,7 @@ export class Game implements ToolHost {
     if (!changed) return;
     if (pipes) this.pipes.rebuild();
     if (cables) this.cables.rebuild();
+    if (this.tunnelsDirty || this.roadJobs.some((j) => j.kind === 'tunnel')) { this.tunnelsDirty = false; this.rebuildTunnels(); }
     this.roadJobs = this.roadJobs.filter((j) => j.done < j.tiles.length);
     this.netPending = true;
     this.drawRoadSites();
@@ -1960,6 +1965,7 @@ export class Game implements ToolHost {
 
   /** Problem badges over buildings, the reach of the selected service and what a selected power plant feeds. */
   private updateOverlays(dt: number) {
+    if (this.tunnelMarks) this.tunnelMarks.visible = this.showTunnelMarks() && !this.photoMode;
     this.overlays.visible = !this.demo && !this.pov && !this.drive?.active && !this.photoMode;
     this.overlays.update(dt);
     this.overlayT -= dt;
@@ -2630,7 +2636,12 @@ export class Game implements ToolHost {
 
   /** Stone portals where a road enters a mountain (the road runs on inside, hidden in the rock). */
   private tunnelGroup = new THREE.Group();
+  private tunnelsDirty = false;
+  /** The way of every tunnel drawn over the mountain (shown while a road, railway or tunnel tool is in hand). */
+  private tunnelMarks?: THREE.InstancedMesh;
   private rebuildTunnels() {
+    // lines drawn over a mountain show on its top
+    this.preview.heightAt ??= (x: number, z: number) => { const k = idx(x, z); return this.map.height[k] > 0 ? this.map.topY(k) + 0.05 : 0.06; };
     if (!this.tunnelGroup.parent) this.scene.add(this.tunnelGroup);
     for (const ch of [...this.tunnelGroup.children]) { this.tunnelGroup.remove(ch); (ch as THREE.Mesh).geometry?.dispose(); }
     const frame = new THREE.MeshLambertMaterial({ color: '#8e8a83' }), dark = new THREE.MeshBasicMaterial({ color: '#15171a' });
@@ -2655,6 +2666,29 @@ export class Game implements ToolHost {
         this.tunnelGroup.add(g);
       }
     }
+    // the tunnel's way over the rock: dark for a bored tunnel, amber where a road or railway runs through it
+    const marks: { k: number; road: boolean }[] = [];
+    for (let k = 0; k < this.bores.length; k++) if (this.bores[k] && this.map.height[k] > 0) marks.push({ k, road: !!this.net.type[k] || !!this.railway.tiles[k] });
+    if (this.tunnelMarks) { this.scene.remove(this.tunnelMarks); this.tunnelMarks.dispose(); this.tunnelMarks = undefined; }
+    if (!marks.length) return;
+    const tm = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.62, 0.62).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85, depthWrite: false }), marks.length);
+    const m = new THREE.Matrix4(), c = new THREE.Color();
+    marks.forEach(({ k, road }, i) => {
+      m.makeTranslation(tileToWorld(k % N), this.map.topY(k) + 0.03, tileToWorld((k / N) | 0));
+      tm.setMatrixAt(i, m);
+      tm.setColorAt(i, c.set(road ? '#f2b33d' : '#2b2f35'));
+    });
+    tm.renderOrder = 7;
+    tm.frustumCulled = false;
+    tm.visible = this.showTunnelMarks();
+    this.tunnelMarks = tm;
+    this.scene.add(tm);
+  }
+
+  /** Tunnels are drawn over the rock while the player lays roads, railways or tunnels (and on the traffic map). */
+  private showTunnelMarks() {
+    const tl = this.tool?.tool;
+    return tl === 'road' || tl === 'litroad' || tl === 'rail' || tl === 'tunnel' || tl === 'bulldoze' || this.mapLayer === 'traffic';
   }
 
   /** Fly to a family's home and open it (from the town hall window). */
@@ -3659,7 +3693,16 @@ export class Game implements ToolHost {
       bars.push({ label: t('Energy supplied'), value: city.powered, color: '#ffe066' });
     }
     if (b.kind === 'watertower') bars.push({ label: t('Water supplied'), value: city.water, color: '#4fa3d1' });
-    if (b.kind === 'woodcutter') rows.push([t('Trees nearby'), `${this.terrain.treesNear(b.x, b.z, 10)}`]);
+    if (b.kind === 'woodcutter') {
+      const near = this.terrain.treesNear(b.x, b.z, 10), far = this.terrain.treesNear(b.x, b.z, 26);
+      rows.push([t('Trees nearby'), `${near}`], [t('Trees within reach (26 tiles)'), `${far}`, far ? undefined : 'bad']);
+      if (!near && far) tags.push({ text: t('The near trees are gone: the woodcutters walk further into the forest (fewer logs a day). Plant saplings nearby!'), tone: 'info' });
+    }
+    if (b.kind === 'quarry' || b.kind === 'coalmine' || b.kind === 'ironmine') {
+      const d = this.life.faceDistance(b);
+      if (d >= 0) rows.push([t('Rock face'), t('{n} tiles away · {p}% of the output', { n: Math.round(d), p: Math.round(this.life.reachFactor(b) * 100) }), d > 4 ? 'bad' : undefined]);
+      if (d > 3) tags.push({ text: t('The rock is further away: workers carry it back to the yard, a truck (or a porter, on foot or by bicycle) takes it on'), tone: 'info' });
+    }
     if (b.kind === 'carmarket') bars.push({ label: t('Cars in stock'), value: b.stored / CARS.marketMax, color: '#6fb6ff', text: `${Math.floor(b.stored)}/${CARS.marketMax}` });
     if (b.kind === 'carfactory') {
       bars.push({ label: t('Cars ready'), value: b.stored / CARS.factoryMax, color: '#6fb6ff', text: `${Math.floor(b.stored)}/${CARS.factoryMax}` });

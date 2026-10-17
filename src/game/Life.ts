@@ -81,6 +81,9 @@ export const GARAGE_CARS = 24;
 /** Fare for one metro ride. */
 export const METRO_FARE = 2;
 const PARK_RADIUS = 20;
+/** How far woodcutters walk for trees, and quarrymen and miners for rock, before their workplace stops (tiles). */
+const WOOD_REACH = 26;
+const ROCK_REACH = 14;
 const IMMIGRATION_INTERVAL = DAY_SECONDS / 3;
 const ROAD_UPKEEP = 0.1;
 const BRIDGE_UPKEEP = 0.5;
@@ -1642,7 +1645,7 @@ export class Life {
     map.height[best] -= 1;
     this.c.terrain.queueReshape(best);
     this.c.effects.puff(tileToWorld(best % N), tileToWorld((best / N) | 0), 0.35, 12, ['#bdb7aa', '#d8d2c4', '#8d8a83']);
-    if (map.mountainsNear(b.x, b.z, 3) === 0) this.cityEvent(b.city, t('The {name} has dug away all the rock around it', { name: t(BUILDINGS[b.kind].name) }));
+    if (map.mountainsNear(b.x, b.z, 3) === 0 && !this.reachNoted.has(b.id)) { this.reachNoted.add(b.id); this.cityEvent(b.city, t('The rock next to the {name} is gone: its workers now dig further away and carry the stone back to the yard', { name: t(BUILDINGS[b.kind].name) })); }
   }
 
   /** Is there a staffed food shop in the town (families can buy food)? */
@@ -1705,9 +1708,10 @@ export class Life {
           }
         }
       }
-      if ((b.kind === 'coalmine' || b.kind === 'ironmine') && this.c.map.mountainsNear(b.x, b.z, 3) === 0) continue; // the seam is worked out
-      if (b.kind === 'coalmine') { const n = CHAIN2.coalPerDay * Math.min(1, b.workers / d.jobs) * share; this.c.eco.add(city, 'coal', n, 'Coal mines'); this.tally(b, 'Coal dug', n); this.dig(b, n); }
-      if (b.kind === 'ironmine') { const n = IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share; this.c.eco.add(city, 'iron', n, 'Iron mines'); this.tally(b, 'Iron ore dug', n); this.dig(b, n); }
+      if ((b.kind === 'coalmine' || b.kind === 'ironmine') && !this.mineFace(b)) continue; // no rock left within reach
+      const reach = b.kind === 'coalmine' || b.kind === 'ironmine' ? this.reachFactor(b) : 1;
+      if (b.kind === 'coalmine') { const n = CHAIN2.coalPerDay * Math.min(1, b.workers / d.jobs) * share * reach; this.c.eco.add(city, 'coal', n, 'Coal mines'); this.tally(b, 'Coal dug', n); this.dig(b, n); }
+      if (b.kind === 'ironmine') { const n = IRON_PER_DAY * Math.min(1, b.workers / d.jobs) * share * reach; this.c.eco.add(city, 'iron', n, 'Iron mines'); this.tally(b, 'Iron ore dug', n); this.dig(b, n); }
       if (b.kind === 'carfactory' && b.stored < CARS.factoryMax) {
         const made = CARS.perDay * Math.min(1, b.workers / d.jobs) * (b.powered ? 1 : 0.4) * share;
         const iron = made * CARS.iron;
@@ -1762,8 +1766,8 @@ export class Life {
     for (const b of buildings.ofKind('quarry')) {
       const th = this.depot(b);
       if (b.built < 1) continue;
-      if (this.c.map.mountainsNear(b.x, b.z, 3) === 0) continue; // the rock is gone
-      const dug = QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share;
+      if (!this.mineFace(b)) continue; // no rock left within reach
+      const dug = QUARRY.perDay * Math.min(1, b.workers / BUILDINGS.quarry.jobs) * (b.powered ? 1 : 0.5) * share * this.reachFactor(b);
       if (b.stored < QUARRY.maxStored) { this.dig(b, dug); this.tally(b, 'Stone dug', dug); }
       b.stored = Math.min(QUARRY.maxStored, b.stored + dug);
       if (!th || b.stored < QUARRY.truckLoad) continue;
@@ -1948,6 +1952,7 @@ export class Life {
     this.porters.add(worker.id);
     b.stored -= load;
     worker.activity = res === 'wood' ? 'Carrying logs to the warehouse' : 'Carrying stone';
+    const crate: 'log' | 'stone' = res === 'wood' ? 'log' : 'stone';
     const finish = () => {
       this.porters.delete(worker.id);
       if (!this.alive(worker)) return;
@@ -1965,7 +1970,7 @@ export class Life {
       worker.activity = res === 'wood' ? 'Walking back to the forest' : 'Walking back to the quarry';
       if (b.removed) return finish();
       this.walk(worker, buildings.door(th), buildings.frontTile(th), b, finish);
-    }, 'log');
+    }, crate);
   }
 
   /** Trucks bring new cars from the factory to the car market with room in its lot. */
@@ -3753,10 +3758,11 @@ export class Life {
     if (w) {
       let len = 0;
       for (let i = 1; i < route.points.length; i++) len += Math.hypot(route.points[i].x - route.points[i - 1].x, route.points[i].z - route.points[i - 1].z);
-      const ride = !!this.family(c)?.bike && c.age >= 10 && carry === 'none' && len > 8;
+      const ride = !!this.family(c)?.bike && c.age >= 10 && (carry === 'none' || this.porters.has(c.id)) && len > (this.porters.has(c.id) ? 4 : 8);
       if (ride && !w.bike) { w.bike = true; w.speed *= 2.2; }
       else if (!ride && w.bike) { w.bike = false; w.speed /= 2.2; }
-      if (ride) c.activity = c.activity === 'Walking to work' ? 'Cycling to work' : c.activity === 'Going home' ? 'Cycling home' : c.activity === 'Walking to school' ? 'Cycling to school' : c.activity;
+      if (ride && this.porters.has(c.id)) c.activity = c.activity === 'Carrying logs to the warehouse' ? 'Cycling logs to the warehouse' : c.activity === 'Carrying stone' ? 'Cycling stone to the warehouse' : c.activity;
+      else if (ride) c.activity = c.activity === 'Walking to work' ? 'Cycling to work' : c.activity === 'Going home' ? 'Cycling home' : c.activity === 'Walking to school' ? 'Cycling to school' : c.activity;
     }
   }
 
@@ -3766,7 +3772,8 @@ export class Life {
     const { terrain, buildings, walkers, eco, effects } = this.c;
     const atWork = () => this.alive(c) && c.state === 'away' && c.at === hut.id && !hut.removed && eco.timeOfDay < c.returnAt;
     if (!atWork()) return;
-    const tree = terrain.nearestTree(hut.x, hut.z, 10, this.reservedTrees);
+    let tree = terrain.nearestTree(hut.x, hut.z, 10, this.reservedTrees);
+    if (tree < 0) tree = terrain.nearestTree(hut.x, hut.z, WOOD_REACH, this.reservedTrees);
     if (tree < 0) { if (c.walker) { walkers.dismiss(c.walker); c.walker = undefined; } c.activity = 'No trees nearby'; return; }
     this.reservedTrees.add(tree);
     const treeCenter = { x: tileToWorld(tree % N), z: tileToWorld((tree / N) | 0) };
@@ -3803,6 +3810,23 @@ export class Life {
    * Quarrymen and miners work outside at the rock face next to their quarry or mine: they walk to the nearest
    * mountain tile, hack at it (dust and chips fly — grey stone, black coal, rusty iron), and move on now and then.
    */
+  /** Quarries and mines already told that their rock moved away. */
+  private reachNoted = new Set<number>();
+
+  /** How far (tiles) the rock face of a quarry or mine is from the building. */
+  faceDistance(site: Building) {
+    const f = this.mineFace(site);
+    if (!f) return -1;
+    const s = BUILDINGS[site.kind].size;
+    return Math.max(0, Math.hypot((f.rock % N) + 0.5 - (site.x + s / 2), ((f.rock / N) | 0) + 0.5 - (site.z + s / 2)) - s / 2);
+  }
+
+  /** The walk to a far rock face eats into the day: full output up to 4 tiles, then less (never below 40%). */
+  reachFactor(site: Building) {
+    const d = this.faceDistance(site);
+    return d < 0 ? 0 : d <= 4 ? 1 : Math.max(0.4, 1 - (d - 4) * 0.06);
+  }
+
   /** The rock face each quarry or mine works on: one rock tile, worked from one side until it is gone. */
   private mineFaces = new Map<number, { rock: number; stand: { x: number; z: number }; tile: number; dx: number; dz: number; crew: number[] }>();
   private mineFace(site: Building) {
@@ -3815,7 +3839,7 @@ export class Life {
     const cx = site.x + s / 2, cz = site.z + s / 2;
     const from = buildings.frontTile(site);
     const cands: { k: number; d: number }[] = [];
-    for (let z = site.z - 4; z < site.z + s + 4; z++) for (let x = site.x - 4; x < site.x + s + 4; x++) {
+    for (let z = site.z - ROCK_REACH; z < site.z + s + ROCK_REACH; z++) for (let x = site.x - ROCK_REACH; x < site.x + s + ROCK_REACH; x++) {
       if (x < 1 || z < 1 || x >= N - 1 || z >= N - 1) continue;
       const k = z * N + x;
       // the closest rock first, the lower edge before the peak (the same order the digging takes it away)
@@ -3830,7 +3854,7 @@ export class Life {
         .filter((o) => open(o.t))
         .sort((p, q) => Math.hypot(p.t % N + 0.5 - cx, ((p.t / N) | 0) + 0.5 - cz) - Math.hypot(q.t % N + 0.5 - cx, ((q.t / N) | 0) + 0.5 - cz));
       for (const o of sides) {
-        if (!pedPath(this.graph, this.graph.node(from), this.graph.node(o.t), 4000)) continue;
+        if (!pedPath(this.graph, this.graph.node(from), this.graph.node(o.t), 9000)) continue;
         const face = { rock: k, tile: o.t, dx: o.dx, dz: o.dz, crew: [] as number[], stand: { x: tileToWorld(x + o.dx) - o.dx * 0.18, z: tileToWorld(z + o.dz) - o.dz * 0.18 } };
         this.mineFaces.set(site.id, face);
         return face;
@@ -3849,7 +3873,7 @@ export class Life {
     for (const b of buildings.list) {
       if (b.built < 1 || b.removed) continue;
       if (b.kind !== 'woodcutter' && b.kind !== 'quarry' && b.kind !== 'coalmine' && b.kind !== 'ironmine') continue;
-      const empty = b.kind === 'woodcutter' ? terrain.nearestTree(b.x, b.z, 10, new Set()) < 0 : !this.mineFace(b);
+      const empty = b.kind === 'woodcutter' ? terrain.nearestTree(b.x, b.z, WOOD_REACH, new Set()) < 0 : !this.mineFace(b);
       const was = (b.depleted ?? 0) > 0;
       b.depleted = empty ? (b.depleted ?? 0) + 1 : 0;
       if (empty !== was) changed = true;
@@ -3888,7 +3912,15 @@ export class Life {
         if (Math.random() < 0.6) effects.puff(stand.x + (rockAt.x - stand.x) * 0.5, stand.z + (rockAt.z - stand.z) * 0.5, 0.18, 4, dust);
         // the rock face is gone (dug away by the day's output): on to the next one
         if (this.c.map.height[f.rock] <= 0) { this.mineLoop(c, site); return; }
-        if (--hits <= 0) { this.mineLoop(c, site); return; }
+        if (--hits <= 0) {
+          if (this.faceDistance(site) > 3) {
+            c.activity = site.kind === 'quarry' ? 'Carrying stone to the yard' : site.kind === 'coalmine' ? 'Carrying coal to the yard' : 'Carrying iron ore to the yard';
+            this.walk(c, { x: w.x, z: w.z }, tileAt(w), site, () => { if (c.walker) { c.walker.carry = 'none'; c.walker.leaving = false; } this.mineLoop(c, site); }, 'stone');
+            return;
+          }
+          this.mineLoop(c, site);
+          return;
+        }
         walkers.holdFor(w, 1.4, 'chop', hack, { x: rockAt.x + (stand.x - f.stand.x), z: rockAt.z + (stand.z - f.stand.z) });
       };
       hack();

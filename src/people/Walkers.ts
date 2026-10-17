@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { PERSON_VARIANTS, babyGeometry, logGeometry, personGeometry } from '../models/people';
+import { PERSON_VARIANTS, babyGeometry, logGeometry, personGeometry, stoneCrateGeometry } from '../models/people';
 import type { Point } from '../buildings/Buildings';
 import { stretcherGeometry } from '../models/extras';
 import { bikeGeometry } from '../models/chains2';
 import { UNIFORMS, UNIFORM_KINDS, type Uniform } from '../models/people/uniforms';
 
-export type Carry = 'none' | 'log' | 'baby' | 'stretcher';
+export type Carry = 'none' | 'log' | 'baby' | 'stretcher' | 'stone';
 
 export interface Walker {
   id: number;
@@ -58,6 +58,7 @@ export class Walkers {
   private meshes: THREE.InstancedMesh[] = [];
   private baby: THREE.InstancedMesh;
   private log: THREE.InstancedMesh;
+  private stone: THREE.InstancedMesh;
   private stretcher: THREE.InstancedMesh;
   private bikes: THREE.InstancedMesh;
   private uniforms = new Map<Uniform, THREE.InstancedMesh>();
@@ -81,6 +82,7 @@ export class Walkers {
     for (let v = 0; v < PERSON_VARIANTS; v++) this.meshes.push(make(personGeometry(v)));
     this.baby = make(babyGeometry());
     this.log = make(logGeometry());
+    this.stone = make(stoneCrateGeometry());
     this.stretcher = make(stretcherGeometry());
     this.bikes = make(bikeGeometry());
     for (const u of UNIFORM_KINDS) this.uniforms.set(u, make(UNIFORMS[u]()));
@@ -219,7 +221,7 @@ export class Walkers {
 
   private render() {
     const counts = new Array(PERSON_VARIANTS).fill(0);
-    let nb = 0, nl = 0, ns = 0, nk = 0;
+    let nb = 0, nl = 0, ns = 0, nk = 0, nst = 0;
     const nu = new Map<Uniform, number>();
     for (const w of this.list) {
       if (w.hidden) continue;
@@ -245,6 +247,7 @@ export class Walkers {
       if (u) { const k = nu.get(u) ?? 0; if (k < MAX_PER_VARIANT) { this.uniforms.get(u)!.setMatrixAt(k, this.m); nu.set(u, k + 1); } }
       if (w.carry === 'baby' && nb < MAX_PER_VARIANT) this.baby.setMatrixAt(nb++, this.m);
       if (w.carry === 'log' && nl < MAX_PER_VARIANT) this.log.setMatrixAt(nl++, this.m);
+      if (w.carry === 'stone' && nst < MAX_PER_VARIANT) this.stone.setMatrixAt(nst++, this.m);
       if (w.carry === 'stretcher' && ns < MAX_PER_VARIANT) this.stretcher.setMatrixAt(ns++, this.m);
       if (w.bike && walking && nk < MAX_PER_VARIANT) {
         this.p.set(w.x, 0.02, w.z);
@@ -260,6 +263,8 @@ export class Walkers {
     this.baby.count = nb;
     for (const [u, m] of this.uniforms) { m.count = nu.get(u) ?? 0; m.instanceMatrix.needsUpdate = true; }
     this.log.count = nl;
+    this.stone.count = nst;
+    this.stone.instanceMatrix.needsUpdate = true;
     for (const b of this.standingBikes) {
       if (nk >= MAX_PER_VARIANT) break;
       this.q.setFromEuler(this.e.set(0, b.rot, 0, 'YXZ'));
