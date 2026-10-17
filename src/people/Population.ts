@@ -731,9 +731,13 @@ export class Population {
           partner.family = nf.id;
           partner.role = 'parent';
           nf.members.push(partner.id);
+          // the new family carries the husband's surname: the bride takes it
+          if (c.sex === 'f') nf.surname = pf.surname;
           r.weddings.push([c.name, partner.name]);
-          this.note(c, 'Married {name} at the Wedding Hall', { name: `${partner.name} ${this.families.get(pf.id)?.surname ?? ''}`.trim() });
+          this.note(c, 'Married {name} at the Wedding Hall', { name: `${partner.name} ${pf.surname}`.trim() });
           this.note(partner, 'Married {name} at the Wedding Hall', { name: `${c.name} ${f.surname}` });
+          const bride = c.sex === 'f' ? c : partner;
+          this.note(bride, 'Took the surname {family}', { family: nf.surname });
         }
       }
     }

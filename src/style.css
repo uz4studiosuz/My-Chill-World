@@ -2613,3 +2613,16 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
 .emb-confirm p { margin: 0 0 6px; font-size: 11.5px; line-height: 1.35; color: var(--text); }
 .emb-confirm div { display: flex; gap: 5px; }
 .emb-confirm .btn-mini { flex: 1; width: auto; padding: 6px 4px; }
+
+/* the embassy's project cards: roomier, nothing cut off */
+#ui .emb-grid { grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: 8px; }
+#ui .emb-opt { padding: 8px; gap: 4px; }
+#ui .emb-opt > i { height: 86px; }
+#ui .emb-opt b { font-size: 13.5px; }
+#ui .emb-opt small { font-size: 11px; line-height: 1.3; }
+#ui .emb-gain { font-size: 11px; font-weight: 800; color: var(--good); }
+#ui .emb-gain.aid { color: #9cc7ff; }
+#ui .emb-why { font-size: 10.5px; line-height: 1.3; color: var(--muted); }
+#ui .emb-yes { gap: 8px; }
+#ui .emb-yes i { flex: 1; max-width: none; min-width: 20px; }
+#ui .emb-yes span { flex: none; font-size: 11px; }

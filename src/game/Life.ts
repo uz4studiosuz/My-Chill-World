@@ -701,7 +701,6 @@ export class Life {
       const e = BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1);
       // fields, mines and parks away from the roads run a small generator of their own
       // small rural workplaces off the road manage without the grid; the ranch, the greenhouse and the poultry farm need a cable
-      if (!this.gridIds.has(b.id) && !BUILDINGS[b.kind].needsRoad && b.kind !== 'ranch' && b.kind !== 'greenhouse' && b.kind !== 'poultry') { b.powered = true; continue; }
       b.powered = this.gridIds.has(b.id) && left >= e;
       if (b.powered) { left -= e; got.set(b.city, (got.get(b.city) ?? 0) + e); }
     }
@@ -809,6 +808,7 @@ export class Life {
     pop.day = eco.day;
     this.checkDepleted();
     this.metroDay();
+    this.dayTrips((m) => this.events.push(m));
     this.mortgages();
     this.buySaws();
     for (const f of pop.families.values()) { f.earnY = f.earn ?? {}; f.earn = {}; }
@@ -1842,20 +1842,103 @@ export class Life {
    * station ride it to work; every ride pays the fare to the town and they are a little happier (less traffic).
    */
   private metroDay() {
-    const { buildings, pop, eco } = this.c;
+    // the rides of the day were counted one by one (each paid its fare at the gate)
+    for (const city of this.c.eco.cities.values()) city.metroRiders = this.metroCount.get(city.id) ?? 0;
+    this.metroCount.clear();
+  }
+
+  /** Metro rides today, by town. */
+  private metroCount = new Map<number, number>();
+  /** People underground right now, by station they will come up at. */
+  underground = new Map<number, number>();
+
+  /**
+   * A trip by metro when both ends are near a staffed station of the same line (two or more stations in town) and
+   * the trip is long enough: walk to the station, ride underground (a few seconds), come up at the other one and walk on.
+   */
+  private metroRide(c: Citizen, from: Building, dest: Building, arrive: () => void) {
+    const { buildings, eco } = this.c;
+    if (from.city !== dest.city || dist(from, dest) < 9) return false;
+    const st = buildings.list.filter((b) => b.kind === 'metro' && b.city === from.city && b.built >= 1 && b.workers > 0 && !b.removed);
+    if (st.length < 2) return false;
+    const near = (p: Building) => st.reduce<Building | undefined>((a, s) => (Math.abs(s.x - p.x) + Math.abs(s.z - p.z) <= 7 && (!a || dist(s, p) < dist(a, p)) ? s : a), undefined);
+    const a = near(from), b = near(dest);
+    if (!a || !b || a === b) return false;
+    const f = this.family(c);
+    // with a car at hand only about half take the metro
+    if (f?.car?.at === 'home' && c.age >= 18 && Math.random() < 0.5) return false;
+    c.activity = 'Walking to the metro';
+    this.walk(c, buildings.door(from), buildings.frontTile(from), a, () => {
+      if (!this.alive(c)) return;
+      if (c.walker) { this.c.walkers.dismiss(c.walker); c.walker = undefined; }
+      c.activity = 'Riding the metro';
+      const town = eco.cities.get(a.city);
+      if (f && town) { f.money -= METRO_FARE; eco.add(town, 'money', METRO_FARE, 'Metro fares'); }
+      this.metroCount.set(a.city, (this.metroCount.get(a.city) ?? 0) + 1);
+      this.tally(a, 'Passengers');
+      this.underground.set(b.id, (this.underground.get(b.id) ?? 0) + 1);
+      this.leisure.later(2 + dist(a, b) * 0.12, () => {
+        this.underground.set(b.id, Math.max(0, (this.underground.get(b.id) ?? 1) - 1));
+        if (!this.alive(c)) return;
+        c.activity = 'Coming up from the metro';
+        this.walk(c, buildings.door(b), buildings.frontTile(b), dest, arrive);
+      });
+    });
+    return true;
+  }
+
+  /**
+   * Day trips: now and then families drive to a neighbour town (or fly, between two airports) for a change of air,
+   * spend some money there, come back happier, and bring cheaper food home when it costs less there.
+   */
+  private dayTrips(say: (msg: string) => void) {
+    const { pop, buildings, traffic, eco } = this.c;
     for (const city of eco.cities.values()) {
-      const st = buildings.list.filter((b) => b.kind === 'metro' && b.city === city.id && b.built >= 1 && b.workers > 0);
-      city.metroRiders = 0;
-      if (st.length < 2) continue;
-      let riders = 0;
-      for (const f of pop.families.values()) {
-        const h = buildings.get(f.home);
-        if (!h || h.city !== city.id || !st.some((s) => Math.abs(s.x - h.x) + Math.abs(s.z - h.z) <= 7)) continue;
-        for (const c of pop.members(f)) if (c.job >= 0 && Math.random() < 0.6) { riders++; f.money -= METRO_FARE; }
+      if (city.ai) continue;
+      const towns = [...eco.cities.values()].filter((c) => c.ai && buildings.townHall(c.id));
+      if (!towns.length) continue;
+      const myPort = buildings.list.some((b) => b.kind === 'airport' && b.city === city.id && b.built >= 1 && b.workers > 0);
+      const fams = [...pop.families.values()].filter((f) => buildings.get(f.home)?.city === city.id && f.money > 250).sort(() => Math.random() - 0.5).slice(0, 3);
+      let went = 0;
+      for (const f of fams) {
+        if (Math.random() > 0.45) continue;
+        const town = towns[Math.floor(Math.random() * towns.length)];
+        const hall = buildings.townHall(town.id)!;
+        const home = buildings.get(f.home)!;
+        const cheaper = this.priceLevel(town.id) < this.priceLevel(city.id) * 0.95;
+        const visit = (how: string) => {
+          const spend = Math.round(15 + Math.random() * 30);
+          f.money -= spend;
+          eco.add(town, 'money', spend, 'Visitors from other towns');
+          town.tourists += pop.members(f).length;
+          for (const m of pop.members(f)) m.joy = eco.day;
+          if (cheaper) f.pantry = (f.pantry ?? 0) + 8;
+          const head = pop.members(f).find((m) => m.role === 'parent');
+          if (head) pop.note(head, cheaper ? 'Went to {city} by {how} and bought cheaper food there' : 'A day trip to {city} by {how}', { city: town.name, how });
+        };
+        const car = f.car;
+        if (car?.at === 'home' && home.access >= 0 && hall.access >= 0 && traffic.canRoute(home.access, hall.access)) {
+          car.at = 'moving';
+          const ok = traffic.spawn({
+            kind: 'car', from: home.access, to: hall.access, color: colorOf(car.color), fromPos: buildings.slot(home, 0), toPos: buildings.door(hall),
+            driverName: `${f.surname}`, purpose: 'Day trip to a neighbour town', fromName: BUILDINGS[home.kind].name, destName: BUILDINGS[hall.kind].name, homeBuildingId: home.id,
+            onArrive: () => {
+              visit('car');
+              traffic.spawn({ kind: 'car', from: hall.access, to: home.access, color: colorOf(car.color), fromPos: buildings.door(hall), toPos: buildings.slot(home, 0),
+                driverName: `${f.surname}`, purpose: 'Driving home', fromName: BUILDINGS[hall.kind].name, destName: BUILDINGS[home.kind].name, homeBuildingId: home.id,
+                onArrive: () => { car.at = 'home'; }, onFail: () => { car.at = 'home'; } }) || (car.at = 'home');
+            },
+            onFail: () => { car.at = 'home'; },
+          });
+          if (!ok) { car.at = 'home'; continue; }
+          went++;
+        } else if (myPort && buildings.list.some((b) => b.kind === 'airport' && b.city === town.id && b.built >= 1) && f.money > 400) {
+          f.money -= 40;
+          visit('plane');
+          went++;
+        }
       }
-      city.metroRiders = riders;
-      if (riders) eco.add(city, 'money', riders * METRO_FARE, 'Metro fares');
-      for (const s of st) this.tally(s, 'Passengers', riders / st.length);
+      if (went) say(t('{n} families went on a day trip to the neighbour towns', { n: went }));
     }
   }
 
@@ -3000,6 +3083,7 @@ export class Life {
         car.at = 'home';
       }
     }
+    if (this.metroRide(c, home, dest, arrive)) return;
     const transit = this.findTransitTrip(home, dest);
     if (transit) {
       c.activity = 'Walking to bus stop';
@@ -3144,6 +3228,7 @@ export class Life {
       }
     }
     const atBuilding = !outside && at ? at : null;
+    if (atBuilding && this.metroRide(c, atBuilding, home, done)) return;
     if (atBuilding) {
       const transit = this.findTransitTrip(atBuilding, home);
       if (transit) {

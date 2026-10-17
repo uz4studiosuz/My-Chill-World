@@ -2753,7 +2753,7 @@ export class Game implements ToolHost {
       const visitors = Math.max(2, Math.min(20, Math.round((pops.get(from.id) ?? 0) * 0.08 + Math.random() * 4)));
       city.tourists += visitors;
       const deals: string[] = [];
-      // the plane takes what this town has far too much of to the other town, if it needs it and can pay
+      // planes carry people; goods fly only between two neighbour towns (the player trades in the trade window)
       if (city.ai && from.ai) {
         const seller = city, buyer = from;
         for (const g of GOODS) {
@@ -2783,7 +2783,8 @@ export class Game implements ToolHost {
     const tourists = 8 + Math.floor(Math.random() * 12);
     city.tourists += tourists;
     const deals: string[] = [];
-    for (const [res, rule] of Object.entries(AIR_TRADE) as [keyof typeof AIR_TRADE, (typeof AIR_TRADE)['food']][]) {
+    // a plane from abroad brings tourists only (no goods are sold or bought behind the player's back)
+    if (city.ai) for (const [res, rule] of Object.entries(AIR_TRADE) as [keyof typeof AIR_TRADE, (typeof AIR_TRADE)['food']][]) {
       if (city[res] > rule.keep) {
         const n = Math.min(10, Math.floor(city[res] - rule.keep));
         this.eco.add(city, res, -n, 'Sold by plane');
@@ -3148,6 +3149,7 @@ export class Game implements ToolHost {
     const town = city.ai ? t('Neighbour town {city}', { city: city.name }) : t('Town hall of {city}', { city: city.name });
     // ours abroad: built together with us, or partly ours through shares
     const me = this.eco.city;
+    if (city.ai && b.investor === me.id && b.investShare === 0) return t('{them} · built with help from {us}', { them: city.name, us: me.name });
     if (city.ai && b.investor === me.id) return t('{us} {a}% · {them} {b}%', { us: me.name, a: Math.round((b.investShare ?? 0.5) * 100), them: city.name, b: Math.round((1 - (b.investShare ?? 0.5)) * 100) });
     const share = b.shares?.find((s) => s.city === me.id)?.pct ?? 0;
     const tail = share ? ` · ${t('{us} {a}%', { us: me.name, a: Math.round(share * 100) })}` : '';
@@ -5807,10 +5809,9 @@ export class Game implements ToolHost {
   private embassyData() {
     const me = this.eco.city;
     const pops = this.life.populationByCity();
-    const half = (k: BuildingKind) => Math.round(BUILDINGS[k].money / 2);
     const catOf = (k: string) => ITEMS.find((i) => i.tool === k)?.cat ?? 'business';
     const options = (Object.keys(BUILDINGS) as BuildingKind[]).filter((k) => this.investable(k) && BUILDINGS[k].buildable && ITEMS.some((i) => i.tool === k))
-      .map((k) => ({ kind: k, name: t(BUILDINGS[k].name), half: half(k), cat: ['business', 'production', 'services'].includes(catOf(k)) ? catOf(k) : 'buildings', jobs: BUILDINGS[k].jobs }));
+      .map((k) => ({ kind: k, name: t(BUILDINGS[k].name), half: this.fullCost(k), cat: ['business', 'production', 'services'].includes(catOf(k)) ? catOf(k) : 'buildings', jobs: BUILDINGS[k].jobs, aid: this.aidKind(k), fee: BUILDINGS[k].power ? Math.round(BUILDINGS[k].power / 10) : 0 }));
     let total = 0;
     const towns = [...this.eco.cities.values()].filter((c) => c.ai).map((c) => {
       const joint = this.buildings.list.filter((b) => b.investor === me.id && b.city === c.id && !b.removed).map((b) => {
@@ -5860,29 +5861,33 @@ export class Game implements ToolHost {
     const say = (m: string, ok = false) => { this.hud?.toast(m); this.embassy?.flash(m, ok); };
     const me = this.eco.city;
     const d = BUILDINGS[kind];
-    // we pay half (half the profit) or all of it (three quarters of the profit)
-    const half = full ? d.money : Math.round(d.money / 2);
+    // we pay everything: the money and the materials (they still build and staff it)
+    void full;
+    const half = this.fullCost(kind);
     if (me.money < half) return say(t('Not enough money — needs ${n}', { n: half }));
     const rel = town.relation ?? 40;
-    if (Math.random() > Math.min(1, this.yesChance(town, kind) + (full ? 0.15 : 0))) {
+    if (Math.random() > Math.min(1, this.yesChance(town, kind) + 0.15)) {
       town.relation = Math.max(0, rel - 1);
       this.deal(town.id, t('Turned down a joint {name}', { name: t(d.name) }), 0);
       sound.play('error');
       return say(t('{city} said no to a joint {name} — be better friends and ask again', { city: town.name, name: t(d.name) }));
     }
     this.eco.add(me, 'money', -half, 'Joint projects with neighbour towns');
-    this.eco.add(town, 'money', half, 'Joint projects with neighbour towns');
+    // they get the money and the materials, so building it costs them nothing
+    this.eco.add(town, 'money', d.money, 'Joint projects with neighbour towns');
+    for (const [r, n] of [['stone', d.stone], ['wood', d.wood], ['iron', d.iron]] as [Res, number][]) if (n) this.eco.add(town, r, n, 'Joint projects with neighbour towns');
     if (!this.autoCity.buildFunded(town, kind, me.name)) {
-      this.eco.add(town, 'money', -half, 'Joint projects with neighbour towns');
+      this.eco.add(town, 'money', -d.money, 'Joint projects with neighbour towns');
+      for (const [r, n] of [['stone', d.stone], ['wood', d.wood], ['iron', d.iron]] as [Res, number][]) if (n) this.eco.add(town, r, -Math.min(n, town[r as Good] ?? 0), 'Joint projects with neighbour towns');
       this.eco.add(me, 'money', half, 'Joint projects with neighbour towns');
       return say(t('{city} has no room or materials for it right now', { city: town.name }));
     }
     const b = [...this.buildings.list].reverse().find((x) => x.city === town.id && x.kind === kind && x.built < 1);
-    if (b) { b.investor = me.id; b.paid = (b.paid ?? 0) + half; b.investShare = full ? 0.75 : 0.5; this.refreshFlags(); }
-    town.relation = Math.min(100, rel + 6);
-    this.deal(town.id, full ? t('{name} built for {city}: you paid it all (${n}), 75% of the profit is yours', { name: t(d.name), city: town.name, n: half }) : t('Joint {name}: you paid half (${n}), the profit is shared', { name: t(d.name), n: half }), -half);
+    if (b) { b.investor = me.id; b.paid = (b.paid ?? 0) + half; b.investShare = this.aidKind(kind) ? 0 : 0.75; this.refreshFlags(); }
+    town.relation = Math.min(100, rel + (this.aidKind(kind) ? 15 : 8));
+    this.deal(town.id, this.aidKind(kind) ? t('{name} built for {city} as help (${n}): relations +15', { name: t(d.name), city: town.name, n: half }) : t('{name} built for {city}: you paid it all (${n}), 75% of the profit is yours', { name: t(d.name), city: town.name, n: half }), -half);
     sound.play('coin');
-    say(full ? t('{city} agreed! They are building the {name}: 75% of its profit will be yours', { city: town.name, name: t(d.name) }) : t('{city} is building a joint {name} — half of its profit will come to you', { city: town.name, name: t(d.name) }), true);
+    say(this.aidKind(kind) ? (d.power ? t('{city} agreed! They are building the {name}: they will pay you ${n} a day for its power', { city: town.name, name: t(d.name), n: Math.round(d.power / 10) }) : t('{city} agreed! They are building the {name} as your help: relations +15', { city: town.name, name: t(d.name) })) : t('{city} agreed! They are building the {name}: 75% of its profit will be yours', { city: town.name, name: t(d.name) }), true);
     this.refreshInspector();
   }
 
@@ -5892,7 +5897,17 @@ export class Game implements ToolHost {
   /** Workplaces the player may put on a neighbour's land as an investor (not homes, town halls or public services). */
   private investable(kind: BuildingKind) {
     const d = BUILDINGS[kind];
-    return d.jobs > 0 && !d.units && kind !== 'townhall' && !d.publicJob && kind !== 'construction';
+    if (d.units || kind === 'townhall' || kind === 'construction' || kind === 'embassy' || kind === 'military' || kind === 'migration' || kind === 'cemetery') return false;
+    return d.jobs > 0 || !!d.power;
+  }
+
+  /** Public buildings (power plants, water, schools, hospitals…) built for a neighbour as help: no profit share, much friendlier (power plants pay for their power). */
+  private aidKind(kind: BuildingKind) { const d = BUILDINGS[kind]; return d.publicJob || !!d.power || !d.jobs; }
+
+  /** Everything a building costs: its money and its materials at their usual price. */
+  private fullCost(kind: BuildingKind) {
+    const d = BUILDINGS[kind];
+    return Math.round(d.money + d.stone * TRADE_PRICE.stone + d.wood * TRADE_PRICE.wood + d.iron * TRADE_PRICE.iron);
   }
 
   /** The neighbour town whose land a building here would stand on (only for buildings an investor may put there). */
@@ -5968,6 +5983,8 @@ export class Game implements ToolHost {
       if (!town || !me) continue;
       const got: string[] = [];
       let us = 0, them = 0;
+      // a power plant we built for them: they pay us for its power
+      if (BUILDINGS[b.kind].power) { const fee = Math.round(BUILDINGS[b.kind].power / 10); this.eco.add(town, 'money', -fee, 'Power bought from a neighbour'); this.eco.add(me, 'money', fee, 'Investments in neighbour towns'); us += fee; got.push(`$${fee}`); }
       // a business: half of its takings after wages and tax
       const bk = b.books;
       if (bk) them += bk.wages + bk.tax;

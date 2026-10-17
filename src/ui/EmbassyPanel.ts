@@ -22,7 +22,9 @@ export interface EmbassyTown {
   contracts: number;
 }
 
-export interface EmbassyOption { kind: string; name: string; half: number; cat: string; jobs: number }
+export interface EmbassyOption { kind: string; name: string; half: number; cat: string; jobs: number;
+  /** A public building given as help (no profit share); power plants pay a daily fee for their power. */
+  aid: boolean; fee: number }
 
 /** One of our buildings abroad (a joint project or shares) with what it brought us and its town. */
 export interface EmbassyHolding {
@@ -238,7 +240,7 @@ export class EmbassyPanel {
     (c.querySelector('small') as HTMLElement).textContent = `${h.town} · ${h.building ? t('being built') : h.workers ? t('{a}/{b} at work', { a: h.workers, b: h.jobs }) : t('no workers yet')}`;
     const badges = c.querySelector('.emb-badges') as HTMLElement;
     const badge = (text: string, cls: string) => { const s = el('span', `emb-badge ${cls}`); s.textContent = text; badges.appendChild(s); };
-    badge(h.type === 'joint' ? t('Built with them · {n}% ours', { n: Math.round(h.pct * 100) }) : t('Our shares · {n}%', { n: Math.round(h.pct * 100) }), h.type);
+    badge(h.type === 'joint' && h.pct === 0 ? t('Built as our help') : h.type === 'joint' ? t('Built with them · {n}% ours', { n: Math.round(h.pct * 100) }) : t('Our shares · {n}%', { n: Math.round(h.pct * 100) }), h.type);
     if (h.paid && h.totalUs >= h.paid) badge(t('Paid back ✓'), 'gold');
     const nums = c.querySelector('.emb-hnums') as HTMLElement;
     const num = (label: string, value: string, cls = '') => { const s = el('div', `emb-num ${cls}`); s.innerHTML = '<small></small><b></b>'; (s.querySelector('small') as HTMLElement).textContent = label; (s.querySelector('b') as HTMLElement).textContent = value; nums.appendChild(s); };
@@ -341,10 +343,10 @@ export class EmbassyPanel {
     hint.textContent = tw.relation >= 50 ? t('Friends: they say yes to most projects.') : tw.relation >= 30 ? t('They are neutral: gifts and trade make them friendlier, so they agree more often.') : t('They do not trust you yet: a gift or some trade first.');
     main.appendChild(hint);
     // two ways to invest
-    this.sec(main, t('Way 1 · Build it for them'), t('they build it on their land and staff it with their people; we pay half or all of it and take that share of the profit'));
+    this.sec(main, t('Way 1 · Build it for them'), t('we pay everything (money and materials), they build it on their land and staff it'));
     const how = el('div', 'emb-how');
     [['1', t('Pick a workplace'), t('★ = they want it: they almost always agree')], ['2', t('They decide'), t('the % on the card is their yes')],
-      ['3', t('They build it'), t('on their land, with their builders')], ['4', t('Profit shared'), t('our share of the profit (or of what it makes) comes every day')]].forEach(([n, a, b]) => {
+      ['3', t('They build it'), t('on their land, with their builders')], ['4', t('We earn'), t('a shop or a workshop: 75% of its profit is ours · a power plant: they pay for its power · a school or a hospital: they become much friendlier')]].forEach(([n, a, b]) => {
       const s = el('div', 'emb-step');
       s.innerHTML = '<span></span><div><b></b><small></small></div>';
       (s.querySelector('span') as HTMLElement).textContent = n;
@@ -362,17 +364,6 @@ export class EmbassyPanel {
       tabs.appendChild(b);
     }
     main.appendChild(tabs);
-    // how much we pay: half (50% of the profit) or all of it (75%, and they agree more readily)
-    const pay = el('div', 'emb-pay');
-    for (const [full, label, sub] of [[false, t('We pay half'), t('50% of the profit is ours')], [true, t('We pay it all'), t('75% of the profit is ours · they say yes more often')]] as [boolean, string, string][]) {
-      const b = el('button', `emb-payopt${this.full === full ? ' on' : ''}`);
-      b.innerHTML = '<b></b><small></small>';
-      (b.querySelector('b') as HTMLElement).textContent = label;
-      (b.querySelector('small') as HTMLElement).textContent = sub;
-      b.addEventListener('click', () => { this.full = full; this.render(); });
-      pay.appendChild(b);
-    }
-    main.appendChild(pay);
     const grid = el('div', 'emb-grid');
     const list = d.options.filter((o) => o.cat === this.cat).sort((a, b) => Number(tw.wants.includes(b.kind)) - Number(tw.wants.includes(a.kind)) || a.half - b.half);
     for (const o of list) {
@@ -383,10 +374,13 @@ export class EmbassyPanel {
       b.innerHTML = `<i></i><b></b><small></small><span class="emb-why"></span><div class="emb-yes"><i></i><span></span></div><em></em>`;
       if (th) (b.querySelector('i') as HTMLElement).style.backgroundImage = `url(${th})`;
       (b.querySelector('b') as HTMLElement).textContent = o.name;
-      (b.querySelector('small') as HTMLElement).textContent = `${t('you pay')} ${money(this.full ? o.half * 2 : o.half)} · ${t('{n} jobs for them', { n: o.jobs })}`;
+      (b.querySelector('small') as HTMLElement).textContent = `${t('you pay')} ${money(o.half)}${o.jobs ? ` · ${t('{n} jobs for them', { n: o.jobs })}` : ''}`;
+      const gain = el('span', `emb-gain${o.aid ? ' aid' : ''}`);
+      gain.textContent = o.fee ? t('they pay you ${n}/day for its power', { n: o.fee }) : o.aid ? t('help: relations +15') : t('75% of its profit is ours');
+      b.insertBefore(gain, b.querySelector('.emb-why'));
       (b.querySelector('em') as HTMLElement).textContent = want ? `★ ${t('they want it')}` : '';
       (b.querySelector('.emb-why') as HTMLElement).textContent = tw.why[o.kind] ?? '';
-      const ch = Math.round(Math.min(1, (tw.chance[o.kind] ?? 0) + (this.full ? 0.15 : 0)) * 100);
+      const ch = Math.round(Math.min(1, (tw.chance[o.kind] ?? 0) + 0.15) * 100);
       const bar = b.querySelector('.emb-yes i') as HTMLElement;
       bar.style.width = `${ch}%`;
       bar.style.background = ch >= 70 ? '#7be08f' : ch >= 40 ? '#f2b33d' : '#ff7a6e';
@@ -395,7 +389,7 @@ export class EmbassyPanel {
         // the yes before the money goes
         const cf = el('div', 'emb-confirm');
         cf.innerHTML = '<p></p><div></div>';
-        (cf.querySelector('p') as HTMLElement).textContent = t('Offer {city} a {name}? You pay {m}; {p}% chance they say yes.', { city: tw.name, name: o.name, m: money(this.full ? o.half * 2 : o.half), p: ch });
+        (cf.querySelector('p') as HTMLElement).textContent = t('Offer {city} a {name}? You pay {m}; {p}% chance they say yes.', { city: tw.name, name: o.name, m: money(o.half), p: ch });
         const yes = el('button', 'btn-mini');
         yes.textContent = t('Yes, offer it');
         yes.addEventListener('click', (e) => { e.stopPropagation(); this.pending = ''; this.host.propose(tw.id, o.kind, this.full); });
