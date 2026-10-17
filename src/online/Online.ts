@@ -22,7 +22,7 @@ export interface OnlineMember {
   city_name: string;
   slot: number;
   last_seen: string;
-  summary: { day?: number; people?: number; money?: number; happy?: number; level?: number; layout?: { b: [string, number, number, number, number][]; r: number[] } };
+  summary: { day?: number; people?: number; money?: number; happy?: number; level?: number; layout?: { b: [string, number, number, number, number][]; r: number[] }; town?: unknown };
 }
 
 export type OfferKind = 'gift' | 'sell' | 'invest' | 'repay';
@@ -37,7 +37,7 @@ export interface Offer {
 export interface ChatMessage { id: number; world_id: string; user_id: string; name: string; text: string; created_at: string }
 
 /** What a town tells the others about itself. */
-export interface TownSummary { day: number; people: number; money: number; happy: number; level: number; layout?: { b: [string, number, number, number, number][]; r: number[] } }
+export interface TownSummary { day: number; people: number; money: number; happy: number; level: number; layout?: { b: [string, number, number, number, number][]; r: number[] }; town?: unknown }
 
 let client: SupabaseClient | null = null;
 const db = () => (client ??= createClient(URL, KEY, { auth: { persistSession: true, autoRefreshToken: true } }));

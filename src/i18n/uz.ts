@@ -3961,4 +3961,7 @@ export const UZ: Record<string, string> = {
   "Open": "Ochish",
   "A friend's town (another player)": "Do'stingizning shahri (boshqa o'yinchi)",
   "{city} has not played the new version yet: their town appears on the map once they do": "{city} hali yangi versiyada o'ynamagan: o'ynashi bilan shahri xaritada paydo bo'ladi",
+  "Friend": "Do'st",
+  "Online world: players, deals and chat": "Onlayn dunyo: o'yinchilar, bitimlar va chat",
+  "🤝 {city} sent you an offer: open Online → Deals": "🤝 {city} sizga taklif yubordi: Onlayn → Bitimlar ni oching",
 };

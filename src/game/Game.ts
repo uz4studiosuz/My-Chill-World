@@ -1139,7 +1139,9 @@ export class Game implements ToolHost {
           this.refreshGhosts();
           if (this.worldPanel?.visible) this.worldPanel.render();
           this.hud?.setLogBadge(this.eventLog?.unread ?? 0);
+          this.hud?.setOnlineBadge((this.online?.unread ?? 0) + (this.online?.waiting ?? 0));
         },
+        ping: (m) => { this.hud?.toast(m); sound.play('toast'); this.hud?.setOnlineBadge((this.online?.unread ?? 0) + (this.online?.waiting ?? 0), true); },
       }, this.pendingDebts);
       this.createUi();
       void this.online.start();
@@ -1197,7 +1199,10 @@ export class Game implements ToolHost {
     const c = this.eco.city;
     const people = this.life.populationByCity().get(c.id) ?? 0;
     this.layoutTick = (this.layoutTick + 1) % 2;
-    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people), layout: this.layoutTick === 1 || !this.layoutSent ? this.myLayout() : this.layoutSent });
+    // the card of my town as my World window shows it (the others see the same figures, charts and comparison)
+    const card = this.worldView().find((x) => x.id === c.id);
+    const town = card ? { ...card, news: [], dealings: [], player: undefined } : undefined;
+    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people), layout: this.layoutTick === 1 || !this.layoutSent ? this.myLayout() : this.layoutSent, town });
   }
 
   setMenuPaused(p: boolean) {
@@ -5546,7 +5551,10 @@ export class Game implements ToolHost {
     if (this.online) for (const m of this.online.members) {
       if (m.user_id === this.online.me) continue;
       const sm = m.summary ?? {};
-      out.push({ id: -1000 - m.slot, name: m.city_name, tint: ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6], mine: false, mood: 'stable',
+      const tint = ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6];
+      const player = { userId: m.user_id, online: this.online.online(m) };
+      if (sm.town) { out.push({ ...(sm.town as WorldTown), id: -1000 - m.slot, name: m.city_name, tint, mine: false, relation: undefined, news: [], dealings: [], player }); continue; }
+      out.push({ id: -1000 - m.slot, name: m.city_name, tint, mine: false, mood: 'stable',
         people: sm.people ?? 0, growth: 0, money: sm.money ?? 0, happiness: sm.happy ?? 0, tax: 0, loan: 0, buildings: 0, jobs: '—', homes: 0, millionaires: 0, richest: [],
         news: [], res: [], history: [], dealings: [], metrics: [], player: { userId: m.user_id, online: this.online.online(m) } });
     }

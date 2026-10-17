@@ -151,7 +151,7 @@ export class WorldPanel {
       const cells: [string, string?][] = [
         [tw.name], [num(tw.people)], [`${tw.growth >= 0 ? '+' : ''}${tw.growth}`, tw.growth > 0 ? 'pos' : tw.growth < 0 ? 'neg' : ''], [`$${short(tw.money)}`, tw.money < 0 ? 'neg' : ''],
         [`${Math.round(tw.happiness)}%`, tw.happiness >= 60 ? 'pos' : tw.happiness < 45 ? 'neg' : ''], [`${Math.round(tw.tax * 100)}%`], [`${tw.homes}`], [`${tw.buildings}`], [`${tw.millionaires}`],
-        [tw.relation === undefined ? t('You') : `${Math.round(tw.relation)}`, tw.relation === undefined ? '' : tw.relation >= 50 ? 'pos' : tw.relation < 25 ? 'neg' : ''],
+        [tw.player ? `🌐 ${t('Friend')}` : tw.relation === undefined ? t('You') : `${Math.round(tw.relation)}`, tw.player ? 'pos' : tw.relation === undefined ? '' : tw.relation >= 50 ? 'pos' : tw.relation < 25 ? 'neg' : ''],
       ];
       cells.forEach(([v, cls], i) => {
         const c = el('span', `wt-td ${cls ?? ''}`);
@@ -184,7 +184,7 @@ export class WorldPanel {
         [t('People'), num(tw.people)], [t('Last week'), `${tw.growth >= 0 ? '+' : ''}${tw.growth}`, tw.growth > 0 ? 'pos' : tw.growth < 0 ? 'neg' : ''],
         [t('Treasury'), `$${short(tw.money)}`, tw.money < 0 ? 'neg' : ''], [t('Happiness'), `${Math.round(tw.happiness)}%`, tw.happiness >= 60 ? 'pos' : tw.happiness < 45 ? 'neg' : ''],
         [t('Tax'), `${Math.round(tw.tax * 100)}%`], [t('Homes'), `${tw.homes}`], [t('Buildings'), `${tw.buildings}`], [t('Millionaires'), `${tw.millionaires}`],
-        [t('Relations'), tw.relation === undefined ? t('You') : `${Math.round(tw.relation)}`, tw.relation === undefined ? '' : tw.relation >= 50 ? 'pos' : tw.relation < 25 ? 'neg' : ''],
+        [t('Relations'), tw.player ? `🌐 ${t('Friend')}` : tw.relation === undefined ? t('You') : `${Math.round(tw.relation)}`, tw.relation === undefined ? '' : tw.relation >= 50 ? 'pos' : tw.relation < 25 ? 'neg' : ''],
       ];
       for (const [k, v, cls] of facts) {
         const f = el('div', 'wt-fact');
@@ -244,8 +244,8 @@ export class WorldPanel {
    * weakest red. Above it, how many rows each town leads.
    */
   private matrix(body: HTMLElement, all: WorldTown[]) {
-    // the detailed comparison covers the towns on this map (players' towns show their figures in the table above)
-    const towns = all.filter((x) => !x.player);
+    // every town with figures to compare (friends who have played the new version too)
+    const towns = all.filter((x) => !x.player || x.metrics.length);
     const rows = towns[0]?.metrics ?? [];
     if (!rows.length || towns.length < 2) return;
     const wins = new Map<number, number>();
@@ -310,7 +310,7 @@ export class WorldPanel {
   onPlayer?: (userId: string, what: 'chat' | 'gift' | 'invest' | 'goods' | 'show') => void;
 
   private town(body: HTMLElement, tw: WorldTown, charts: (() => void)[]) {
-    if (tw.player) return this.playerTown(body, tw);
+    if (tw.player && !tw.metrics.length) return this.playerTown(body, tw);
     const mood = MOOD[tw.mood] ?? MOOD.stable;
     const top = el('div', 'wt-card');
     top.style.gridColumn = '1 / -1';
@@ -318,10 +318,10 @@ export class WorldPanel {
     head.innerHTML = `<i class="nb-dot"></i><div class="wt-name"><b></b><small></small></div><span class="wt-mood"></span>`;
     (head.querySelector('.nb-dot') as HTMLElement).style.background = tw.tint;
     (head.querySelector('b') as HTMLElement).textContent = tw.name;
-    (head.querySelector('small') as HTMLElement).textContent = tw.mine ? t('Your town') : t(tw.style ?? 'Autonomous town');
+    (head.querySelector('small') as HTMLElement).textContent = tw.mine ? t('Your town') : tw.player ? `🌐 ${t('A friend\'s town (another player)')}` : t(tw.style ?? 'Autonomous town');
     const mb = head.querySelector('.wt-mood') as HTMLElement;
-    mb.textContent = t(mood[0]);
-    mb.style.background = mood[1];
+    mb.textContent = tw.player ? (tw.player.online ? `● ${t('playing now')}` : `○ ${t('away · the town runs on autopilot')}`) : t(mood[0]);
+    mb.style.background = tw.player ? (tw.player.online ? '#2f7a4a' : '#4a4f57') : mood[1];
     const grid = el('div', 'wt-grid');
     const stat = (label: string, value: string, tone?: 'good' | 'bad') => {
       const c = el('div', 'wt-stat');
@@ -345,9 +345,19 @@ export class WorldPanel {
     if (tw.relation !== undefined) stat(t('Relations'), `${Math.round(tw.relation)}/100`, tw.relation >= 50 ? 'good' : tw.relation < 25 ? 'bad' : undefined);
     const btns = el('div', 'wt-btns');
     const mk = (label: string, fn: () => void) => { const b = el('button', 'btn-mini ghost'); b.textContent = label; b.addEventListener('click', fn); return b; };
-    btns.appendChild(mk(t('Show on the map'), () => this.show(tw.id)));
-    btns.appendChild(mk(t('Full report'), () => this.report(tw.id)));
-    if (!tw.mine) btns.appendChild(mk(t('Trade'), this.trade));
+    if (tw.player) {
+      const p = tw.player;
+      const go = (label: string, what: 'chat' | 'gift' | 'invest' | 'goods' | 'show', main = false) => { const b = mk(label, () => this.onPlayer?.(p.userId, what)); if (main) b.className = 'btn-mini'; btns.appendChild(b); };
+      go(`📍 ${t('Show on the map')}`, 'show');
+      go(`💬 ${t('Chat')}`, 'chat', true);
+      go(`🎁 ${t('Gift')} $500`, 'gift', true);
+      go(`💰 ${t('Invest')} $2,000`, 'invest', true);
+      go(`📦 ${t('Send or sell goods')}`, 'goods');
+    } else {
+      btns.appendChild(mk(t('Show on the map'), () => this.show(tw.id)));
+      btns.appendChild(mk(t('Full report'), () => this.report(tw.id)));
+      if (!tw.mine) btns.appendChild(mk(t('Trade'), this.trade));
+    }
     if (tw.mine && this.get().filter((o) => o.mine).length > 1) {
       const on = this.active() === tw.id;
       const bb = mk(on ? `✓ ${t('Building here')}` : t('Build here'), () => this.buildFor(tw.id));

@@ -84,8 +84,8 @@ function label(text: string, tint: string, x: number, z: number) {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
-  s.scale.set(6, 1.5, 1);
-  s.position.set(x, 3.2, z);
+  s.scale.set(3, 0.75, 1);
+  s.position.set(x, 2.4, z);
   s.renderOrder = 20;
   return s;
 }

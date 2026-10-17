@@ -513,6 +513,14 @@ export class Hud {
     mob.append(this.playBtn, this.stepBtn, home('sbtn home-btn'), mUndo);
     window.addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey) h.goHome(); });
     corner.append(speeds, mob, rot, ver);
+    if (h.openOnline) {
+      const ob = el('button', 'sbtn online-btn');
+      ob.innerHTML = `${icon('globe')}<span>${t('Online')}</span>`;
+      ob.title = t('Online world: players, deals and chat');
+      ob.addEventListener('click', () => { ob.classList.remove('ping'); h.openOnline?.(); });
+      this.onlineBtn = ob;
+      corner.insertBefore(ob, speeds);
+    }
     // the town panel: on phones a button opens it as a sheet
     const townBtn = this.iconButton('buildings', t('Town'), () => this.side.classList.toggle('open'));
     townBtn.classList.add('town-btn');
@@ -647,6 +655,17 @@ export class Hud {
   }
 
   private logBtn?: HTMLButtonElement;
+  private onlineBtn?: HTMLButtonElement;
+
+  /** New messages and deals waiting in the online world (a badge, and a pulse when something new comes). */
+  setOnlineBadge(n: number, ping = false) {
+    const b = this.onlineBtn;
+    if (!b) return;
+    let badge = b.querySelector('.nav-badge') as HTMLSpanElement | null;
+    if (n <= 0) badge?.remove();
+    else { if (!badge) { badge = el('span', 'nav-badge'); b.appendChild(badge); } badge.textContent = n > 99 ? '99+' : `${n}`; }
+    if (ping) { b.classList.remove('ping'); void b.offsetWidth; b.classList.add('ping'); }
+  }
 
   /** New entries in the chronicle since it was last opened. */
   setLogBadge(n: number) {

@@ -15,6 +15,8 @@ export interface SyncHost {
   event(msg: string): void;
   /** Something changed that the online window shows. */
   changed(): void;
+  /** A new message or deal arrived from another player. */
+  ping(text: string): void;
 }
 
 /** A town's debt to an investor: paid back a part every day. */
@@ -66,9 +68,14 @@ export class OnlineSync {
       const before = this.chat[this.chat.length - 1]?.id ?? 0;
       this.chat = await Online.chat(this.worldId);
       const fresh = this.chat.filter((m) => m.id > Math.max(before, this.seenChat) && m.user_id !== this.me);
-      if (fresh.length && before) { this.unread += fresh.length; this.host.toast(`💬 ${fresh[fresh.length - 1].name}: ${fresh[fresh.length - 1].text}`); }
+      if (fresh.length && before) { this.unread += fresh.length; this.host.ping(`💬 ${fresh[fresh.length - 1].name}: ${fresh[fresh.length - 1].text}`); }
     }
-    if (what === 'offers' || what === 'all') { this.offers = await Online.offers(this.worldId); await this.settle(); }
+    if (what === 'offers' || what === 'all') {
+      const waitBefore = this.waiting;
+      this.offers = await Online.offers(this.worldId);
+      await this.settle();
+      if (this.waiting > waitBefore) { const o = this.offers.find((x) => x.to_user === this.me && x.status === 'open' && (x.kind === 'sell' || x.kind === 'invest')); if (o) this.host.ping(t('🤝 {city} sent you an offer: open Online → Deals', { city: this.name(o.from_user) })); }
+    }
     this.host.changed();
   }
 

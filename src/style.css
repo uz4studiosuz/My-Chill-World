@@ -2664,3 +2664,11 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
 .ol-facts .wt-fact { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); }
 .ol-facts .wt-fact span { font-size: 11px; color: var(--muted); }
 .ol-facts .wt-fact b { font-size: 16px; }
+
+/* the online button in the top bar */
+.online-btn { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px !important; width: auto !important; font: 800 13px var(--font-ui); color: var(--text); border: 1px solid var(--accent) !important; }
+.online-btn svg { width: 16px; height: 16px; color: var(--accent); }
+.online-btn .nav-badge { position: absolute; top: -6px; right: -6px; }
+.online-btn.ping { animation: online-ping 0.9s ease-in-out 3; }
+@keyframes online-ping { 0%, 100% { background: var(--raised); } 50% { background: var(--accent); color: var(--on-accent); } }
+@media (max-width: 760px) { .online-btn span { display: none; } .online-btn { padding: 0 8px !important; } }
