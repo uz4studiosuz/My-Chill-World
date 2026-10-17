@@ -700,7 +700,8 @@ export class Life {
     for (const b of consumers) {
       const e = BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1);
       // fields, mines and parks away from the roads run a small generator of their own
-      if (!this.gridIds.has(b.id) && !BUILDINGS[b.kind].needsRoad) { b.powered = true; continue; }
+      // small rural workplaces off the road manage without the grid; the ranch, the greenhouse and the poultry farm need a cable
+      if (!this.gridIds.has(b.id) && !BUILDINGS[b.kind].needsRoad && b.kind !== 'ranch' && b.kind !== 'greenhouse' && b.kind !== 'poultry') { b.powered = true; continue; }
       b.powered = this.gridIds.has(b.id) && left >= e;
       if (b.powered) { left -= e; got.set(b.city, (got.get(b.city) ?? 0) + e); }
     }
@@ -1744,7 +1745,7 @@ export class Life {
       // a greenhouse grows vegetables all year, but only with electricity for its lamps and heating
       if (b.kind === 'greenhouse') f *= b.powered ? 1 : 0;
       // the ranch's milking machines and cold store run on electricity
-      if (b.kind === 'ranch' && !b.powered) f = 0;
+      if ((b.kind === 'ranch' || b.kind === 'poultry') && !b.powered) f = 0;
       // bees make honey from spring to the end of summer, more with orchards, fields and flowers around
       if (b.kind === 'apiary') f *= (month >= 3 && month <= 8 ? 1 : 0) * (1 + Math.min(0.8, buildings.list.filter((o) => o.city === b.city && (o.kind === 'orchard' || o.kind === 'farm' || o.kind === 'flowerbed' || o.kind === 'park') && dist(o, b) <= 6).length * 0.2));
       // hens lay eggs all year, a little less in winter; corn feed makes them lay more
