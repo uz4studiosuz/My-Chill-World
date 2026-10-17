@@ -117,6 +117,11 @@ export const ITEMS: ToolItem[] = [
   b('powerplant', 'production', '+90 energy/day', 'Burns wood. Power reaches only buildings connected to it by road.', 'powerplant'),
   b('farm', 'production', '+90 food/day', 'Crop field (3×3). Needs water from a canal or rain. Grows March–October.', 'farm'),
   b('orchard', 'production', '+30 food/day', 'Fruit trees — best harvest in summer and autumn; wrapped up and closed from December to March.', 'orchard'),
+  b('forestry', 'production', 'Replants the forest', 'Foresters plant saplings where trees were cut within 14 tiles, and the forest grows back twice as fast: the woodcutters nearby never run out of trees.', 'orchard'),
+  b('restaurant', 'business', 'Dinner out', 'A restaurant with a terrace: in the evening families and friends come for dinner. Uses food from the stores, earns more than a shop.', 'food'),
+  b('eldercare', 'services', 'Care for the old', 'Carers look after up to 16 old people who live alone: they stay healthy and are not lonely. Lonely old people make the town sad.', 'heart'),
+  b('zoo', 'buildings', 'Giraffes and lions', 'Giraffes, an elephant, a lion and penguins: families come at the weekend and children love it. Tickets earn money; the town is happier.', 'flower'),
+  b('pier', 'decor', 'Fishing on the shore', 'A wooden pier on the shore: people go fishing, sometimes bring a fish home and come back calmer.', 'water'),
   b('greenhouse', 'production', 'Vegetables all year', 'Glass tunnels of tomatoes and cucumbers: food in every season, even in winter. Needs electricity for its lamps and heating.', 'farm'),
   b('apiary', 'production', 'Honey in summer', 'Beehives in a flower meadow: honey from April to September, more with orchards, fields, flowerbeds or a park nearby.', 'flower'),
   b('poultry', 'production', 'Eggs all year', 'Hens in a barn and a yard: eggs and chicken all year (a little less in winter), more with corn feed from the fields.', 'farm'),
@@ -160,10 +165,10 @@ export const CATS: { id: Category; label: string; icon: IconName }[] = [
 /** The most needed things first in every tab (a new player finds them at once); the rest keep their order. */
 const PRIORITY: Record<string, string[]> = {
   roads: ['road', 'pipe', 'cable', 'litroad', 'path', 'roundabout', 'rail', 'tunnel', 'canal', 'path_stone', 'path_brick', 'path_gravel', 'path_wood', 'zone_res', 'zone_com', 'zone_ind', 'zone_none'],
-  buildings: ['house', 'watertower', 'apartment', 'park', 'parking', 'cemetery', 'garage', 'embassy', 'bigpark', 'tower15', 'tower30', 'tower50'],
-  services: ['school', 'kindergarten', 'hospital', 'police', 'firestation', 'sewage', 'landfill', 'weddinghall', 'busstop', 'busdepot', 'pharmacy', 'mosque', 'university', 'recycling', 'metro', 'cctv', 'levee', 'academy', 'stadium', 'concerthall', 'migration', 'military'],
-  business: ['construction', 'grocery', 'market', 'bakery', 'supermarket', 'clothes', 'dairyshop', 'kiosk', 'gasstation', 'bank', 'office', 'hotel', 'carmarket', 'teahouse', 'barber', 'gym', 'cinema', 'casino', 'themepark'],
-  production: ['farm', 'woodcutter', 'quarry', 'powerplant', 'orchard', 'ranch', 'greenhouse', 'poultry', 'apiary', 'windturbine', 'solarfarm', 'battery', 'fishery', 'warehouse', 'mill', 'sawmill', 'brickworks', 'dairy', 'ironmine', 'factory', 'coalmine', 'coalplant', 'steelmill', 'bikefactory', 'carfactory', 'hydro', 'trainstation', 'airport'],
+  buildings: ['zoo', 'house', 'watertower', 'apartment', 'park', 'parking', 'cemetery', 'garage', 'embassy', 'bigpark', 'tower15', 'tower30', 'tower50'],
+  services: ['eldercare', 'school', 'kindergarten', 'hospital', 'police', 'firestation', 'sewage', 'landfill', 'weddinghall', 'busstop', 'busdepot', 'pharmacy', 'mosque', 'university', 'recycling', 'metro', 'cctv', 'levee', 'academy', 'stadium', 'concerthall', 'migration', 'military'],
+  business: ['construction', 'grocery', 'market', 'bakery', 'supermarket', 'clothes', 'dairyshop', 'kiosk', 'restaurant', 'gasstation', 'bank', 'office', 'hotel', 'carmarket', 'teahouse', 'barber', 'gym', 'cinema', 'casino', 'themepark'],
+  production: ['farm', 'woodcutter', 'forestry', 'quarry', 'powerplant', 'orchard', 'ranch', 'greenhouse', 'poultry', 'apiary', 'windturbine', 'solarfarm', 'battery', 'fishery', 'warehouse', 'mill', 'sawmill', 'brickworks', 'dairy', 'ironmine', 'factory', 'coalmine', 'coalplant', 'steelmill', 'bikefactory', 'carfactory', 'hydro', 'trainstation', 'airport'],
 };
 {
   const rank = (it: ToolItem) => { const l = PRIORITY[it.cat]; const i = l ? l.indexOf(it.tool) : -1; return i < 0 ? 999 : i; };
@@ -247,6 +252,8 @@ export interface HudHandlers {
   openHall?: () => void;
   /** Watch the town grow from its first day (timelapse). */
   openTimelapse?: () => void;
+  /** The achievements earned and still to earn. */
+  openAchievements?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -596,11 +603,12 @@ export class Hud {
     qt.textContent = t('More');
     const quick = el('div', 'side-quick');
     for (const [ic, label, fn] of [['stats', 'Statistics', h.openStats], ['production', 'Production chains', () => h.openChains?.()], ['globe', 'Embassy', () => h.openEmbassy?.()], ['globe', 'Trade', h.openTrade], ['buildings', 'World: all towns', h.openWorld], ['trophy', 'Goals', h.openGoals],
-      ['list', 'Chronicle', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['film', 'City timelapse', () => h.openTimelapse?.()], ['book', 'Guide', h.openGuide], ['play', 'Tutorial', () => h.openTutorial?.()]] as [IconName, string, () => void][]) {
+      ['list', 'Notifications', h.openLog], ['car', 'Drive a car', h.openDrive], ['camera', 'Photo mode', h.openPhoto], ['film', 'City timelapse', () => h.openTimelapse?.()], ['trophy', 'Achievements', () => h.openAchievements?.()], ['book', 'Guide', h.openGuide], ['play', 'Tutorial', () => h.openTutorial?.()]] as [IconName, string, () => void][]) {
       const b = el('button', 'side-btn');
       b.dataset.panel = ic;
       b.innerHTML = `${icon(ic)}<span>${t(label)}</span>`;
-      b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); fn(); });
+      b.addEventListener('click', () => { if (window.innerWidth <= 760) this.side.classList.remove('open'); fn(); if (ic === 'list') this.setLogBadge(0); });
+      if (ic === 'list') this.logBtn = b;
       quick.appendChild(b);
     }
     this.side.append(sh, top3, this.sideStats, this.sideFavs, nt, this.sideNeeds, qt, quick);
@@ -634,6 +642,18 @@ export class Hud {
   showSide() {
     if (window.innerWidth <= 760) this.side.classList.add('open');
     else if (document.body.classList.contains('side-min')) (this.root.querySelector('.side-toggle') as HTMLButtonElement | null)?.click();
+  }
+
+  private logBtn?: HTMLButtonElement;
+
+  /** New entries in the chronicle since it was last opened. */
+  setLogBadge(n: number) {
+    const b = this.logBtn;
+    if (!b) return;
+    let badge = b.querySelector('.nav-badge') as HTMLSpanElement | null;
+    if (n <= 0) { badge?.remove(); return; }
+    if (!badge) { badge = el('span', 'nav-badge'); b.appendChild(badge); }
+    badge.textContent = n > 99 ? '99+' : `${n}`;
   }
 
   /** A small counter on a top-bar button (e.g. unanswered letters). */

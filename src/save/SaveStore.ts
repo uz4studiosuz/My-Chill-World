@@ -51,6 +51,8 @@ export interface WorldSave {
   rails?: number[];
   calm?: boolean;
   creative?: boolean;
+  /** Achievements earned (id -> day). */
+  achievements?: Record<string, number>;
   leisure?: LeisureSave;
   pipes?: number[];
   /** Pipes are the only water mains (older saves get pipes under their roads once). */

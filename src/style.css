@@ -2420,3 +2420,59 @@ body.lapse-mode #ui { display: none !important; }
 .fam-gen { position: absolute; left: -150px; width: 130px; text-align: right; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,.35); white-space: nowrap; }
 .cv-legend .dead { color: #8d96a1; } .cv-legend .left { color: #6fb6ff; }
 .fam-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+/* ---- notifications: filter chips and an icon per message ---- */
+.log-cats { display: flex; gap: 5px; overflow-x: auto; padding: 2px 12px 8px; scrollbar-width: none; }
+.log-cat { flex: none; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 700 12px var(--font-ui); cursor: pointer; white-space: nowrap; }
+.log-cat.on { border-color: var(--accent); background: rgba(242,179,61,.15); }
+.log-row { display: flex; gap: 8px; align-items: flex-start; }
+.log-row .log-ic { font-style: normal; flex: none; width: 20px; text-align: center; }
+.log-row.log-danger { border-left: 3px solid #ff7a6e; padding-left: 6px; }
+.side-btn { position: relative; }
+.side-btn .nav-badge { position: absolute; top: 4px; right: 6px; }
+
+/* ---- achievements ---- */
+.ach-back { position: fixed; inset: 0; z-index: 46; display: none; place-items: center; background: rgba(6,8,12,.55); pointer-events: auto; }
+.ach-back.show { display: grid; }
+.ach-box { width: min(760px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow: auto; padding: 14px 16px; border-radius: 18px; background: #171b21; border: 1px solid var(--line); color: var(--text); box-shadow: 0 20px 50px rgba(0,0,0,.5); }
+.ach-head { display: flex; align-items: center; gap: 10px; }
+.ach-head > span { font-size: 28px; }
+.ach-head > div { flex: 1; }
+.ach-head b { display: block; font-family: var(--font-display); font-size: 18px; }
+.ach-head small { color: var(--muted); font-size: 12px; }
+.ach-total { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); margin: 10px 0 12px; overflow: hidden; }
+.ach-total i { display: block; height: 100%; background: linear-gradient(90deg, #f2b33d, #7be08f); }
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.ach-card { display: flex; gap: 10px; padding: 10px; border-radius: 14px; background: var(--raised); border: 1px solid var(--line); filter: grayscale(.85); opacity: .75; }
+.ach-card.done { filter: none; opacity: 1; border-color: rgba(242,179,61,.6); box-shadow: 0 0 14px rgba(242,179,61,.15); }
+.ach-ic { font-size: 26px; width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 12px; background: rgba(255,255,255,.06); }
+.ach-card.done .ach-ic { background: rgba(242,179,61,.18); }
+.ach-card > div { flex: 1; min-width: 0; }
+.ach-card b { display: block; font-size: 13px; }
+.ach-card small { display: block; font-size: 11px; color: var(--muted); line-height: 1.3; margin: 2px 0 6px; }
+.ach-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+.ach-bar i { display: block; height: 100%; background: #f2b33d; }
+.ach-card.done .ach-bar i { background: #7be08f; }
+.ach-card em { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+
+/* ---- a day in the life ---- */
+.daywatch { position: absolute; z-index: 9; left: 12px; top: calc(var(--top-h, 52px) + 12px); width: 270px; max-height: 60vh; display: none; flex-direction: column; padding: 10px 12px; border-radius: 16px;
+  background: rgba(21,24,29,.95); border: 1px solid var(--frame-line, #2c3139); box-shadow: 0 10px 28px rgba(0,0,0,.45); color: var(--text); pointer-events: auto; }
+.daywatch.show { display: flex; }
+.dw-head { display: flex; align-items: center; gap: 8px; }
+.dw-face { font-size: 24px; }
+.dw-head > div { flex: 1; min-width: 0; }
+.dw-head b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dw-head small { color: var(--muted); font-size: 11px; }
+.dw-now { display: flex; align-items: baseline; gap: 8px; margin: 8px 0 6px; padding: 8px 10px; border-radius: 10px; background: rgba(242,179,61,.12); }
+.dw-now b { font-family: var(--font-display); font-size: 18px; color: var(--accent); }
+.dw-now span { font-size: 12.5px; font-weight: 700; }
+.dw-speed { display: flex; gap: 5px; margin-bottom: 6px; }
+.dw-speed button { flex: 1; padding: 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 800 12px var(--font-ui); cursor: pointer; }
+.dw-speed button.on { border-color: var(--accent); color: var(--accent); }
+.dw-list { overflow: auto; min-height: 0; }
+.dw-day { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 800; margin: 6px 0 2px; }
+.dw-row { display: flex; gap: 8px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.dw-row i { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+@media (max-width: 760px) { .daywatch { left: 8px; right: 8px; width: auto; max-height: 34vh; top: calc(var(--top-h, 52px) + 8px); } }
+body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important; }

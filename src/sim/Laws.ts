@@ -34,11 +34,12 @@ export const LAWS: Law[] = [
 ];
 
 /** Areas of the town budget the player sets (100% = the usual). */
-export const BUDGET_AREAS: { id: 'edu' | 'health' | 'safety' | 'transport'; name: string; icon: string; kinds: string[]; effect: string }[] = [
+export const BUDGET_AREAS: { id: 'edu' | 'health' | 'safety' | 'transport' | 'pension'; name: string; icon: string; kinds: string[]; effect: string }[] = [
   { id: 'edu', name: 'Education', icon: '🎓', kinds: ['school', 'kindergarten', 'university', 'academy'], effect: 'pupils learn faster or slower' },
   { id: 'health', name: 'Health', icon: '🏥', kinds: ['hospital', 'pharmacy'], effect: 'the sick recover faster or slower' },
   { id: 'safety', name: 'Safety', icon: '🚓', kinds: ['police', 'firestation', 'military'], effect: 'the police keep crime down better or worse' },
   { id: 'transport', name: 'Transport', icon: '🚍', kinds: ['busdepot', 'trainstation', 'metro'], effect: 'more or fewer families leave the car at home' },
+  { id: 'pension', name: 'Pensions', icon: '👵', kinds: ['eldercare'], effect: 'old people get a bigger or smaller pension (and the care home more or less money)' },
 ];
 
 export type BudgetArea = (typeof BUDGET_AREAS)[number]['id'];

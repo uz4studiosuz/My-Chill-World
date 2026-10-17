@@ -17,3 +17,4 @@ export * from './chains2/bikeFactory';
 export * from './chains2/migrationOffice';
 export * from './chains2/decor2';
 export * from './chains2/food2';
+export * from './chains2/life2';

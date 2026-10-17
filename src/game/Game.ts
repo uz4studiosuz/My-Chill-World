@@ -63,6 +63,10 @@ import { EmbassyPanel } from '../ui/EmbassyPanel';
 import { PassportDesk } from '../ui/PassportDesk';
 import { FamilyTree, type TreePerson } from '../ui/FamilyTree';
 import { LAWS, BUDGET_AREAS } from '../sim/Laws';
+import { ACHIEVEMENTS, AchievementCtx } from './Achievements';
+import { AchievementsPanel } from '../ui/AchievementsPanel';
+import { DayWatch } from '../ui/DayWatch';
+import { confetti } from '../ui/Tutorial';
 import { GARAGE_CARS, METRO_FARE } from './Life';
 import { DriveMode } from './DriveMode';
 import { CameraRig } from '../camera/CameraRig';
@@ -124,7 +128,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
   pharmacy: ['💊', '#2e8b57'], dairy: ['🧀', '#3a6fd1'], supermarket: ['🛒', '#d9443b'], brickworks: ['🧱', '#a65e43'], steelmill: ['🏭', '#5d6670'], sewage: ['🚰', '#5f8fa0'], coalmine: ['⛏️', '#26292e'], coalplant: ['🏭', '#9aa3ab'], hydro: ['🌊', '#4fa3d1'],
   tower15: ['🏢', '#c4553d'], tower30: ['🏢', '#3f6fb5'], tower50: ['🏙️', '#4f7d4a'], warehouse: ['📦', '#b9845a'], bikefactory: ['🚲', '#d9443b'], migration: ['🛂', '#3f6fb5'], concerthall: ['🎻', '#8a3a4a'], casino: ['🎰', '#3b2a55'], mosque: ['🕌', '#2f7fc1'], themepark: ['🎡', '#d9443b'], bigpark: ['🌳', '#4f8a3a'], gym: ['🏋️', '#f07167'], teahouse: ['🫖', '#2f7fc1'], barber: ['💈', '#d9443b'],
-  military: ['🪖', '#6b7a4a'], landfill: ['🗑️', '#7a6f5a'], recycling: ['♻️', '#4c9a52'], mill: ['🌾', '#c9b88a'], bakery: ['🍞', '#a65e43'], sawmill: ['🪚', '#8a5a35'], battery: ['🔋', '#3a6fd1'], kiosk: ['☕', '#d9443b'], dairyshop: ['🥛', '#3b78c2'], greenhouse: ['🍅', '#4e9a3c'], apiary: ['🍯', '#e0a020'], poultry: ['🥚', '#b8452f'], garage: ['🅿️', '#2f6fd6'], embassy: ['🤝', '#3b78c2'], metro: ['🚇', '#d9443b'], cctv: ['📹', '#5d6670'], levee: ['🧱', '#8d8a83'],
+  military: ['🪖', '#6b7a4a'], landfill: ['🗑️', '#7a6f5a'], recycling: ['♻️', '#4c9a52'], mill: ['🌾', '#c9b88a'], bakery: ['🍞', '#a65e43'], sawmill: ['🪚', '#8a5a35'], battery: ['🔋', '#3a6fd1'], kiosk: ['☕', '#d9443b'], dairyshop: ['🥛', '#3b78c2'], greenhouse: ['🍅', '#4e9a3c'], eldercare: ['🧓', '#8a6fb5'], restaurant: ['🍽️', '#7a3b2e'], zoo: ['🦒', '#2f7a3a'], pier: ['🎣', '#3b78c2'], forestry: ['🌲', '#3f7a3a'], apiary: ['🍯', '#e0a020'], poultry: ['🥚', '#b8452f'], garage: ['🅿️', '#2f6fd6'], embassy: ['🤝', '#3b78c2'], metro: ['🚇', '#d9443b'], cctv: ['📹', '#5d6670'], levee: ['🧱', '#8d8a83'],
   airport: ['✈️', '#3a6fd1'], stadium: ['⚽', '#4f9a3e'], cinema: ['🎬', '#b0478f'], academy: ['🏛️', '#2d4f8a'], playground: ['🛝', '#e85a3a'], fountain: ['⛲', '#4fa3d1'],
   flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], gazebo: ['⛱️', '#8a5a35'], pond: ['🦆', '#4a95cf'], clocktower: ['🕰️', '#b9654a'], flagpole: ['🚩', '#4f9a3e'], planter: ['🪴', '#e85a7a'], archway: ['⛩️', '#3f86c4'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
 };
@@ -134,7 +138,7 @@ const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
   warehouse: ['Storekeeper'], bikefactory: ['Bicycle maker', 'Engineer'], migration: ['Migration officer', 'Office manager'], concerthall: ['Stage hand', 'Conductor'], casino: ['Croupier', 'Casino manager'], mosque: ['Muezzin', 'Imam'], themepark: ['Ride operator', 'Park manager'], bigpark: ['Gardener'], gym: ['Fitness coach'], teahouse: ['Waiter', 'Cook'], barber: ['Barber', 'Stylist'],
   hospital: ['Nurse', 'Doctor'], market: ['Seller'], carmarket: ['Car salesman'], bank: ['Cashier', 'Banker'], gasstation: ['Pump attendant'],
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
-  farm: ['Farmer'], orchard: ['Fruit grower'], greenhouse: ['Greenhouse grower', 'Agronomist'], apiary: ['Beekeeper'], poultry: ['Poultry farmer'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
+  farm: ['Farmer'], orchard: ['Fruit grower'], greenhouse: ['Greenhouse grower', 'Agronomist'], eldercare: ['Carer', 'Nurse'], restaurant: ['Waiter', 'Chef'], zoo: ['Zookeeper', 'Vet'], forestry: ['Forester'], apiary: ['Beekeeper'], poultry: ['Poultry farmer'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
   powerplant: ['Power operator', 'Power engineer'], watertower: ['Water technician'], weddinghall: ['Registrar'], park: ['Gardener'],
   police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], airport: ['Airport staff', 'Pilot'], military: ['Soldier', 'Officer'], pharmacy: ['Pharmacist'], dairy: ['Dairy worker', 'Cheese maker'], supermarket: ['Cashier', 'Store manager'], brickworks: ['Brick maker'], steelmill: ['Steelworker', 'Engineer'], sewage: ['Plant operator'], coalmine: ['Coal miner'], coalplant: ['Power operator', 'Power engineer'], hydro: ['Dam operator', 'Power engineer'], landfill: ['Garbage collector'], recycling: ['Recycling worker', 'Engineer'], mill: ['Miller'], bakery: ['Baker'], sawmill: ['Sawyer'], battery: ['Technician'], kiosk: ['Barista'], dairyshop: ['Shop assistant', 'Dairy seller'], garage: ['Car park attendant'], embassy: ['Diplomat', 'Ambassador'], metro: ['Metro worker', 'Train driver'], stadium: ['Groundskeeper', 'Football coach'], cinema: ['Projectionist'], academy: ['Coach', 'Academician'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
 };
@@ -579,6 +583,7 @@ export class Game implements ToolHost {
       openChains: () => this.chainView?.toggle(),
       openTutorial: () => this.startTutorial(),
       openTimelapse: () => this.startTimelapse(),
+      openAchievements: () => this.achPanel?.toggle(),
       openHall: () => { this.stats?.hide(); this.tradePanel?.hide(); this.cityReport?.open(this.eco.active); },
       openEmbassy: () => { if (this.hasEmbassy()) this.embassy?.toggle(); else this.hud?.toast(t('Build an Embassy first: it handles the deals with the neighbour towns')); },
       openResource: (key) => { this.news?.hide(); this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.petitions?.hide(); this.resPanel?.toggle(key); },
@@ -750,6 +755,11 @@ export class Game implements ToolHost {
     }, () => this.eco.active, (id) => { this.worldPanel?.hide(); this.cityReport?.open(id); });
     this.desk?.hide();
     this.tree?.hide();
+    this.achPanel?.hide();
+    this.achPanel = new AchievementsPanel(this.hud.root, () => ({ ctx: this.achievementCtx(), got: this.achievements, dateOf: (d) => dateLabel(d) }));
+    this.dayWatch?.hide();
+    this.dayWatch = new DayWatch(this.hud.root, () => this.stopWatch(), (sp) => this.setSpeed(sp));
+    if (this.watch) { const wc = this.pop.citizens.get(this.watch.id); if (wc) this.dayWatch.show(`${wc.name} ${this.pop.families.get(wc.family)?.surname ?? ''}`.trim(), this.personIcon(wc), this.speed); }
     this.tree = new FamilyTree(this.hud.root, {
       person: (id) => this.treePerson(id),
       parents: (id) => { const c = this.pop.citizens.get(id) ?? this.pop.archive.get(id); return [c?.dad, c?.mom].filter((x): x is number => x !== undefined && (this.pop.citizens.has(x) || this.pop.archive.has(x))); },
@@ -980,6 +990,7 @@ export class Game implements ToolHost {
 
   update(dt: number) {
     this.buildings.day = this.eco.day;
+    if (this.watch) this.updateWatch();
     // a loaded world: fields out of season are wrapped up straight away
     if (!this.seasonReady) { this.seasonReady = true; this.seasonRest(); }
     if (this.lapse) { this.updateLapse(dt); return; }
@@ -1751,6 +1762,11 @@ export class Game implements ToolHost {
   private onNewDay() {
     this.buildings.day = this.eco.day;
     this.seasonRest();
+    this.updatePrices();
+    this.wills();
+    this.neighbourLife();
+    this.bondsDue();
+    this.checkAchievements();
     this.recordTowns();
     this.creativeStock();
     this.famousCitizens();
@@ -2373,6 +2389,8 @@ export class Game implements ToolHost {
       if (f.home !== b.id) continue;
       if (f.money < 0) m -= 10;
       for (const c of this.pop.members(f)) { if (c.hunger < 25) m -= 8; if (c.health < 30) m -= 5; if ((c.joy ?? -99) >= this.eco.day - 3) m += 2; }
+      if (f.feud && f.feud.until > this.eco.day) m -= 6;
+      m += Math.min(4, (f.friends?.length ?? 0) * 2);
     }
     let beauty = 0, smoke = 0;
     for (const o of this.buildings.list) {
@@ -3396,6 +3414,9 @@ export class Game implements ToolHost {
       ...(workplace ? [[t('Wage'), `$${pay.toFixed(1)}/${t('day')}${c.night ? ` · ${t('night shift')}` : ''}`] as [string, string]] : []),
       ...(f ? [[t('Family income'), `$${Math.round(f.income).toLocaleString('en-US')}/${t('day')}`, f.income < 0 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]] : []),
       ...(f?.loan ? [[t('Bank loan'), `$${Math.round(f.loan).toLocaleString('en-US')}`, 'bad'] as [string, string, ('good' | 'bad')?]] : []),
+      ...(() => { const ft = this.pop.familyTrade(c); const mine = c.job >= 0 ? this.buildings.get(c.job)?.kind : undefined; return ft ? [[t('Family trade'), `${t(BUILDINGS[ft.kind as BuildingKind]?.name ?? ft.kind)} (${t(ft.who === 'father' ? 'father' : 'mother')})${mine === ft.kind ? ` · ${t('follows it')}` : ''}`, mine === ft.kind ? 'good' : undefined] as [string, string, ('good' | 'bad')?]] : []; })(),
+      ...(f?.friends?.length ? [[t('Friends'), f.friends.map((id) => this.pop.families.get(id)?.surname).filter(Boolean).join(', '), 'good'] as [string, string, ('good' | 'bad')?]] : []),
+      ...(f?.feud ? [[t('Quarrel'), t('with the {family} family over {why}, until {date}', { family: this.pop.families.get(f.feud.with)?.surname ?? '?', why: t(f.feud.why), date: dateLabel(f.feud.until) }), 'bad'] as [string, string, ('good' | 'bad')?]] : []),
       ...(f?.mortgage ? [[t('Mortgage'), t('${left} left · ${day}/day', { left: Math.round(f.mortgage.left).toLocaleString('en-US'), day: f.mortgage.perDay }), f.money < f.mortgage.perDay * 3 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]] : []),
       [t('Transport'), f?.car ? t('Family car') : f?.bike ? t('Bicycle') : t('On foot')],
     ] : [];
@@ -3432,6 +3453,7 @@ export class Game implements ToolHost {
         { label: t("Citizen's eyes"), icon: 'eye', onClick: () => this.enterPov({ type: 'person', id: c.id }) },
         { label: t('Life story'), icon: 'book', onClick: () => this.openLifeBook(c) },
         { label: t('Family tree'), icon: 'people', onClick: () => this.tree?.open(c.id) },
+        { label: t('Watch their day'), icon: 'eye', onClick: () => this.startWatch(c.id) },
         ...(veh ? [{ label: t('Show car on road'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: veh.id }); this.following = true; } }] : []),
         ...(busVeh ? [{ label: t('Show bus'), icon: 'car' as const, onClick: () => { this.select({ type: 'vehicle', id: busVeh.id }); this.following = true; } }] : []),
         ...(waiter ? [{ label: t('Show bus stop'), icon: 'roads' as const, onClick: () => {
@@ -3916,6 +3938,7 @@ export class Game implements ToolHost {
     if (ev) {
       this.hud!.toast(ev);
       this.eventLog?.add(this.eco.day, ev);
+      this.hud?.setLogBadge(this.eventLog?.unread ?? 0);
     }
     if (this.selection && !busy) this.refreshInspector();
     if (this.stats?.visible && ++this.statsTick % 4 === 0 && !busy) this.stats.render();
@@ -4519,6 +4542,7 @@ export class Game implements ToolHost {
       ] },
     ] });
     tabs.push({ id: 'money', label: t('Money'), sections: [
+      ...(city.ai ? [] : [this.bondSection(city)]),
       { title: t("Yesterday's budget"), kpis: [
         [t('Income'), money(income.reduce((a, [, v]) => a + v, 0)), '', true], [t('Costs'), money(costs.reduce((a, [, v]) => a + v, 0)), '', false],
         [t('Net'), money(bal.net), '', bal.net >= 0], [t('Treasury'), money(city.money), ''], [t('Bank loan'), city.loan ? money(city.loan) : '—', '', !city.loan],
@@ -4665,6 +4689,7 @@ export class Game implements ToolHost {
     }
     const skilled = people.filter((c) => c.age >= 18 && c.skill >= 1).length;
     tabs.push({ id: 'jobs', label: t('Jobs'), sections: [
+      ...(city.ai ? [] : [this.fairSection(city)]),
       { title: t('Jobs'), kpis: [
         [t('Workers'), `${staff}/${jobs}`, t('{n} open jobs', { n: Math.max(0, jobs - staff) }), staff >= jobs],
         [t('Jobs that need a diploma'), `${degStaff}/${degJobs}`, t('{n} people have a diploma', { n: skilled }), degStaff >= degJobs],
@@ -5075,7 +5100,6 @@ export class Game implements ToolHost {
     return t[g];
   }
 
-  /** The going price of a good in a town: scarce is dear (up to ×1.7), plenty is cheap (down to ×0.55). */
   /** The buildings of the active town for the building list, grouped like the build menu, newest first within a group. */
   private buildingListItems() {
     const city = this.eco.city;
@@ -5099,10 +5123,40 @@ export class Game implements ToolHost {
       .sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group) || a.name.localeCompare(b.name) || b.id - a.id);
   }
 
+  /** The going price of each good in each town (moved a little every morning) and the stock it was set from. */
+  private priceMemo = new Map<string, { p: number; stock: number }>();
+
+  /**
+   * Where the price is heading: scarce is dear (up to ×1.75 with empty stores), a full store is ordinary, plenty is
+   * cheap (down to ×0.55); stocks running down push it up and piling up push it down (up to ±15%); dearer where the
+   * pay is higher, and the season and the economy move it too.
+   */
+  private rawPrice(c: City, g: Good, people: number) {
+    const target = this.stockTarget(g, people);
+    const ratio = Math.max(0, c[g]) / target;
+    const scarce = ratio < 1 ? 1 + 0.75 * Math.pow(1 - ratio, 1.3) : Math.max(0.55, 1 - 0.45 * (1 - Math.exp(-(ratio - 1) * 0.8)));
+    const memo = this.priceMemo.get(`${c.id}:${g}`);
+    const trend = memo ? Math.max(0.85, Math.min(1.15, 1 - ((c[g] - memo.stock) / Math.max(10, target * 0.5)) * 0.15)) : 1;
+    return TRADE_PRICE[g] * scarce * trend * this.life.priceLevel(c.id) * this.seasonPrice(g) * this.life.econFactor;
+  }
+
   private midPrice(c: City, g: Good, people: number) {
-    const ratio = c[g] / this.stockTarget(g, people);
-    // scarce is dear, plenty is cheap — and everything is dearer where the pay is higher
-    return TRADE_PRICE[g] * Math.max(0.55, Math.min(1.7, 1.7 - 0.7 * ratio)) * this.life.priceLevel(c.id) * this.seasonPrice(g) * this.life.econFactor;
+    return this.priceMemo.get(`${c.id}:${g}`)?.p ?? this.rawPrice(c, g, people);
+  }
+
+  /** Every morning the prices move toward where supply and demand push them — at most 6% a day, so they never jump. */
+  private updatePrices() {
+    const pops = this.life.populationByCity();
+    for (const c of this.eco.cities.values()) {
+      const people = pops.get(c.id) ?? 0;
+      for (const g of (Object.keys(TRADE_PRICE) as Good[]).filter((x) => typeof c[x] === 'number' && this.stockTarget(x, people) !== undefined)) {
+        const key = `${c.id}:${g}`;
+        const raw = this.rawPrice(c, g, people);
+        const m = this.priceMemo.get(key);
+        const p = m ? m.p + Math.max(-0.06 * m.p, Math.min(0.06 * m.p, raw - m.p)) : raw;
+        this.priceMemo.set(key, { p, stock: c[g] });
+      }
+    }
   }
 
   /** Seasons move prices: firewood and coal dear in winter, food and fruit cheap in summer, milk in spring. */
@@ -5908,7 +5962,7 @@ export class Game implements ToolHost {
   }
 
   /** The timelapse being shown (the town growing, day by day). */
-  private lapse?: { t: number; from: number; to: number; el: HTMLDivElement; cam: { x: number; z: number; yaw: number; view: number }; speed: number; cx: number; cz: number };
+  private lapse?: { t: number; from: number; to: number; born: Map<number, number>; el: HTMLDivElement; cam: { x: number; z: number; yaw: number; view: number }; speed: number; cx: number; cz: number };
 
   /**
    * City timelapse: every window closes, the camera circles over the town and the buildings appear in the order
@@ -5917,9 +5971,8 @@ export class Game implements ToolHost {
   startTimelapse() {
     if (this.lapse || !this.hud) return;
     const hall = this.buildings.townHall(this.eco.active);
-    const own = this.buildings.list.filter((b) => !b.removed);
-    const days = own.map((b) => b.born ?? 0);
-    const from = Math.min(...days, this.eco.day), to = this.eco.day;
+    const born = this.estimateBorn();
+    const from = Math.min(...born.values(), this.eco.day), to = this.eco.day;
     if (to - from < 1) { this.hud.toast(t('The town is too young for a timelapse — play a few days first')); return; }
     this.closeAllPanels();
     this.select(null);
@@ -5929,8 +5982,31 @@ export class Game implements ToolHost {
     (el.querySelector('.lp-x') as HTMLButtonElement).addEventListener('click', () => this.endTimelapse());
     document.body.appendChild(el);
     document.body.classList.add('lapse-mode');
-    this.lapse = { t: 0, from, to, el, cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf }, speed: this.speed, cx: hall?.mesh.position.x ?? this.cam.target.x, cz: hall?.mesh.position.z ?? this.cam.target.z };
+    this.lapse = { t: 0, from, to, el, born, cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf }, speed: this.speed, cx: hall?.mesh.position.x ?? this.cam.target.x, cz: hall?.mesh.position.z ?? this.cam.target.z };
     this.setSpeed(0);
+  }
+
+  /**
+   * The day each building was started. Buildings from before this was recorded get an estimate from the order they
+   * were built in (their number): spread between the first day and the first recorded one, or between two recorded ones.
+   */
+  private estimateBorn() {
+    const list = this.buildings.list.filter((b) => !b.removed).sort((a, b) => a.id - b.id);
+    const out = new Map<number, number>();
+    const known = list.filter((b) => b.born !== undefined && (b.born > 0 || b.kind === 'townhall'));
+    const today = this.eco.day;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (b.born !== undefined && known.includes(b)) { out.set(b.id, b.born); continue; }
+      if (b.kind === 'townhall') { out.set(b.id, 0); continue; }
+      // the recorded buildings just before and after this one (by number)
+      let lo = -1, hi = -1;
+      for (const k of known) { if (k.id < b.id) lo = known.indexOf(k); else { hi = known.indexOf(k); break; } }
+      const d0 = lo >= 0 ? known[lo].born! : 0, d1 = hi >= 0 ? known[hi].born! : (known.length ? Math.min(today, known[known.length - 1].born!) : today);
+      const i0 = lo >= 0 ? list.indexOf(known[lo]) : -1, i1 = hi >= 0 ? list.indexOf(known[hi]) : list.length;
+      out.set(b.id, Math.round(d0 + ((d1 - d0) * (i - i0)) / Math.max(1, i1 - i0)));
+    }
+    return out;
   }
 
   private updateLapse(dt: number) {
@@ -5939,13 +6015,13 @@ export class Game implements ToolHost {
     L.t += dt;
     const p = Math.min(1, L.t / DURATION);
     const day = L.from + (L.to - L.from) * p;
-    for (const b of this.buildings.list) if (!b.removed) b.mesh.visible = (b.born ?? 0) <= day;
+    for (const b of this.buildings.list) if (!b.removed) b.mesh.visible = (L.born.get(b.id) ?? 0) <= day;
     // the camera circles slowly and rises as the town grows
     this.cam.setState(L.cx, L.cz, L.cam.yaw + L.t * 0.18, 9 + p * 9);
     const hist = this.worldHistory.get(this.eco.active) ?? [];
     const pop = hist.reduce((a, h) => (h.day <= day ? h.pop : a), hist[0]?.pop ?? 0);
     (L.el.querySelector('b') as HTMLElement).textContent = dateLabel(Math.floor(day));
-    (L.el.querySelector('span') as HTMLElement).textContent = `${this.eco.city.name} · ${t('{n} people', { n: Math.round(pop) })} · ${this.buildings.list.filter((b) => !b.removed && (b.born ?? 0) <= day && b.city === this.eco.active).length} ${t('buildings')}`;
+    (L.el.querySelector('span') as HTMLElement).textContent = `${this.eco.city.name} · ${t('{n} people', { n: Math.round(pop) })} · ${this.buildings.list.filter((b) => !b.removed && (L.born.get(b.id) ?? 0) <= day && b.city === this.eco.active).length} ${t('buildings')}`;
     (L.el.querySelector('.lp-bar i') as HTMLElement).style.width = `${Math.round(p * 100)}%`;
     if (L.t > DURATION + 3) this.endTimelapse();
   }
@@ -5970,6 +6046,270 @@ export class Game implements ToolHost {
     return d;
   }
 
+  /**
+   * Wills: when the last of a family dies, their money is shared by the families of their children (or brothers and
+   * sisters) and the houses and businesses they owned pass to the eldest heir; with no heirs it all goes to the town.
+   */
+  private wills() {
+    for (const w of this.pop.inheritances.splice(0)) {
+      const city = this.buildings.get(w.home)?.city ?? this.eco.active;
+      const town = this.eco.cities.get(city);
+      const owned = this.buildings.list.filter((b) => b.owner === w.family && !b.removed);
+      const heirs = w.heirs.map((id) => this.pop.families.get(id)).filter((f): f is Family => !!f);
+      const who = `${w.name} ${w.surname}`;
+      if (heirs.length) {
+        const share = Math.floor(w.money / heirs.length);
+        for (const f of heirs) {
+          f.money += share;
+          const head = this.pop.members(f).find((m) => m.role === 'parent') ?? this.pop.members(f)[0];
+          if (head) this.pop.note(head, 'Inherited ${n} from {name}', { n: share, name: who });
+        }
+        for (const b of owned) b.owner = heirs[0].id;
+        if (town && !town.ai) this.life.cityEvent(city, t('The will of {name}: ${m} shared by {n} families{b}', { name: who, m: w.money, n: heirs.length, b: owned.length ? t(', {k} buildings to the {family} family', { k: owned.length, family: heirs[0].surname }) : '' }));
+      } else {
+        if (town && w.money) this.eco.add(town, 'money', w.money, 'Inheritances without heirs');
+        for (const b of owned) b.owner = -1;
+        if (town && !town.ai && (w.money || owned.length)) this.life.cityEvent(city, t('{name} left no heirs: ${m}{b} went to the town', { name: who, m: w.money, b: owned.length ? t(' and {k} buildings', { k: owned.length }) : '' }));
+      }
+    }
+  }
+
+  /**
+   * Neighbours: families living close by become friends now and then (they visit each other and are happier), or
+   * quarrel over noise, a fence or a parking space; a staffed police station or mosque helps them make peace sooner.
+   */
+  private neighbourLife() {
+    if (this.calm) return;
+    const day = this.eco.day;
+    const WHY = ['a noisy party', 'a fence between the gardens', 'a parking space', 'the children fighting', 'a tree shading the garden', 'rubbish by the door'];
+    for (const city of this.eco.cities.values()) {
+      if (city.ai) continue;
+      const fams = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === city.id);
+      for (const f of fams) {
+        if (f.friends) f.friends = f.friends.filter((id) => this.pop.families.has(id));
+        if (f.feud && (f.feud.until <= day || !this.pop.families.has(f.feud.with))) f.feud = undefined;
+      }
+      if (fams.length < 4) continue;
+      const peace = this.buildings.list.some((b) => b.city === city.id && (b.kind === 'police' || b.kind === 'mosque') && b.workers > 0);
+      // making peace early
+      for (const f of fams) {
+        if (!f.feud || !peace || Math.random() > 0.25) continue;
+        const o = this.pop.families.get(f.feud.with);
+        f.feud = undefined;
+        if (o) { o.feud = undefined; this.life.cityEvent(city.id, t('The {a} and {b} families made peace', { a: f.surname, b: o.surname })); }
+      }
+      const pickPair = () => {
+        const a = fams[Math.floor(Math.random() * fams.length)];
+        const ha = this.buildings.get(a.home);
+        if (!ha) return null;
+        const near = fams.filter((o) => o !== a && o.home !== a.home && (() => { const h = this.buildings.get(o.home); return !!h && Math.abs(h.x - ha.x) + Math.abs(h.z - ha.z) <= 8; })());
+        return near.length ? [a, near[Math.floor(Math.random() * near.length)]] as [Family, Family] : null;
+      };
+      if (Math.random() < 0.3) {
+        const p = pickPair();
+        if (p && !p[0].friends?.includes(p[1].id) && (p[0].friends?.length ?? 0) < 3 && (p[1].friends?.length ?? 0) < 3 && p[0].feud?.with !== p[1].id) {
+          (p[0].friends ??= []).push(p[1].id); (p[1].friends ??= []).push(p[0].id);
+          this.life.cityEvent(city.id, t('The {a} and {b} families became friends', { a: p[0].surname, b: p[1].surname }));
+        }
+      }
+      if (Math.random() < 0.08 * (city.happiness < 50 ? 1.6 : 1)) {
+        const p = pickPair();
+        if (p && !p[0].feud && !p[1].feud && !p[0].friends?.includes(p[1].id)) {
+          const why = WHY[Math.floor(Math.random() * WHY.length)];
+          const until = day + 5 + Math.floor(Math.random() * 6);
+          p[0].feud = { with: p[1].id, until, why }; p[1].feud = { with: p[0].id, until, why };
+          this.life.cityEvent(city.id, t('The {a} and {b} families quarrelled over {why}', { a: p[0].surname, b: p[1].surname, why: t(why) }));
+        }
+      }
+    }
+  }
+
+  /** Town bonds: the residents lend the town money now and get it back with interest later. */
+  private static BOND_PLANS = [{ amount: 2000, rate: 0.08, days: 30 }, { amount: 5000, rate: 0.1, days: 40 }, { amount: 12000, rate: 0.12, days: 60 }];
+
+  private bondSection(city: City): ReportSection {
+    const open = city.bonds ?? [];
+    const owed = open.reduce((a, b) => a + Math.round(b.amount * (1 + b.rate)), 0);
+    const savers = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === city.id && f.money > 600);
+    const can = Math.round(savers.reduce((a, f) => a + f.money * 0.25, 0));
+    return {
+      title: t('Town bonds'), wide: true,
+      kpis: [[t('Bonds out'), `${open.length}`, open.length ? t('to pay back ${n}', { n: owed.toLocaleString('en-US') }) : t('none')], [t('Residents could lend'), `$${can.toLocaleString('en-US')}`, t('{n} families with savings', { n: savers.length })]],
+      rows: open.map((b) => [t('${m} at {p}%', { m: b.amount.toLocaleString('en-US'), p: Math.round(b.rate * 100) }), t('pay back ${n} on {date}', { n: Math.round(b.amount * (1 + b.rate)).toLocaleString('en-US'), date: dateLabel(b.due) }), b.due - this.eco.day <= 3 ? 'bad' : undefined] as [string, string, ('good' | 'bad')?]),
+      actions: Game.BOND_PLANS.map((p) => ({ label: t('Sell ${m} of bonds ({p}% in {d} days)', { m: p.amount.toLocaleString('en-US'), p: Math.round(p.rate * 100), d: p.days }), off: can < p.amount, onClick: () => this.sellBonds(city, p) })),
+      note: t('Families with savings buy the bonds: the town gets the money at once and pays it back with interest on the due day. Not paying it back hurts the credit rating and makes people unhappy.'),
+    };
+  }
+
+  private sellBonds(city: City, p: { amount: number; rate: number; days: number }) {
+    const savers = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === city.id && f.money > 600).sort((a, b) => b.money - a.money);
+    let left = p.amount;
+    const holders: [number, number][] = [];
+    for (const f of savers) {
+      if (left <= 0) break;
+      const take = Math.min(left, Math.floor(f.money * 0.25));
+      if (take <= 0) continue;
+      f.money -= take; left -= take; holders.push([f.id, take]);
+    }
+    const raised = p.amount - left;
+    if (raised < p.amount * 0.5) {
+      for (const [id, n] of holders) { const f = this.pop.families.get(id); if (f) f.money += n; }
+      return this.hud?.toast(t('Too few families have savings to buy these bonds'));
+    }
+    (city.bonds ??= []).push({ amount: raised, rate: p.rate, due: this.eco.day + p.days, holders });
+    this.eco.add(city, 'money', raised, 'Town bonds sold');
+    this.life.cityEvent(city.id, t('{n} families bought town bonds: +${m} for the treasury', { n: holders.length, m: raised.toLocaleString('en-US') }));
+    sound.play('coin');
+    this.cityReport?.render();
+    this.refreshHud();
+  }
+
+  /** Bonds that are due are paid back to the families with interest (as much as the treasury can). */
+  private bondsDue() {
+    for (const city of this.eco.cities.values()) {
+      if (!city.bonds?.length) continue;
+      for (const b of city.bonds.filter((x) => x.due <= this.eco.day)) {
+        const want = Math.round(b.amount * (1 + b.rate));
+        const pay = Math.max(0, Math.min(want, Math.floor(city.money)));
+        for (const [id, n] of b.holders) { const f = this.pop.families.get(id); if (f) f.money += Math.round((n / b.amount) * pay); }
+        this.eco.add(city, 'money', -pay, 'Town bonds paid back');
+        if (pay >= want) this.life.cityEvent(city.id, t('Town bonds paid back: ${m} with interest to {n} families', { m: pay.toLocaleString('en-US'), n: b.holders.length }));
+        else {
+          city.credit = Math.max(0, (city.credit ?? 60) - 8);
+          { const old = this.life.moodBoost.get(city.id); this.life.moodBoost.set(city.id, { v: (old && old.until >= this.eco.day ? old.v : 0) - 4, until: this.eco.day + 6 }); }
+          this.life.cityEvent(city.id, t('The town could not pay its bonds back in full: only ${m} of ${n}. People are angry and the credit rating falls', { m: pay.toLocaleString('en-US'), n: want.toLocaleString('en-US') }));
+        }
+        city.bonds = city.bonds.filter((x) => x !== b);
+      }
+    }
+  }
+
+  /** The job fair: once every 10 days the town hall brings employers and the jobless together. */
+  private fairSection(city: City): ReportSection {
+    const jobless = [...this.pop.citizens.values()].filter((c) => this.cityOfCitizen(c) === city.id && this.pop.canWork(c) && c.job < 0).length;
+    const wait = (city.fairDay ?? -99) + 10 - this.eco.day;
+    return {
+      title: t('Job fair'), wide: true,
+      kpis: [[t('Looking for work'), `${jobless}`, jobless ? t('ready to start') : t('everyone works'), jobless === 0], [t('Next fair'), wait > 0 ? t('in {n} days', { n: wait }) : t('now'), '']],
+      actions: [{ label: t('Hold a job fair (${n})', { n: 400 }), off: wait > 0 || jobless === 0, onClick: () => this.jobFair(city) }],
+      note: t('Employers come to the town hall: the jobless find work at once, and some take a short course to learn a trade (for jobs that need one).'),
+    };
+  }
+
+  private jobFair(city: City) {
+    if (!this.eco.canAfford(400, 0, 0, 0)) return this.hud?.toast(t('Not enough money — needs ${n}', { n: 400 }));
+    this.eco.spend(400, 0, 0, 0, 'Job fair');
+    city.fairDay = this.eco.day;
+    const before = new Map([...this.pop.citizens.values()].map((c) => [c.id, c.job]));
+    const jobless = [...this.pop.citizens.values()].filter((c) => this.cityOfCitizen(c) === city.id && this.pop.canWork(c) && c.job < 0);
+    // workplaces that wait for skilled people: a short course for some of the jobless
+    const skilledOpen = this.buildings.list.some((b) => b.city === city.id && b.built >= 1 && BUILDINGS[b.kind].jobs > b.workers && this.pop.need(b) === 1);
+    let trained = 0;
+    for (const c of jobless.slice(0, 25)) if (skilledOpen && c.skill === 0 && Math.random() < 0.5) { c.skill = 1; trained++; this.pop.note(c, 'Learnt a trade on a short course at the job fair'); }
+    this.pop.assign(this.buildings);
+    const hired = jobless.filter((c) => c.job >= 0 && before.get(c.id) !== c.job).length;
+    this.life.cityEvent(city.id, t('Job fair: {n} people found work{t}', { n: hired, t: trained ? t(', {k} learnt a trade', { k: trained }) : '' }));
+    sound.play('coin');
+    this.cityReport?.render();
+    this.refreshHud();
+  }
+
+  // ---------- achievements ----------
+
+  /** Achievements earned (id → day). */
+  private achievements: Record<string, number> = {};
+  private achPanel?: AchievementsPanel;
+
+  /** What the achievements look at: all the player's towns together. */
+  private achievementCtx(): AchievementCtx {
+    const mine = [...this.eco.cities.values()].filter((c) => !c.ai);
+    const ids = new Set(mine.map((c) => c.id));
+    const own = this.buildings.list.filter((b) => ids.has(b.city) && !b.removed && b.built >= 1);
+    const kinds: Record<string, number> = {};
+    for (const b of own) kinds[b.kind] = (kinds[b.kind] ?? 0) + 1;
+    const pops = this.life.populationByCity();
+    const people = mine.reduce((a, c) => a + (pops.get(c.id) ?? 0), 0);
+    const fams = [...this.pop.families.values()].filter((f) => ids.has(this.buildings.get(f.home)?.city ?? -1));
+    const cits = fams.flatMap((f) => this.pop.members(f));
+    const here = new Set(cits.map((c) => c.id));
+    let gens = cits.length ? 1 : 0;
+    for (const c of cits) {
+      const kids = cits.filter((k) => k.mom === c.id || k.dad === c.id);
+      if (kids.length) gens = Math.max(gens, 2);
+      if (kids.some((k) => cits.some((g) => (g.mom === k.id || g.dad === k.id) && here.has(g.id)))) { gens = 3; break; }
+    }
+    let tunnels = 0, bridges = 0;
+    for (let k = 0; k < this.net.type.length; k++) {
+      if (!this.net.type[k] && !this.railway.tiles[k]) continue;
+      if (this.map.height[k] > 0) tunnels++;
+      if (this.map.water[k] && this.net.type[k]) bridges++;
+    }
+    const counts = mine.map((city) => this.pop.counts((c) => this.cityOfCitizen(c) === city.id));
+    return {
+      people, happiness: Math.max(0, ...mine.map((c) => c.happiness)), money: mine.reduce((a, c) => a + c.money, 0), days: this.eco.day, kinds, tunnels, bridges, generations: gens,
+      famous: cits.filter((c) => c.fame).length, laws: Math.max(0, ...mine.map((c) => c.laws?.length ?? 0)), bonds: mine.reduce((a, c) => a + (c.bonds?.length ?? 0), 0) + (this.achievements.bonds !== undefined ? 1 : 0),
+      cars: fams.filter((f) => f.car).length, richestFamily: Math.max(0, ...fams.map((f) => f.money)),
+      unemployed: counts.reduce((a, c) => a + Math.max(0, c.workforce - c.workers), 0), workforce: counts.reduce((a, c) => a + c.workforce, 0),
+      friends: fams.reduce((a, f) => a + (f.friends?.length ?? 0), 0) / 2, decor: own.filter((b) => DECOR[b.kind]).length,
+      chainsWorking: Math.max(0, ...mine.map((c) => this.chainsRunning(c))), towns: mine.length,
+    };
+  }
+
+  /** Every morning: newly earned achievements are announced (with confetti). */
+  private checkAchievements() {
+    if (this.demo) return;
+    const ctx = this.achievementCtx();
+    const fresh = ACHIEVEMENTS.filter((a) => this.achievements[a.id] === undefined && (() => { const [n, g] = a.progress(ctx); return n >= g; })());
+    if (!fresh.length) return;
+    for (const a of fresh) this.achievements[a.id] = this.eco.day;
+    if (fresh.length > 3) this.hud?.toast(t('{n} achievements earned! Open them from the town panel → Achievements', { n: fresh.length }));
+    else for (const a of fresh) { this.hud?.toast(`${a.icon} ${t('Achievement earned: {name}', { name: t(a.name) })}`); this.life.events.unshift(`${a.icon} ${t('Achievement earned: {name}', { name: t(a.name) })}`); }
+    confetti();
+    sound.play('coin');
+    if (this.achPanel?.visible) this.achPanel.open();
+  }
+
+  // ---------- a day in the life ----------
+
+  private dayWatch?: DayWatch;
+  private watch?: { id: number; last: string; prevSpeed: number; log: { time: string; text: string; day: string }[] };
+
+  /** Follow one person and write down everything they do (the time runs faster). */
+  private startWatch(id: number) {
+    const c = this.pop.citizens.get(id);
+    if (!c) return;
+    const prev = this.watch?.prevSpeed ?? (this.speed || 1);
+    this.focusPerson(id);
+    this.watch = { id, last: '', prevSpeed: prev, log: [] };
+    this.setSpeed(5);
+    this.dayWatch?.show(`${c.name} ${this.pop.families.get(c.family)?.surname ?? ''}`.trim(), this.personIcon(c), 5);
+    this.updateWatch();
+  }
+
+  private clockText() {
+    const m = Math.floor(this.eco.timeOfDay * 24 * 60);
+    return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  }
+
+  private updateWatch() {
+    const w = this.watch!;
+    const c = this.pop.citizens.get(w.id);
+    if (!c) { this.life.events.unshift(t('The person you were watching is no longer with us')); this.stopWatch(); return; }
+    if (c.activity !== w.last) {
+      w.last = c.activity;
+      w.log.push({ time: this.clockText(), text: t(c.activity), day: dateLabel(this.eco.day) });
+      if (w.log.length > 80) w.log.shift();
+    }
+    this.dayWatch?.update(this.clockText(), t(c.activity), w.log);
+  }
+
+  private stopWatch() {
+    const w = this.watch;
+    this.watch = undefined;
+    this.dayWatch?.hide();
+    if (w) this.setSpeed(w.prevSpeed || 1);
+  }
+
   /** Is this field, orchard or apiary out of its season this month (it closes and its workers go elsewhere)? */
   offSeason(kind: BuildingKind, month = monthOf(this.eco.day)) {
     if (kind === 'farm') return !growingSeason(month);
@@ -5981,6 +6321,9 @@ export class Game implements ToolHost {
   /** When its season ends a field, orchard or apiary is wrapped in canvas and its people find other work; it opens again in its season. */
   private seasonRest() {
     let changed = false;
+    const month = monthOf(this.eco.day);
+    const look = month >= 2 && month <= 4 ? 'spring' : month >= 5 && month <= 7 ? 'summer' : month >= 8 && month <= 10 ? 'autumn' : 'winter';
+    for (const b of this.buildings.list) if (b.kind === 'orchard' && !b.removed) this.buildings.setSeasonLook(b, look);
     for (const b of this.buildings.list) {
       if (b.removed || (b.kind !== 'farm' && b.kind !== 'orchard' && b.kind !== 'apiary')) continue;
       const rest = b.built >= 1 && this.offSeason(b.kind);
@@ -6553,6 +6896,7 @@ export class Game implements ToolHost {
     this.life.econFactor = this.cycle ? (this.cycle.kind === 'crisis' ? 0.8 : 1.2) : 1;
     this.pop.archive.clear();
     for (const a of s.archive ?? []) this.pop.archive.set(a.id, a);
+    this.achievements = { ...(s.achievements ?? {}) };
     // older worlds: children get the parents of their family
     for (const f of this.pop.families.values()) {
       const ms = this.pop.members(f);
@@ -6608,6 +6952,7 @@ export class Game implements ToolHost {
       leisure: this.life.leisure.serialize(),
       log: (this.eventLog?.entries ?? this.savedLog).slice(-80),
       archive: [...this.pop.archive.values()],
+      achievements: Object.keys(this.achievements).length ? this.achievements : undefined,
       cycle: this.cycle,
     };
   }

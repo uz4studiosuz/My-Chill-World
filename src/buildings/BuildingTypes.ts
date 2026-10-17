@@ -3,13 +3,13 @@ export type BuildingKind =
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
-  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop' | 'greenhouse' | 'apiary' | 'poultry' | 'garage' | 'metro' | 'cctv' | 'levee' | 'embassy'
+  | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop' | 'greenhouse' | 'apiary' | 'poultry' | 'eldercare' | 'restaurant' | 'zoo' | 'pier' | 'forestry' | 'garage' | 'metro' | 'cctv' | 'levee' | 'embassy'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
   | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway';
 
 
 /** How a building's workers behave while at work. */
-export type WorkStyle = 'indoor' | 'woodcutter' | 'farmer' | 'builder' | 'miner';
+export type WorkStyle = 'indoor' | 'woodcutter' | 'farmer' | 'builder' | 'miner' | 'forester';
 
 /** Parking slot in local model space: x, z, rotation. Models face +z (towards the road). */
 export type Slot = [number, number, number];
@@ -124,6 +124,11 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   metro: def({ kind: 'metro', name: 'Metro Station', size: 1, money: 2600, stone: 30, iron: 20, jobs: 2, salary: 14, publicJob: true, upkeep: 6, energy: 4 }),
   cctv: def({ kind: 'cctv', name: 'Security Camera', size: 1, money: 220, iron: 2, upkeep: 1, energy: 0.3, needsRoad: false }),
   levee: def({ kind: 'levee', name: 'Flood Wall', size: 1, money: 160, stone: 12, needsRoad: false }),
+  eldercare: def({ kind: 'eldercare', name: 'Elder Care Home', size: 2, money: 1600, stone: 25, wood: 20, jobs: 4, salary: 12, publicJob: true, upkeep: 4, energy: 2 }),
+  restaurant: def({ kind: 'restaurant', name: 'Restaurant', size: 2, money: 1500, stone: 20, wood: 20, jobs: 5, salary: 13, energy: 2.5 }),
+  zoo: def({ kind: 'zoo', name: 'Zoo', size: 3, money: 4200, stone: 40, wood: 50, iron: 10, jobs: 6, salary: 13, energy: 3 }),
+  pier: def({ kind: 'pier', name: 'Fishing Pier', size: 1, money: 180, wood: 12, needsRoad: false }),
+  forestry: def({ kind: 'forestry', name: 'Forestry', size: 1, money: 420, wood: 10, jobs: 2, salary: 10, needsRoad: false, work: 'forester' }),
   greenhouse: def({ kind: 'greenhouse', name: 'Greenhouse', size: 2, money: 900, stone: 10, wood: 10, iron: 5, jobs: 3, salary: 12, food: 24, energy: 2, needsRoad: false }),
   apiary: def({ kind: 'apiary', name: 'Apiary', size: 1, money: 260, wood: 8, jobs: 1, salary: 9, food: 10, needsRoad: false }),
   poultry: def({ kind: 'poultry', name: 'Poultry Farm', size: 2, money: 700, stone: 8, wood: 12, jobs: 2, salary: 10, food: 22, energy: 1, needsRoad: false }),
@@ -226,7 +231,7 @@ export const STORAGE = { hall: 800, hallFood: 1500, warehouse: 2000, warehouseFo
 /** Concert hall: seats, and the ticket for a big concert by a touring star. */
 export const CONCERT = { seats: 120, ticket: 12 };
 /** Paid leisure and services: what a visit costs. Casino stakes are taxed at a higher rate. */
-export const VISIT_PRICE: Partial<Record<BuildingKind, [number, number]>> = { concerthall: [6, 10], casino: [15, 70], themepark: [5, 9], gym: [3, 5], teahouse: [6, 14], barber: [3, 7] };
+export const VISIT_PRICE: Partial<Record<BuildingKind, [number, number]>> = { restaurant: [10, 24], zoo: [5, 9], concerthall: [6, 10], casino: [15, 70], themepark: [5, 9], gym: [3, 5], teahouse: [6, 14], barber: [3, 7] };
 export const CASINO_TAX = 0.4;
 /** A share of the adults are believers who go to the mosque to pray. */
 export const FAITH_SHARE = 0.45;
@@ -304,7 +309,7 @@ export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], c
 export const SHOP_SPEND = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 export type ShopKind = keyof typeof SHOP_SPEND;
 /** Businesses a family can own: they collect a share of the turnover as profit. */
-export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'dairyshop', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office', 'casino', 'teahouse', 'barber', 'gym', 'themepark'];
+export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'dairyshop', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office', 'casino', 'teahouse', 'barber', 'gym', 'themepark', 'restaurant', 'zoo'];
 /** Owner's share of the turnover (after the 20% business tax). */
 /** Share of a business's profit (after tax and the staff's wages) that the owning family keeps. */
 export const OWNER_SHARE = 0.5;
@@ -360,5 +365,5 @@ export const townLevel = (people: number) => TOWN_LEVELS.reduce((a, l, i) => (pe
 export const UNLOCK_LEVEL: Partial<Record<BuildingKind, number>> = {
   cinema: 1, garage: 1, embassy: 1, tower15: 1, carfactory: 1, coalplant: 1, bigpark: 1, concerthall: 1,
   university: 2, stadium: 2, metro: 2, tower30: 2, airport: 2, casino: 2, hydro: 2, military: 2, academy: 2,
-  tower50: 3, themepark: 3,
+  tower50: 3, themepark: 3, zoo: 2, eldercare: 1,
 };

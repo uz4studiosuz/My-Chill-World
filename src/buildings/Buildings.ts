@@ -21,7 +21,7 @@ import { siteTapeGeometry } from '../models/sitetape';
 import { warehouseGeometry, bikeFactoryGeometry, migrationOfficeGeometry, gazeboGeometry, pondGeometry, clockTowerGeometry, flagpoleGeometry, planterGeometry, archwayGeometry } from '../models/chains2';
 import { tower15Geometry, tower30Geometry, tower50Geometry } from '../models/buildings';
 import { concertHallGeometry, barberGeometry, bigparkGeometry, carouselGeometry, casinoGeometry, ferrisWheelGeometry, gymGeometry, mosqueGeometry, teahouseGeometry, themeparkGeometry } from '../models/leisure2';
-import { greenhouseGeometry, apiaryGeometry, poultryGeometry, restingCoverGeometry } from '../models/chains2';
+import { greenhouseGeometry, apiaryGeometry, poultryGeometry, restingCoverGeometry, eldercareGeometry, restaurantGeometry, zooGeometry, pierGeometry, forestryGeometry } from '../models/chains2';
 import { brickworksGeometry, coalmineGeometry, coalplantGeometry, dairyGeometry, dairyShopGeometry, garageGeometry, metroGeometry, cctvGeometry, leveeGeometry, embassyGeometry, hydroGeometry, pharmacyGeometry, sewageGeometry, steelmillGeometry, supermarketGeometry } from '../models/chains2';
 import { bakeryGeometry, batteryGeometry, kioskGeometry, landfillGeometry, militaryGeometry, millGeometry, millSailsGeometry, recyclingGeometry, sawmillGeometry } from '../models/chains';
 import { box, hash2, merge, shape } from '../utils/voxel';
@@ -114,6 +114,8 @@ export interface Building {
   strike?: number;
   /** Out of its season (a field in winter, an orchard or an apiary between harvests): no work, wrapped in canvas. */
   resting?: boolean;
+  /** The season the orchard's trees show now. */
+  look?: 'spring' | 'summer' | 'autumn' | 'winter';
   /** Game day the building was started (the timelapse shows the town growing). */
   born?: number;
   /** A fire truck is already on its way. */
@@ -215,6 +217,11 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'pharmacy': return pharmacyGeometry();
     case 'dairyshop': return dairyShopGeometry();
     case 'greenhouse': return greenhouseGeometry();
+    case 'eldercare': return eldercareGeometry();
+    case 'restaurant': return restaurantGeometry();
+    case 'zoo': return zooGeometry();
+    case 'pier': return pierGeometry();
+    case 'forestry': return forestryGeometry();
     case 'apiary': return apiaryGeometry();
     case 'poultry': return poultryGeometry();
     case 'garage': return garageGeometry();
@@ -341,6 +348,7 @@ export class Buildings {
     }
     const cx = x + (def.size >> 1), cz = z + (def.size >> 1);
     if ((kind === 'quarry' || kind === 'ironmine') && this.map.mountainsNear(x, z, 3) < 3) return { ok: false, reason: 'A quarry must be next to mountains' };
+    if (kind === 'pier' && !this.footprint(kind, x, z).some((tl) => this.map.isShore(tl.x, tl.z))) return { ok: false, reason: 'A fishing pier must stand on the shore' };
     if (kind === 'fishery' && !this.footprint(kind, x, z).some((tl) => this.map.isShore(tl.x, tl.z))) return { ok: false, reason: 'A fishing hut must stand on the shore' };
     if (kind === 'hydro' && !this.footprint(kind, x, z).some((tl) => this.map.isShore(tl.x, tl.z))) return { ok: false, reason: 'A dam must stand on the bank of a river or lake' };
     if (kind === 'coalmine' && this.map.mountainsNear(x, z, 3) < 3) return { ok: false, reason: 'A coal mine must be next to mountains' };
@@ -545,6 +553,15 @@ export class Buildings {
     m.name = 'levelDeco';
     m.castShadow = true;
     b.mesh.add(m);
+  }
+
+  /** The orchard's trees follow the seasons (blossom, leaves and apples, autumn colours, bare branches). */
+  setSeasonLook(b: Building, look: 'spring' | 'summer' | 'autumn' | 'winter') {
+    if (b.kind !== 'orchard' || b.look === look) return;
+    b.look = look;
+    let g = this.geoCache.get(`orchard:${look}`);
+    if (!g) { g = bakeShade(orchardGeometry(look)); this.geoCache.set(`orchard:${look}`, g); }
+    (b.mesh.children[0] as THREE.Mesh).geometry = g;
   }
 
   /** Wrap a field, orchard or apiary in canvas while it is out of season (and unwrap it when the season comes). */

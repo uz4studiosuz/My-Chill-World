@@ -68,12 +68,17 @@ export interface Citizen {
   prayed?: number;
   /** Last day they enjoyed a park, a fountain or another decoration (a few happy days follow). */
   joy?: number;
+  /** The kind of workplace they last worked at (their trade; children often follow it). */
+  trade?: string;
   gambled?: number;
   lost?: boolean;
 }
 
 /** Someone in the town's records: who they were, their parents and spouse, when they died or left. */
-export interface ArchivedPerson { id: number; name: string; surname: string; sex: Sex; age: number; mom?: number; dad?: number; spouse?: number; day: number; how: 'died' | 'left'; fame?: string }
+export interface ArchivedPerson { id: number; name: string; surname: string; sex: Sex; age: number; mom?: number; dad?: number; spouse?: number; day: number; how: 'died' | 'left'; fame?: string; trade?: string }
+
+/** What a person who died as the last of their family leaves behind, and to whom (handed out by the game). */
+export interface Inheritance { name: string; surname: string; money: number; home: number; family: number; heirs: number[]; day: number }
 
 export interface StoryEntry { d: number; a: number; k: string; p?: Record<string, string | number> }
 
@@ -114,6 +119,10 @@ export interface Family {
   bills?: { electricity: number; water: number };
   /** A bank mortgage for the family's house: what is still owed, the daily payment and the house. */
   mortgage?: { left: number; perDay: number; house: number };
+  /** Neighbour families they are friends with. */
+  friends?: number[];
+  /** A quarrel with another family (until that day). */
+  feud?: { with: number; until: number; why: string };
 }
 
 export interface DeathReport {
@@ -289,11 +298,36 @@ export class Population {
   removeCitizen(c: Citizen, how: 'died' | 'left' = 'died') {
     const f = this.families.get(c.family);
     const spouse = c.role === 'parent' && f ? this.members(f).find((m) => m.id !== c.id && m.role === 'parent')?.id : undefined;
-    this.archive.set(c.id, { id: c.id, name: c.name, surname: f?.surname ?? '', sex: c.sex, age: Math.floor(c.age), mom: c.mom, dad: c.dad, spouse, day: this.day, how, fame: c.fame });
+    this.archive.set(c.id, { id: c.id, name: c.name, surname: f?.surname ?? '', sex: c.sex, age: Math.floor(c.age), mom: c.mom, dad: c.dad, spouse, day: this.day, how, fame: c.fame, trade: c.trade });
     if (this.archive.size > 4000) this.archive.delete(this.archive.keys().next().value!);
     if (f) f.members = f.members.filter((id) => id !== c.id);
     this.citizens.delete(c.id);
+    // the last of the family died: their money and what they owned go to their children (or brothers and sisters)
+    if (f && how === 'died' && !f.members.length) {
+      const kin = (pick: (x: Citizen) => boolean) => [...new Set([...this.citizens.values()].filter(pick).map((x) => x.family))].filter((id) => id !== f.id);
+      let heirs = kin((x) => x.mom === c.id || x.dad === c.id || (spouse !== undefined && (x.mom === spouse || x.dad === spouse)));
+      if (!heirs.length && (c.mom !== undefined || c.dad !== undefined)) heirs = kin((x) => (c.mom !== undefined && x.mom === c.mom) || (c.dad !== undefined && x.dad === c.dad));
+      this.inheritances.push({ name: c.name, surname: f.surname, money: Math.max(0, Math.round(f.money)), home: f.home, family: f.id, heirs, day: this.day });
+      f.money = 0;
+    }
   }
+
+  /** Wills waiting to be handed out (the game gives the money and buildings to the heirs). */
+  inheritances: Inheritance[] = [];
+
+  /** The trade of a person's father or mother (alive or remembered), which children often follow. */
+  familyTrade(c: Citizen): { kind: string; who: 'father' | 'mother' } | null {
+    for (const [id, who] of [[c.dad, 'father'], [c.mom, 'mother']] as [number | undefined, 'father' | 'mother'][]) {
+      if (id === undefined) continue;
+      const p = this.citizens.get(id);
+      const k = p ? p.trade ?? (p.job >= 0 ? this.jobKind?.(p.job) : undefined) : this.archive.get(id)?.trade;
+      if (k) return { kind: k, who };
+    }
+    return null;
+  }
+
+  /** About six in ten children take up the family trade when they can; the others choose their own way. */
+  followsTrade(c: Citizen) { return ((c.id * 2654435761) >>> 0) % 10 < 6; }
 
   removeFamily(f: Family) {
     for (const c of this.members(f)) this.removeCitizen(c, 'left');
@@ -357,7 +391,11 @@ export class Population {
         if (id >= 0) { c.school = id; seats.set(id, seats.get(id)! - 1); }
       }
       if (c.job < 0 && this.canWork(c)) {
-        const id = nearest(free, homeOf(c), undefined, c);
+        // the family trade first (for most), when there is a free place they can take
+        const ft = this.followsTrade(c) ? this.familyTrade(c) : null;
+        let id = ft ? nearest(free, homeOf(c), ft.kind) : -1;
+        if (id >= 0 && !this.fits(c, buildings.get(id)!)) id = -1;
+        if (id < 0) id = nearest(free, homeOf(c), undefined, c);
         if (id >= 0) { c.job = id; free.set(id, free.get(id)! - 1); }
       }
     }
@@ -403,7 +441,12 @@ export class Population {
       // life story: new job, lost job, new school
       const [job, school] = before.get(c.id) ?? [-1, -1];
       if (c.job !== job) {
-        if (b) this.note(c, 'Started working at the {place}', { place: BUILDINGS[b.kind].name });
+        if (b) {
+          const ft = this.familyTrade(c);
+          if (ft && ft.kind === b.kind) this.note(c, ft.who === 'father' ? 'Followed in their father\'s footsteps at the {place}' : 'Followed in their mother\'s footsteps at the {place}', { place: BUILDINGS[b.kind].name });
+          else this.note(c, 'Started working at the {place}', { place: BUILDINGS[b.kind].name });
+          c.trade = b.kind;
+        }
         else if (job >= 0) this.note(c, 'Lost their job');
       }
       if (c.school !== school && c.school >= 0) {
@@ -721,11 +764,11 @@ export class Population {
     return [...this.families.values()].map((f) => ({
       id: f.id, surname: f.surname, home: f.home, money: Math.round(f.money), income: f.income,
       car: f.car ? { color: f.car.color, fuel: Math.round(f.car.fuel) } : null, bike: f.bike || undefined, debtDays: f.debtDays, loan: f.loan ? Math.round(f.loan) : undefined, pantry: f.pantry === undefined ? undefined : Math.round(f.pantry * 10) / 10,
-      earn: f.earn, earnY: f.earnY, bills: f.bills, mortgage: f.mortgage,
+      earn: f.earn, earnY: f.earnY, bills: f.bills, mortgage: f.mortgage, friends: f.friends, feud: f.feud,
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, gambled: c.gambled, lost: c.lost || undefined,
+        story: c.story, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, trade: c.trade, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));
   }
@@ -734,7 +777,7 @@ export class Population {
     this.citizens.clear();
     this.families.clear();
     for (const fd of data) {
-      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan, pantry: fd.pantry, bike: fd.bike, earn: fd.earn, earnY: fd.earnY, bills: fd.bills, mortgage: fd.mortgage };
+      const f: Family = { id: fd.id, surname: fd.surname, home: fd.home, money: fd.money, income: fd.income, car: fd.car ? { color: fd.car.color, at: 'home', fuel: fd.car.fuel ?? 80 } : null, members: [], debtDays: fd.debtDays, loan: fd.loan, pantry: fd.pantry, bike: fd.bike, earn: fd.earn, earnY: fd.earnY, bills: fd.bills, mortgage: fd.mortgage, friends: fd.friends, feud: fd.feud };
       this.families.set(f.id, f);
       this.nextFamily = Math.max(this.nextFamily, f.id + 1);
       for (const m of fd.members) {

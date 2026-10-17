@@ -129,10 +129,25 @@ export class Terrain {
     this.setTreeVisible(k, false);
   }
 
-  /** Called once per day. */
-  regrow() {
+  /** Closest stump (a felled tree waiting to grow back) within r tiles that isn't in `skip`. */
+  nearestStump(x: number, z: number, r: number, skip: Set<number>) {
+    let best = -1, bd = Infinity;
+    for (const k of this.stumps.keys()) {
+      if (skip.has(k) || this.cleared[k]) continue;
+      const d = Math.abs((k % N) - x) + Math.abs(((k / N) | 0) - z);
+      if (d <= r && d < bd) { bd = d; best = k; }
+    }
+    return best;
+  }
+
+  /** A forester planted a sapling on the stump: the tree is back tomorrow. */
+  plant(k: number) { if (this.stumps.has(k)) this.stumps.set(k, 1); }
+
+  /** Called once per day; stumps near a forestry grow back twice as fast. */
+  regrow(fast: (k: number) => boolean = () => false) {
     for (const [k, d] of this.stumps) {
-      if (d > 1) { this.stumps.set(k, d - 1); continue; }
+      const step = fast(k) ? 2 : 1;
+      if (d > step) { this.stumps.set(k, d - step); continue; }
       this.stumps.delete(k);
       if (this.cleared[k]) continue;
       this.treeHp.delete(k);

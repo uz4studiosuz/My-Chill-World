@@ -1,7 +1,21 @@
 import { el, icon } from './dom';
 import { t } from '../i18n/i18n';
 
-export interface LogEntry { day: number; text: string }
+export interface LogEntry { day: number; text: string; cat?: LogCat }
+
+export type LogCat = 'danger' | 'family' | 'money' | 'build' | 'town';
+
+/** Which group a message belongs to (by its words, in English or Uzbek). */
+export function logCat(text: string): LogCat {
+  const s = text.toLowerCase();
+  if (/fire|flood|thef|stole|crime|storm|crash|strike|flu\b|ill\b|sick|lightning|murder|robb|danger|yong'in|toshqin|o'g'ri|bo'ron|avariya|ish tashla|gripp|kasal|chaqmoq|qotil|xavf/.test(s)) return 'danger';
+  if (/born|baby|married|wedding|died|funeral|will\b|inherit|friends|quarrel|peace|family|families|grave|tug'il|chaqaloq|to'y|nikoh|vafot|dafn|meros|vasiyat|do'st|janjal|yarash|oila|qabr/.test(s)) return 'family';
+  if (/\$|sold|bought|trade|bond|price|crisis|boom|order|tax|loan|bank|export|invest|share|sot|narx|inqiroz|yuksalish|obligatsiya|buyurtma|soliq|kredit|savdo|sarmoya|ulush/.test(s)) return 'money';
+  if (/built|building|construction|road|tunnel|floor|bridge|finished|opened|qurildi|qurilish|qurish|yo'l|tunnel|qavat|ko'prik|bino|ochildi|tugadi/.test(s)) return 'build';
+  return 'town';
+}
+
+const CATS: [LogCat | 'all', string, string][] = [['all', '📋', 'All'], ['danger', '⚠️', 'Danger'], ['family', '👪', 'Family and people'], ['money', '💰', 'Money and trade'], ['build', '🏗️', 'Building'], ['town', '🏛️', 'Town']];
 
 const MAX = 200;
 
@@ -12,13 +26,16 @@ export class EventLog {
   private body: HTMLDivElement;
   private filter = '';
   private tab: 'mine' | 'neighbours' = 'mine';
+  private cat: LogCat | 'all' = 'all';
+  /** Entries added since the list was last opened. */
+  unread = 0;
   visible = false;
 
   constructor(parent: HTMLElement, private dateOf: (day: number) => string, private foreign: () => { day: number; text: string; town: string; tint: string }[] = () => []) {
     this.root = el('div', 'goals eventlog');
     const head = el('div', 'stats-head');
     const title = el('b', '');
-    title.textContent = t('Chronicle');
+    title.textContent = t('Notifications');
     const close = el('button', 'info-x');
     close.innerHTML = icon('close');
     close.setAttribute('aria-label', t('Close'));
@@ -36,19 +53,28 @@ export class EventLog {
       b.addEventListener('click', () => { this.tab = id; tabs.querySelectorAll('.stab').forEach((x) => x.classList.toggle('active', x === b)); this.render(); });
       tabs.appendChild(b);
     }
-    this.root.append(head, tabs, search, this.body);
+    // filter by kind of message
+    const chips = el('div', 'log-cats');
+    for (const [id, emoji, label] of CATS) {
+      const b = el('button', `log-cat${id === this.cat ? ' on' : ''}`);
+      b.textContent = `${emoji} ${t(label)}`;
+      b.addEventListener('click', () => { this.cat = id; chips.querySelectorAll('.log-cat').forEach((x) => x.classList.toggle('on', x === b)); this.render(); });
+      chips.appendChild(b);
+    }
+    this.root.append(head, tabs, chips, search, this.body);
     parent.appendChild(this.root);
   }
 
   add(day: number, text: string) {
-    this.entries.push({ day, text });
+    this.entries.push({ day, text, cat: logCat(text) });
+    if (!this.visible) this.unread++;
     if (this.entries.length > MAX) this.entries.shift();
     if (this.visible) this.render();
   }
 
   load(list: LogEntry[] = []) {
     this.entries.length = 0;
-    this.entries.push(...list.slice(-MAX));
+    this.entries.push(...list.slice(-MAX).map((e) => ({ day: e.day, text: e.text, cat: e.cat ?? logCat(e.text) })));
   }
 
   toggle() {
@@ -58,6 +84,7 @@ export class EventLog {
 
   show() {
     this.visible = true;
+    this.unread = 0;
     this.root.classList.add('show');
     this.render();
   }
@@ -89,7 +116,7 @@ export class EventLog {
       }
       return;
     }
-    const list = this.entries.filter((e) => !this.filter || e.text.toLowerCase().includes(this.filter)).slice().reverse();
+    const list = this.entries.filter((e) => (!this.filter || e.text.toLowerCase().includes(this.filter)) && (this.cat === 'all' || (e.cat ?? logCat(e.text)) === this.cat)).slice().reverse();
     if (!list.length) {
       const empty = el('div', 'goals-sum');
       empty.textContent = t('Nothing has happened yet');
@@ -104,8 +131,11 @@ export class EventLog {
         h.textContent = this.dateOf(e.day);
         this.body.appendChild(h);
       }
-      const row = el('div', 'log-row');
-      row.textContent = e.text;
+      const cat = e.cat ?? logCat(e.text);
+      const row = el('div', `log-row log-${cat}`);
+      row.innerHTML = '<i class="log-ic"></i><span></span>';
+      (row.querySelector('i') as HTMLElement).textContent = CATS.find(([id]) => id === cat)?.[1] ?? '•';
+      (row.querySelector('span') as HTMLElement).textContent = e.text;
       this.body.appendChild(row);
     }
     this.body.scrollTop = scroll;

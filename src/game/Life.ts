@@ -1007,7 +1007,8 @@ export class Life {
     this.crews.clear();
     this.busyBuilders.clear();
     this.cleanupSpots();
-    terrain.regrow();
+    const forests = buildings.list.filter((b) => b.kind === 'forestry' && b.built >= 1 && b.workers > 0);
+    terrain.regrow((k) => forests.some((f) => Math.abs(f.x - (k % N)) + Math.abs(f.z - ((k / N) | 0)) <= 14));
     this.rained.clear();
     const month = monthOf(eco.day);
     this.festival = month === 2 ? 'Navruz' : month === 0 ? 'New Year' : month === 8 ? 'Independence Day' : null;
@@ -1842,6 +1843,9 @@ export class Life {
     }
   }
 
+  /** Lonely old people in each town and how many the care homes look after. */
+  careBy = new Map<number, { lonely: number; cared: number }>();
+
   /** The economy: 1 normal, below 1 in a crisis, above 1 in a boom (set by the game). Sales, prices and mood follow it. */
   econFactor = 1;
 
@@ -1852,6 +1856,19 @@ export class Life {
    * Weather events: in spring the rivers can rise and flood the homes along the water (a flood wall within 6 tiles
    * keeps them dry); in winter a snowstorm makes the traffic crawl for a day.
    */
+  /** Two orange snow ploughs drive from the yard to the far ends of the town and back. */
+  private ploughs(yard: Building) {
+    const { buildings, traffic } = this.c;
+    const ends = buildings.list.filter((b) => b.city === yard.city && b.access >= 0 && b.built >= 1 && b !== yard && traffic.canRoute(yard.access, b.access))
+      .sort((a, b) => dist(b, yard) - dist(a, yard)).slice(0, 6);
+    for (const to of ends.sort(() => Math.random() - 0.5).slice(0, 2)) {
+      const back = () => traffic.spawn({ kind: 'truck', from: to.access, to: yard.access, color: new THREE.Color('#f28c28'), fromPos: buildings.door(to), toPos: buildings.door(yard),
+        purpose: 'Clearing snow', driverName: 'Snow plough driver', fromName: BUILDINGS[to.kind].name, destName: BUILDINGS[yard.kind].name });
+      traffic.spawn({ kind: 'truck', from: yard.access, to: to.access, color: new THREE.Color('#f28c28'), fromPos: buildings.door(yard), toPos: buildings.door(to),
+        purpose: 'Clearing snow', driverName: 'Snow plough driver', fromName: BUILDINGS[yard.kind].name, destName: BUILDINGS[to.kind].name, onArrive: () => { back(); } });
+    }
+  }
+
   private weatherEvents(season: string) {
     const { buildings, map, eco, effects, traffic } = this.c;
     this.snowstorm = 0;
@@ -1859,8 +1876,11 @@ export class Life {
     if (this.calm) return;
     if (season === 'winter' && Math.random() < 0.08) {
       this.snowstorm = 1;
-      traffic.speedScale = 0.5;
-      this.events.push(t('Snowstorm! The roads are covered in snow and the traffic crawls today'));
+      // the construction company sends its snow ploughs out: the traffic only slows a little
+      const yards = buildings.list.filter((b) => b.kind === 'construction' && b.built >= 1 && b.workers > 0 && b.access >= 0 && !eco.cities.get(b.city)?.ai);
+      traffic.speedScale = yards.length ? 0.85 : 0.5;
+      if (yards.length) { this.events.push(t('Snowstorm! The snow ploughs of the construction company are clearing the roads')); for (const y of yards) this.ploughs(y); }
+      else this.events.push(t('Snowstorm! The roads are covered in snow and the traffic crawls today (a Construction Company would send snow ploughs)'));
     }
     if (season !== 'spring' || Math.random() > 0.07) return;
     const walls = buildings.list.filter((b) => b.kind === 'levee' && b.built >= 1);
@@ -2278,9 +2298,18 @@ export class Life {
   private pensions(city: City, belongs: (f: Family) => boolean) {
     const { pop, eco } = this.c;
     let total = 0;
+    // the carers of the care home look after the old people who live alone
+    let care = this.careBy.get(city.id)?.cared ?? 0;
+    for (const c of pop.citizens.values()) {
+      if (care <= 0) break;
+      const f = pop.families.get(c.family);
+      if (!f || !belongs(f) || c.age < 65 || !pop.members(f).every((m) => m.age >= 65)) continue;
+      c.health = Math.min(100, c.health + 6); c.hunger = Math.max(c.hunger, 60); care--;
+    }
     for (const f of pop.families.values()) {
       if (!belongs(f)) continue;
-      for (const c of pop.members(f)) if (c.age >= 65) { f.money += PENSION; total += PENSION; }
+      const pension = Math.round(PENSION * (city.budget?.pension ?? 100)) / 100;
+      for (const c of pop.members(f)) if (c.age >= 65) { f.money += pension; total += pension; }
     }
     if (total) eco.add(city, 'money', -total, 'Pensions');
   }
@@ -2489,6 +2518,18 @@ export class Life {
     { let lm = 0; for (const id of city.laws ?? []) lm += LAWS.find((l) => l.id === id)?.mood ?? 0; if (lm) add('Laws', lm); }
     { let bm = 0; for (const a of BUDGET_AREAS) { const v = city.budget?.[a.id] ?? 100; bm += v < 100 ? -(100 - v) / 20 : (v - 100) / 40; } if (Math.abs(bm) >= 0.1) add('Town budget', bm); }
     { const famous = people.filter((c) => c.fame).length; if (famous) add('Famous citizens', Math.min(4, famous)); }
+    {
+      const lonely = people.filter((c) => c.age >= 65 && pop.members(pop.families.get(c.family)!).every((m) => m.age >= 65)).length;
+      const seats = own.filter((b) => b.kind === 'eldercare' && b.workers > 0).length * 16;
+      const cared = Math.min(lonely, seats);
+      this.careBy.set(city.id, { lonely, cared });
+      if (lonely > cared) add('Lonely old people', -Math.min(6, ((lonely - cared) / n) * 60));
+      if (cared) add('Elder care home', Math.min(3, cared * 0.3));
+      const fams = [...pop.families.values()].filter(belongs);
+      const friends = fams.reduce((a, f) => a + (f.friends?.length ?? 0), 0) / 2, feuds = fams.filter((f) => f.feud && f.feud.until > this.c.eco.day).length / 2;
+      if (friends) add('Friendly neighbours', Math.min(3, (friends / Math.max(1, fams.length)) * 12));
+      if (feuds) add('Quarrels between neighbours', -Math.min(4, feuds * 1.2));
+    }
     if ((city.parkingFee ?? 0) > 0) add('Parking fees', -(city.parkingFee ?? 0) * 1.2);
     if ((city.metroRiders ?? 0) > 0) add('Metro', Math.min(5, (city.metroRiders ?? 0) / 20));
     if ((city.thefts ?? 0) > 0) add('Thefts', -Math.min(8, (city.thefts ?? 0) * 1.5));
@@ -2984,6 +3025,7 @@ export class Life {
     else if (work === 'farmer') this.farmLoop(c, b);
     else if (work === 'builder') this.builderLoop(c, b);
     else if (work === 'miner') this.mineLoop(c, b);
+    else if (work === 'forester') this.foresterLoop(c, b);
     else if (c.walker) { this.c.walkers.dismiss(c.walker); c.walker = undefined; }
   }
 
@@ -3767,6 +3809,33 @@ export class Life {
   }
 
   // ---------- work behaviour ----------
+
+  /** Foresters walk to a stump within 14 tiles, plant a sapling there (the tree is back tomorrow) and go on to the next. */
+  private foresterLoop(c: Citizen, lodge: Building) {
+    const { terrain, buildings, walkers, eco, effects } = this.c;
+    const atWork = () => this.alive(c) && c.state === 'away' && c.at === lodge.id && !lodge.removed && eco.timeOfDay < c.returnAt;
+    if (!atWork()) return;
+    const k = terrain.nearestStump(lodge.x, lodge.z, 14, this.reservedTrees);
+    if (k < 0) { if (c.walker) { walkers.dismiss(c.walker); c.walker = undefined; } c.activity = 'Tending the saplings'; return; }
+    this.reservedTrees.add(k);
+    const at = { x: tileToWorld(k % N), z: tileToWorld((k / N) | 0) };
+    const outside = c.walker && !c.walker.leaving;
+    const start = outside ? { x: c.walker!.x, z: c.walker!.z } : buildings.door(lodge);
+    const startTile = outside ? tileAt(start) : buildings.frontTile(lodge);
+    c.activity = 'Carrying a sapling';
+    this.walk(c, start, startTile, null, () => {
+      const w = c.walker;
+      if (!w || !atWork()) { this.reservedTrees.delete(k); return; }
+      c.activity = 'Planting a sapling';
+      walkers.holdFor(w, 1.6, 'chop', () => {
+        terrain.plant(k);
+        this.reservedTrees.delete(k);
+        this.tally(lodge, 'Saplings planted');
+        effects.puff(at.x, at.z, 0.2, 5, ['#5f9a3e', '#8a5a35']);
+        this.foresterLoop(c, lodge);
+      }, at);
+    }, 'log', { x: at.x + 0.2, z: at.z + 0.2 });
+  }
 
   private woodcutterLoop(c: Citizen, hut: Building) {
     const { terrain, buildings, walkers, eco, effects } = this.c;
