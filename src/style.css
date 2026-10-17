@@ -2602,3 +2602,14 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
 .emb-payopt.on { border-color: var(--accent); background: var(--raised-hi); }
 .emb-payopt.on b { color: var(--accent); }
 @media (max-width: 600px) { .emb-pay { grid-template-columns: 1fr; } }
+
+/* the embassy: the answer to the last offer, and the yes before the money goes */
+.emb-msg { margin: 8px 14px 0; padding: 9px 12px; border-radius: 10px; font-size: 13px; font-weight: 700; border: 1px solid var(--line); background: var(--raised); }
+.emb-msg.ok { border-color: var(--good); color: var(--good); }
+.emb-msg.no { border-color: var(--bad); color: #ffb3aa; }
+.emb-opt { user-select: none; }
+.emb-opt.confirm { border-color: var(--accent); }
+.emb-confirm { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.emb-confirm p { margin: 0 0 6px; font-size: 11.5px; line-height: 1.35; color: var(--text); }
+.emb-confirm div { display: flex; gap: 5px; }
+.emb-confirm .btn-mini { flex: 1; width: auto; padding: 6px 4px; }

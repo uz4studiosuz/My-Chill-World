@@ -2337,7 +2337,7 @@ export class Game implements ToolHost {
     const held = b.shares?.find((s) => s.city === me.id)?.pct ?? 0;
     if (held >= 0.49) return this.hud?.toast(t('You already hold as much as they sell (49%)'));
     const price = Math.round(BUILDINGS[b.kind].money * 0.12 * (1 + 0.5 * ((b.level || 1) - 1)) / 10) * 10;
-    if (me.money < price) return this.hud?.toast(t('Not enough money — needs ${n}', { n: price }));
+    if (me.money < price) { this.embassy?.flash(t('Not enough money — needs ${n}', { n: price }), false); return this.hud?.toast(t('Not enough money — needs ${n}', { n: price })); }
     const owner = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
     const town = this.eco.cities.get(b.city);
     this.eco.add(me, 'money', -price, 'Shares bought');
@@ -2348,6 +2348,7 @@ export class Game implements ToolHost {
     this.embassy?.render();
     sound.play('coin');
     this.hud?.toast(t('You now hold {n}% of the {name}', { n: Math.round((held + 0.1) * 100), name: t(BUILDINGS[b.kind].name) }));
+    this.embassy?.flash(t('You now hold {n}% of the {name}', { n: Math.round((held + 0.1) * 100), name: t(BUILDINGS[b.kind].name) }), true);
     this.refreshInspector();
     this.refreshHud();
   }
@@ -4755,7 +4756,42 @@ export class Game implements ToolHost {
       ] },
       { title: t('Workers by sector'), donut: [...sector.entries()].map(([k, v], i) => [t(k), v[0], C[i % C.length]] as [string, number, string]) },
       { title: t('Filled jobs by sector'), bars: [...sector.entries()].map(([k, v], i) => [t(k), v[1] ? v[0] / v[1] : 0, C[i % C.length], `${v[0]}/${v[1]}`] as [string, number, string, string]) },
-      { title: t('People and workers over time'), chart: { series: [series(t('People'), '#6fb6ff', hist.map((h) => h.pop)), series(t('Working'), '#7be08f', hist.map((h) => (h as { work?: number }).work ?? 0))] } },
+      { title: t('People and workers over time'), wide: true, chart: { series: [
+        series(t('People'), '#6fb6ff', hist.map((h) => h.pop)),
+        series(t('Jobs'), '#f2a93b', hist.map((h) => (h as { jobs?: number }).jobs ?? 0)),
+        series(t('Can work'), '#b9a3e0', hist.map((h) => (h as { able?: number }).able ?? 0)),
+        series(t('Working'), '#7be08f', hist.map((h) => (h as { work?: number }).work ?? 0)),
+      ] }, note: t('Jobs (amber) above Can work (violet) means there are not enough people for the jobs: build homes so job seekers can move in. Working (green) below Can work means people are out of work.') },
+      (() => {
+        const all = [...this.pop.citizens.values()].filter((c) => this.cityOfCitizen(c) === id);
+        const kids = all.filter((c) => c.age < 16).length;
+        const school = all.filter((c) => c.age >= 16 && c.school >= 0).length;
+        const leave = all.filter((c) => this.pop.onLeave(c)).length;
+        const retired = all.filter((c) => c.age >= 65 && !this.pop.canWork(c)).length;
+        const oldWork = all.filter((c) => c.age >= 65 && c.job >= 0).length;
+        const teenWork = all.filter((c) => c.age < 18 && c.job >= 0).length;
+        const able = all.filter((c) => this.pop.canWork(c)).length;
+        const working = all.filter((c) => c.job >= 0).length;
+        const open = Math.max(0, jobs - staff);
+        const needDip = built.filter((b) => this.pop.need(b) >= 1).reduce((a, b) => a + Math.max(0, BUILDINGS[b.kind].jobs - b.workers), 0);
+        const free = this.life.freeHomesCount(id);
+        const why = open > 0 && able <= working ? t('Everyone who can work already works: the town needs more people. Build homes (job seekers move in when there are free homes) or a Migration Company.')
+          : open > 0 && needDip > 0 && able > working ? t('Some jobs need a trade or a diploma that the jobless do not have: build schools or a university, or hold a job fair.')
+          : open > 0 ? t('Jobs are open and people are looking: they will be hired soon.') : t('Every job is filled.');
+        return { title: t('Why are jobs empty?'), wide: true, rows: [
+          [t('People in town'), n(all.length)],
+          [t('Children (under 16)'), n(kids)],
+          [t('At school or university'), n(school)],
+          [t('Mothers with a baby'), n(leave)],
+          [t('Retired'), n(retired)],
+          [t('Can work'), n(able), 'good'],
+          [t('Working'), `${n(working)}${teenWork || oldWork ? ` · ${t('{a} teenagers, {b} pensioners', { a: teenWork, b: oldWork })}` : ''}`, 'good'],
+          [t('Out of work'), n(Math.max(0, able - working)), able - working > 0 ? 'bad' : undefined],
+          [t('Open jobs'), n(open), open > 0 ? 'bad' : 'good'],
+          [t('Of them needing a trade or a diploma'), n(needDip)],
+          [t('Free homes for newcomers'), n(free), free ? 'good' : 'bad'],
+        ] as [string, string, ('good' | 'bad')?][], note: why } as ReportSection;
+      })(),
       { title: t('Best paid jobs'), bars: [...new Set(built.filter((b) => BUILDINGS[b.kind].jobs).map((b) => b.kind))].map((k) => [t(BUILDINGS[k].name), BUILDINGS[k].salary * (city.wages[k] ?? 1), DEGREE_JOBS[k] ? '#b9a3e0' : '#6fb6ff', `$${(BUILDINGS[k].salary * (city.wages[k] ?? 1)).toFixed(1)}${DEGREE_JOBS[k] ? ' 🎓' : ''}`] as [string, number, string, string]).sort((a, b) => b[1] - a[1]).slice(0, 14) },
     ] });
     // ---- every good: in stock, in and out yesterday ----
@@ -5140,7 +5176,8 @@ export class Game implements ToolHost {
     for (const c of this.eco.cities.values()) {
       const h = this.worldHistory.get(c.id) ?? [];
       if (h.length && h[h.length - 1].day === this.eco.day) continue;
-      h.push({ day: this.eco.day, pop: pops.get(c.id) ?? 0, money: Math.round(c.money), happy: Math.round(c.happiness), work: this.buildings.list.reduce((a, b) => a + (b.city === c.id ? b.workers : 0), 0) } as { day: number; pop: number; money: number; happy: number });
+      const own = this.buildings.list.filter((b) => b.city === c.id && b.built >= 1 && !b.removed);
+      h.push({ day: this.eco.day, pop: pops.get(c.id) ?? 0, money: Math.round(c.money), happy: Math.round(c.happiness), work: own.reduce((a, b) => a + b.workers, 0), jobs: own.reduce((a, b) => a + BUILDINGS[b.kind].jobs, 0), able: this.pop.counts((x) => this.cityOfCitizen(x) === c.id).workforce } as { day: number; pop: number; money: number; happy: number });
       if (h.length > 90) h.shift();
       this.worldHistory.set(c.id, h);
       // today's price of every good in this town
@@ -5689,13 +5726,13 @@ export class Game implements ToolHost {
   private giftTown(id: number, m: number) {
     const me = this.eco.city, town = this.eco.cities.get(id);
     if (!town) return;
-    if (me.money < m) return this.hud?.toast(t('Not enough money — needs ${n}', { n: m }));
+    if (me.money < m) { this.embassy?.flash(t('Not enough money — needs ${n}', { n: m }), false); return this.hud?.toast(t('Not enough money — needs ${n}', { n: m })); }
     this.eco.add(me, 'money', -m, 'Help to neighbour towns');
     this.eco.add(town, 'money', m, 'Help from a neighbour town');
     town.relation = Math.min(100, (town.relation ?? 40) + m / 250);
     this.deal(id, t('Gave ${m} as help (relations +{r})', { m, r: Math.round(m / 250) }), -m);
     sound.play('coin');
-    this.embassy?.render();
+    this.embassy?.flash(t('{city} thanks you for the gift: relations +{r}', { city: town.name, r: Math.round(m / 250) }), true);
     if (this.cityReport?.visible) this.cityReport.render();
     this.refreshHud();
   }
@@ -5818,31 +5855,32 @@ export class Game implements ToolHost {
 
   /** A joint project from the embassy: you pay half, the neighbour pays half, builds it and staffs it; the profit is shared. */
   private jointProject(town: City, kind: BuildingKind, full = false) {
+    const say = (m: string, ok = false) => { this.hud?.toast(m); this.embassy?.flash(m, ok); };
     const me = this.eco.city;
     const d = BUILDINGS[kind];
     // we pay half (half the profit) or all of it (three quarters of the profit)
     const half = full ? d.money : Math.round(d.money / 2);
-    if (me.money < half) return this.hud?.toast(t('Not enough money — needs ${n}', { n: half }));
+    if (me.money < half) return say(t('Not enough money — needs ${n}', { n: half }));
     const rel = town.relation ?? 40;
     if (Math.random() > Math.min(1, this.yesChance(town, kind) + (full ? 0.15 : 0))) {
       town.relation = Math.max(0, rel - 1);
       this.deal(town.id, t('Turned down a joint {name}', { name: t(d.name) }), 0);
       sound.play('error');
-      return this.hud?.toast(t('{city} said no to a joint {name} — be better friends and ask again', { city: town.name, name: t(d.name) }));
+      return say(t('{city} said no to a joint {name} — be better friends and ask again', { city: town.name, name: t(d.name) }));
     }
     this.eco.add(me, 'money', -half, 'Joint projects with neighbour towns');
     this.eco.add(town, 'money', half, 'Joint projects with neighbour towns');
     if (!this.autoCity.buildFunded(town, kind, me.name)) {
       this.eco.add(town, 'money', -half, 'Joint projects with neighbour towns');
       this.eco.add(me, 'money', half, 'Joint projects with neighbour towns');
-      return this.hud?.toast(t('{city} has no room or materials for it right now', { city: town.name }));
+      return say(t('{city} has no room or materials for it right now', { city: town.name }));
     }
     const b = [...this.buildings.list].reverse().find((x) => x.city === town.id && x.kind === kind && x.built < 1);
     if (b) { b.investor = me.id; b.paid = (b.paid ?? 0) + half; b.investShare = full ? 0.75 : 0.5; this.refreshFlags(); }
     town.relation = Math.min(100, rel + 6);
     this.deal(town.id, full ? t('{name} built for {city}: you paid it all (${n}), 75% of the profit is yours', { name: t(d.name), city: town.name, n: half }) : t('Joint {name}: you paid half (${n}), the profit is shared', { name: t(d.name), n: half }), -half);
     sound.play('coin');
-    this.hud?.toast(t('{city} is building a joint {name} — half of its profit will come to you', { city: town.name, name: t(d.name) }));
+    say(full ? t('{city} agreed! They are building the {name}: 75% of its profit will be yours', { city: town.name, name: t(d.name) }) : t('{city} is building a joint {name} — half of its profit will come to you', { city: town.name, name: t(d.name) }), true);
     this.refreshInspector();
   }
 

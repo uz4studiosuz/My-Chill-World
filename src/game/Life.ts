@@ -1478,6 +1478,9 @@ export class Life {
    * New families move in when the town has free homes and is a good place to live. The more jobs stand empty,
    * the faster they come. Every city remembers what keeps newcomers away (shown in the Jobs and Population panels).
    */
+  /** Free homes of a town (for the jobs page). */
+  freeHomesCount(cityId: number) { return this.freeHomes(cityId).length; }
+
   private immigrate() {
     const { pop, eco, buildings } = this.c;
     const people = this.populationByCity();
@@ -1505,7 +1508,15 @@ export class Life {
         continue;
       }
       const pay = Object.values(city.wages).reduce((a, v) => a + v, 0) / Math.max(1, Object.keys(city.wages).length);
-      const arrivals = Math.min(homes.length, office ? 5 : 4, 1 + Math.floor(vacancies / 8) + (pay > 1.1 ? 1 : 0) + (office ? 1 : 0));
+      // the more jobs wait for people, the more come — job seekers first: young singles and couples
+      const lacking = Math.max(0, vacancies - unemployed);
+      const arrivals = Math.min(homes.length, office ? 7 : 5, 1 + Math.floor(lacking / 6) + (pay > 1.1 ? 1 : 0) + (office ? 1 : 0));
+      // jobless families of the neighbour towns move here for the work
+      if (lacking >= 4 && eco.cities.size > 1 && Math.random() < 0.5) {
+        const owners = new Set(buildings.list.map((b) => b.owner));
+        const fam = [...pop.families.values()].find((x) => { const h = buildings.get(x.home); return !!h && h.city !== city.id && !!eco.cities.get(h.city)?.ai && !owners.has(x.id) && pop.members(x).some((m) => pop.canWork(m) && m.job < 0); });
+        if (fam && this.relocate(fam, buildings.get(fam.home)!.city, false)) { this.cityEvent(city.id, t('The {family} family came from a neighbour town for the open jobs', { family: fam.surname })); continue; }
+      }
       if (eco.cities.size > 1 && Math.random() < 0.4) {
         const worse = [...eco.cities.values()].filter((c) => c.id !== city.id && c.happiness + 5 < city.happiness);
         const src = worse[Math.floor(Math.random() * worse.length)];
@@ -1516,12 +1527,14 @@ export class Life {
       for (let i = 0; i < arrivals; i++) {
         const free = this.freeHomes(city.id);
         if (!free.length) break;
-        const f = pop.createFamily(pick(free).id, { carChance: 0 });
+        // with many empty jobs most newcomers are job seekers (one or two young adults), else whole families
+        const seekers = lacking >= 4 && Math.random() < 0.7;
+        const f = pop.createFamily(pick(free).id, { carChance: 0, size: seekers ? (Math.random() < 0.5 ? 1 : 2) : undefined, young: seekers });
         pop.assign(buildings);
         // only the newcomers plan their day (re-planning everyone would send people back to work in the evening)
         pop.planDay(pop.members(f));
         this.register(city.id, f, t('far away'));
-        this.cityEvent(city.id, t('A new family moved in'));
+        this.cityEvent(city.id, seekers ? t('Job seekers moved in: {n} new workers', { n: pop.members(f).filter((m) => pop.canWork(m)).length }) : t('A new family moved in'));
       }
     }
   }

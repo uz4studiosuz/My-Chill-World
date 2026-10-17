@@ -238,10 +238,17 @@ export class Population {
   fits(c: Citizen, b: Building) { return !(b.kind === 'mosque' && c.sex === 'f') && c.skill >= this.need(b); }
 
   canWork(c: Citizen) {
-    return c.age >= ADULT_AGE && c.age < RETIRE_AGE && !this.onLeave(c) && !(c.school >= 0 && c.age < UNI_END);
+    if (this.onLeave(c) || (c.school >= 0 && c.age < UNI_END)) return false;
+    // teenagers who left school take a job from 16; about four in ten pensioners keep working until 72 while healthy
+    if (c.age >= 16 && c.age < ADULT_AGE) return c.school < 0;
+    if (c.age >= RETIRE_AGE) return c.age < 72 && c.health > 50 && this.keepsWorking(c);
+    return c.age >= ADULT_AGE;
   }
 
-  createFamily(home: number, opts: { size?: number; carChance?: number; money?: number } = {}): Family {
+  /** About four in ten people like to keep working after 65 (fixed for each person). */
+  keepsWorking(c: Citizen) { return ((c.id * 2246822519) >>> 0) % 10 < 4; }
+
+  createFamily(home: number, opts: { size?: number; carChance?: number; money?: number; young?: boolean } = {}): Family {
     const size = opts.size ?? 2 + Math.floor(Math.random() * 4);
     const f: Family = {
       id: this.nextFamily++, surname: clanName(), home, money: opts.money ?? Math.round(rand(200, 1200)),
@@ -249,7 +256,7 @@ export class Population {
       members: [], debtDays: 0,
     };
     this.families.set(f.id, f);
-    const dadAge = Math.round(size >= 6 ? rand(38, 56) : rand(24, 45));
+    const dadAge = Math.round(opts.young ? rand(19, 32) : size >= 6 ? rand(38, 56) : rand(24, 45));
     this.addCitizen(f, 'm', dadAge, 'parent');
     if (size >= 2) this.addCitizen(f, 'f', Math.max(20, dadAge - Math.round(rand(0, 5))), 'parent');
     let left = size - 2;

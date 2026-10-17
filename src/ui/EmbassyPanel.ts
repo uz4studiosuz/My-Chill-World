@@ -71,6 +71,10 @@ export class EmbassyPanel {
   private tab: Tab = 'towns';
   /** Pay the whole building (75% of the profit) instead of half (50%). */
   private full = false;
+  /** The project waiting for the player's yes. */
+  private pending = '';
+  /** The last answer (shown at the top of the window for a few seconds). */
+  private msg?: { text: string; ok: boolean; until: number };
   private town = -1;
   private cat = 'business';
   private last = '';
@@ -86,10 +90,14 @@ export class EmbassyPanel {
   hide() { this.visible = false; this.root.classList.remove('show'); }
   toggle() { if (this.visible) this.hide(); else this.open(); }
 
+  /** Show what happened (a yes, a no, not enough money…) inside the window. */
+  flash(text: string, ok: boolean) { this.msg = { text, ok, until: performance.now() + 7000 }; this.pending = ''; this.last = ''; this.render(); }
+
   render() {
     if (!this.visible) return;
     const d = this.host.data();
-    const key = JSON.stringify([d.towns, d.holdings, d.days, d.shares, d.money, this.tab, this.town, this.cat, this.full]);
+    const live = this.msg && this.msg.until > performance.now() ? this.msg : undefined;
+    const key = JSON.stringify([d.towns, d.holdings, d.days, d.shares, d.money, this.tab, this.town, this.cat, this.full, this.pending, live?.text]);
     if (key === this.last) return;
     this.last = key;
     if (!d.towns.some((x) => x.id === this.town)) this.town = d.towns[0]?.id ?? -1;
@@ -117,7 +125,9 @@ export class EmbassyPanel {
     if (this.tab === 'overview') this.overview(main, d);
     else if (this.tab === 'ours') this.ours(main, d);
     else this.towns(main, d);
-    this.root.append(head, tabs, main);
+    this.root.append(head, tabs);
+    if (live) { const m = el('div', `emb-msg ${live.ok ? 'ok' : 'no'}`); m.textContent = live.text; this.root.appendChild(m); }
+    this.root.appendChild(main);
     for (const [s, top] of keep) { const e = this.root.querySelector(s) as HTMLElement | null; if (e) e.scrollTop = top; }
   }
 
@@ -367,7 +377,8 @@ export class EmbassyPanel {
     const list = d.options.filter((o) => o.cat === this.cat).sort((a, b) => Number(tw.wants.includes(b.kind)) - Number(tw.wants.includes(a.kind)) || a.half - b.half);
     for (const o of list) {
       const want = tw.wants.includes(o.kind);
-      const b = el('button', `emb-opt${want ? ' want' : ''}`);
+      const b = el('div', `emb-opt${want ? ' want' : ''}${this.pending === o.kind ? ' confirm' : ''}`);
+      b.setAttribute('role', 'button');
       const th = this.thumbs.get(o.kind);
       b.innerHTML = `<i></i><b></b><small></small><span class="emb-why"></span><div class="emb-yes"><i></i><span></span></div><em></em>`;
       if (th) (b.querySelector('i') as HTMLElement).style.backgroundImage = `url(${th})`;
@@ -380,7 +391,20 @@ export class EmbassyPanel {
       bar.style.width = `${ch}%`;
       bar.style.background = ch >= 70 ? '#7be08f' : ch >= 40 ? '#f2b33d' : '#ff7a6e';
       (b.querySelector('.emb-yes span') as HTMLElement).textContent = t('{n}% yes', { n: ch });
-      b.addEventListener('click', () => this.host.propose(tw.id, o.kind, this.full));
+      if (this.pending === o.kind) {
+        // the yes before the money goes
+        const cf = el('div', 'emb-confirm');
+        cf.innerHTML = '<p></p><div></div>';
+        (cf.querySelector('p') as HTMLElement).textContent = t('Offer {city} a {name}? You pay {m}; {p}% chance they say yes.', { city: tw.name, name: o.name, m: money(this.full ? o.half * 2 : o.half), p: ch });
+        const yes = el('button', 'btn-mini');
+        yes.textContent = t('Yes, offer it');
+        yes.addEventListener('click', (e) => { e.stopPropagation(); this.pending = ''; this.host.propose(tw.id, o.kind, this.full); });
+        const no = el('button', 'btn-mini ghost');
+        no.textContent = t('Cancel');
+        no.addEventListener('click', (e) => { e.stopPropagation(); this.pending = ''; this.last = ''; this.render(); });
+        (cf.querySelector('div') as HTMLElement).append(yes, no);
+        b.appendChild(cf);
+      } else b.addEventListener('click', () => { this.pending = o.kind; this.last = ''; this.render(); });
       grid.appendChild(b);
     }
     main.appendChild(grid);
