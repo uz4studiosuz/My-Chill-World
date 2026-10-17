@@ -3964,4 +3964,5 @@ export const UZ: Record<string, string> = {
   "Friend": "Do'st",
   "Online world: players, deals and chat": "Onlayn dunyo: o'yinchilar, bitimlar va chat",
   "🤝 {city} sent you an offer: open Online → Deals": "🤝 {city} sizga taklif yubordi: Onlayn → Bitimlar ni oching",
+  "{city} (a friend, online)": "{city} (do'st, onlayn)",
 };

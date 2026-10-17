@@ -3399,7 +3399,7 @@ export class Game implements ToolHost {
   private ownerText(b: Building) {
     const city = this.cityOf(b);
     const fam = b.owner >= 0 ? this.pop.families.get(b.owner) : undefined;
-    const town = city.ai ? t('Neighbour town {city}', { city: city.name }) : t('Town hall of {city}', { city: city.name });
+    const town = city.remote ? `🌐 ${t('{city} (a friend, online)', { city: city.name })}` : city.ai ? t('Neighbour town {city}', { city: city.name }) : t('Town hall of {city}', { city: city.name });
     // ours abroad: built together with us, or partly ours through shares
     const me = this.eco.city;
     if (city.ai && b.investor === me.id && b.investShare === 0) return t('{them} · built with help from {us}', { them: city.name, us: me.name });
