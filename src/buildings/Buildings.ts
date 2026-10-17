@@ -114,6 +114,8 @@ export interface Building {
   abroadSum?: { us: number; them: number };
   /** What the investor put into it (half the price of a joint project, the price of the shares). */
   paid?: number;
+  /** The investor's part of the profit (0.5 when they paid half, 0.75 when they paid it all). */
+  investShare?: number;
   /** A bus depot's own route drawn by the player: the stops in order (empty = the buses find their own). */
   route?: number[];
   /** Workers on strike until this day. */

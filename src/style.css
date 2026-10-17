@@ -2557,3 +2557,48 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
   .emb-main.towns-tab { display: block; overflow: auto; }
   .emb-tbody { overflow: visible; }
 }
+
+/* =====================================================================
+   The newer windows follow the flat 60 / 30 / 10 rule as well:
+   base surfaces, raised cards, amber only for the active choice and progress. No gradients, no glow.
+   ===================================================================== */
+#ui .embassy, #ui .chain-view, #ui .ft-box, #ui .ach-box, #ui .welcome, #ui .daywatch, #ui .map-legend, #ui .cv-head, #ui .cv-detail, #ui .decision { background: var(--base) !important; }
+#ui .emb-head { background: var(--base); }
+#ui .emb-ic { background: var(--raised); color: var(--accent); }
+#ui .emb-town, #ui .emb-card, #ui .emb-opt, #ui .emb-big, #ui .emb-hold, #ui .emb-share, #ui .emb-tr, #ui .emb-tab { background: var(--raised); border-color: var(--line); }
+#ui .emb-town.active { background: var(--raised-hi); border-color: var(--accent); }
+#ui .emb-tab.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#ui .emb-tab.on em { background: rgba(0, 0, 0, .18); }
+#ui .emb-kpi, #ui .emb-num, #ui .emb-chart, #ui .emb-spark { background: var(--base); }
+#ui .emb-step, #ui .emb-tip { background: var(--raised); border-color: var(--line); color: var(--text); }
+#ui .emb-step > span { background: var(--accent); color: var(--on-accent); }
+#ui .emb-opt.want { border-color: var(--accent); }
+#ui .emb-big.gold { background: var(--raised); border-color: var(--accent); }
+#ui .emb-big.gold b { color: var(--accent); }
+#ui .emb-badge.joint, #ui .emb-badge.share { background: var(--raised-hi); color: var(--text); }
+#ui .emb-badge.gold { background: var(--accent); color: var(--on-accent); }
+#ui .emb-spark i, #ui .emb-col i.us, #ui .emb-legend i.us { background: var(--accent); }
+#ui .emb-col i.them, #ui .emb-legend i.them { background: #8e96a1; }
+#ui .emb-warn { background: var(--raised); border-color: var(--bad); color: var(--text); }
+#ui .cc-bar i, #ui .tut-bar i, #ui .or-bar i, #ui .ach-total i, #ui .emb-payback i, #ui .ach-bar i { background: var(--accent); }
+#ui .ach-card.done .ach-bar i { background: var(--good); }
+#ui .chain-card { background: var(--raised); }
+#ui .chain-view .cv-view { background-image: none; }
+#ui .cv-node { background: var(--raised); }
+#ui .bus-plan { background: var(--raised); border-color: var(--line); }
+#ui .ach-card { background: var(--raised); filter: none; opacity: .6; }
+#ui .ach-card.done { opacity: 1; border-color: var(--accent); }
+#ui .ach-card.done .ach-ic, #ui .ach-ic { background: var(--raised-hi); }
+#ui .dw-now { background: var(--raised); }
+#ui .dw-speed button.on, #ui .log-cat.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#ui .fam-node.f.ok { border-color: #e88bb4; }
+.lp-bar i { background: #f2a93b; }
+.lapse { box-shadow: none; border-color: #343a43; background: #1a1d22; }
+/* how much we pay for a project built for a neighbour */
+.emb-pay { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+.emb-payopt { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised); color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.emb-payopt b { font-size: 13px; }
+.emb-payopt small { font-size: 11px; color: var(--muted); }
+.emb-payopt.on { border-color: var(--accent); background: var(--raised-hi); }
+.emb-payopt.on b { color: var(--accent); }
+@media (max-width: 600px) { .emb-pay { grid-template-columns: 1fr; } }

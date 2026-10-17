@@ -47,7 +47,8 @@ export interface EmbassyData {
 
 export interface EmbassyHost {
   data(): EmbassyData;
-  propose(town: number, kind: string): void;
+  /** full: we pay it all and take 75% of the profit (else half and 50%). */
+  propose(town: number, kind: string, full: boolean): void;
   gift(town: number, money: number): void;
   trade(): void;
   show(buildingId: number): void;
@@ -67,7 +68,9 @@ const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 export class EmbassyPanel {
   private root: HTMLDivElement;
   visible = false;
-  private tab: Tab = 'overview';
+  private tab: Tab = 'towns';
+  /** Pay the whole building (75% of the profit) instead of half (50%). */
+  private full = false;
   private town = -1;
   private cat = 'business';
   private last = '';
@@ -84,11 +87,11 @@ export class EmbassyPanel {
   render() {
     if (!this.visible) return;
     const d = this.host.data();
-    const key = JSON.stringify([d.towns, d.holdings, d.days, d.shares, d.money, this.tab, this.town, this.cat]);
+    const key = JSON.stringify([d.towns, d.holdings, d.days, d.shares, d.money, this.tab, this.town, this.cat, this.full]);
     if (key === this.last) return;
     this.last = key;
     if (!d.towns.some((x) => x.id === this.town)) this.town = d.towns[0]?.id ?? -1;
-    const scroll = (this.root.querySelector('.emb-main') as HTMLElement | null)?.scrollTop ?? 0;
+    const keep = ['.emb-main', '.emb-tbody', '.emb-towns'].map((s) => [s, (this.root.querySelector(s) as HTMLElement | null)?.scrollTop ?? 0] as [string, number]);
     this.root.replaceChildren();
     const head = el('div', 'emb-head');
     head.innerHTML = `<span class="emb-ic">${icon('globe')}</span><div><b></b><small></small></div>`;
@@ -113,7 +116,7 @@ export class EmbassyPanel {
     else if (this.tab === 'ours') this.ours(main, d);
     else this.towns(main, d);
     this.root.append(head, tabs, main);
-    main.scrollTop = scroll;
+    for (const [s, top] of keep) { const e = this.root.querySelector(s) as HTMLElement | null; if (e) e.scrollTop = top; }
   }
 
   // ---------- overview ----------
@@ -223,7 +226,7 @@ export class EmbassyPanel {
     (c.querySelector('small') as HTMLElement).textContent = `${h.town} · ${h.building ? t('being built') : h.workers ? t('{a}/{b} at work', { a: h.workers, b: h.jobs }) : t('no workers yet')}`;
     const badges = c.querySelector('.emb-badges') as HTMLElement;
     const badge = (text: string, cls: string) => { const s = el('span', `emb-badge ${cls}`); s.textContent = text; badges.appendChild(s); };
-    badge(h.type === 'joint' ? t('Joint project · 50%') : t('Our shares · {n}%', { n: Math.round(h.pct * 100) }), h.type);
+    badge(h.type === 'joint' ? t('Built with them · {n}% ours', { n: Math.round(h.pct * 100) }) : t('Our shares · {n}%', { n: Math.round(h.pct * 100) }), h.type);
     if (h.paid && h.totalUs >= h.paid) badge(t('Paid back ✓'), 'gold');
     const nums = c.querySelector('.emb-hnums') as HTMLElement;
     const num = (label: string, value: string, cls = '') => { const s = el('div', `emb-num ${cls}`); s.innerHTML = '<small></small><b></b>'; (s.querySelector('small') as HTMLElement).textContent = label; (s.querySelector('b') as HTMLElement).textContent = value; nums.appendChild(s); };
@@ -300,7 +303,7 @@ export class EmbassyPanel {
     const card = el('div', 'emb-card');
     card.style.borderColor = tw.tint;
     card.innerHTML = `<div class="emb-flag"></div><div class="emb-title"><b></b><small></small></div><div class="emb-kpis"></div>`;
-    (card.querySelector('.emb-flag') as HTMLElement).style.background = `linear-gradient(135deg, ${tw.tint}, #1c2128)`;
+    (card.querySelector('.emb-flag') as HTMLElement).style.background = tw.tint;
     (card.querySelector('b') as HTMLElement).textContent = tw.name;
     (card.querySelector('small') as HTMLElement).textContent = `${t(tw.style ?? 'Autonomous town')} · ${t(tw.friendship)}`;
     const kp = card.querySelector('.emb-kpis') as HTMLElement;
@@ -326,10 +329,10 @@ export class EmbassyPanel {
     hint.textContent = tw.relation >= 50 ? t('Friends: they say yes to most projects.') : tw.relation >= 30 ? t('They are neutral: gifts and trade make them friendlier, so they agree more often.') : t('They do not trust you yet: a gift or some trade first.');
     main.appendChild(hint);
     // two ways to invest
-    this.sec(main, t('Way 1 · A joint project'), t('you pay half, they build it on their land and staff it, the profit is shared'));
+    this.sec(main, t('Way 1 · Build it for them'), t('they build it on their land and staff it with their people; we pay half or all of it and take that share of the profit'));
     const how = el('div', 'emb-how');
     [['1', t('Pick a workplace'), t('★ = they want it: they almost always agree')], ['2', t('They decide'), t('the % on the card is their yes')],
-      ['3', t('They build it'), t('on their land, with their builders')], ['4', t('Profit shared'), t('half of the profit (or of what it makes) is ours every day')]].forEach(([n, a, b]) => {
+      ['3', t('They build it'), t('on their land, with their builders')], ['4', t('Profit shared'), t('our share of the profit (or of what it makes) comes every day')]].forEach(([n, a, b]) => {
       const s = el('div', 'emb-step');
       s.innerHTML = '<span></span><div><b></b><small></small></div>';
       (s.querySelector('span') as HTMLElement).textContent = n;
@@ -347,6 +350,17 @@ export class EmbassyPanel {
       tabs.appendChild(b);
     }
     main.appendChild(tabs);
+    // how much we pay: half (50% of the profit) or all of it (75%, and they agree more readily)
+    const pay = el('div', 'emb-pay');
+    for (const [full, label, sub] of [[false, t('We pay half'), t('50% of the profit is ours')], [true, t('We pay it all'), t('75% of the profit is ours · they say yes more often')]] as [boolean, string, string][]) {
+      const b = el('button', `emb-payopt${this.full === full ? ' on' : ''}`);
+      b.innerHTML = '<b></b><small></small>';
+      (b.querySelector('b') as HTMLElement).textContent = label;
+      (b.querySelector('small') as HTMLElement).textContent = sub;
+      b.addEventListener('click', () => { this.full = full; this.render(); });
+      pay.appendChild(b);
+    }
+    main.appendChild(pay);
     const grid = el('div', 'emb-grid');
     const list = d.options.filter((o) => o.cat === this.cat).sort((a, b) => Number(tw.wants.includes(b.kind)) - Number(tw.wants.includes(a.kind)) || a.half - b.half);
     for (const o of list) {
@@ -356,22 +370,22 @@ export class EmbassyPanel {
       b.innerHTML = `<i></i><b></b><small></small><span class="emb-why"></span><div class="emb-yes"><i></i><span></span></div><em></em>`;
       if (th) (b.querySelector('i') as HTMLElement).style.backgroundImage = `url(${th})`;
       (b.querySelector('b') as HTMLElement).textContent = o.name;
-      (b.querySelector('small') as HTMLElement).textContent = `${t('you pay')} ${money(o.half)} · ${t('{n} jobs for them', { n: o.jobs })}`;
+      (b.querySelector('small') as HTMLElement).textContent = `${t('you pay')} ${money(this.full ? o.half * 2 : o.half)} · ${t('{n} jobs for them', { n: o.jobs })}`;
       (b.querySelector('em') as HTMLElement).textContent = want ? `★ ${t('they want it')}` : '';
       (b.querySelector('.emb-why') as HTMLElement).textContent = tw.why[o.kind] ?? '';
-      const ch = Math.round((tw.chance[o.kind] ?? 0) * 100);
+      const ch = Math.round(Math.min(1, (tw.chance[o.kind] ?? 0) + (this.full ? 0.15 : 0)) * 100);
       const bar = b.querySelector('.emb-yes i') as HTMLElement;
       bar.style.width = `${ch}%`;
       bar.style.background = ch >= 70 ? '#7be08f' : ch >= 40 ? '#f2b33d' : '#ff7a6e';
       (b.querySelector('.emb-yes span') as HTMLElement).textContent = t('{n}% yes', { n: ch });
-      b.addEventListener('click', () => this.host.propose(tw.id, o.kind));
+      b.addEventListener('click', () => this.host.propose(tw.id, o.kind, this.full));
       grid.appendChild(b);
     }
     main.appendChild(grid);
     // shares in their businesses
     this.sec(main, t('Way 2 · Buy shares'), t('10% at a time (up to 49%): every day that share of the business\'s profit is ours'));
     const sh = d.shares[tw.id] ?? [];
-    if (!sh.length) { const e = el('div', 'rp-note'); e.textContent = t('No business of theirs sells shares yet.'); main.appendChild(e); }
+    if (!sh.length) { const e = el('div', 'rp-note'); e.textContent = t('They have no shops or businesses to buy into yet — build one for them above (Way 1).'); main.appendChild(e); }
     const sl = el('div', 'emb-share-list');
     for (const s of sh) {
       const r = el('div', `emb-share${s.held ? ' held' : ''}`);

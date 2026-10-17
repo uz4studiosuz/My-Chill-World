@@ -797,7 +797,7 @@ export class Game implements ToolHost {
     this.embassy?.hide();
     this.embassy = new EmbassyPanel(this.hud.root, {
       data: () => this.embassyData(),
-      propose: (id, kind) => { const town = this.eco.cities.get(id); if (town) this.jointProject(town, kind as BuildingKind); this.embassy?.render(); },
+      propose: (id, kind, full) => { const town = this.eco.cities.get(id); if (town) this.jointProject(town, kind as BuildingKind, full); this.embassy?.render(); },
       gift: (id, m) => {
         const me = this.eco.city, town = this.eco.cities.get(id);
         if (!town) return;
@@ -5681,7 +5681,7 @@ export class Game implements ToolHost {
     if (kind === 'sawmill' && town.planks < 15) return t('They are short of planks');
     if (kind === 'factory' && (town.cotton > 30 || town.planks > 30)) return t('They have cotton and planks for it');
     if (idle > 5 && BUILDINGS[kind].jobs >= 4) return t('{n} of their people have no job', { n: idle });
-    if (!own.some((b) => b.kind === kind)) return t('They have none yet');
+    if (!own.some((b) => b.kind === kind)) return t('New for them: they have none yet');
     if (jobs - staff > 10) return t('Few workers: their jobs stand empty');
     return '';
   }
@@ -5739,13 +5739,14 @@ export class Game implements ToolHost {
   }
 
   /** A joint project from the embassy: you pay half, the neighbour pays half, builds it and staffs it; the profit is shared. */
-  private jointProject(town: City, kind: BuildingKind) {
+  private jointProject(town: City, kind: BuildingKind, full = false) {
     const me = this.eco.city;
     const d = BUILDINGS[kind];
-    const half = Math.round(d.money / 2);
+    // we pay half (half the profit) or all of it (three quarters of the profit)
+    const half = full ? d.money : Math.round(d.money / 2);
     if (me.money < half) return this.hud?.toast(t('Not enough money — needs ${n}', { n: half }));
     const rel = town.relation ?? 40;
-    if (Math.random() > this.yesChance(town, kind)) {
+    if (Math.random() > Math.min(1, this.yesChance(town, kind) + (full ? 0.15 : 0))) {
       town.relation = Math.max(0, rel - 1);
       this.deal(town.id, t('Turned down a joint {name}', { name: t(d.name) }), 0);
       sound.play('error');
@@ -5759,9 +5760,9 @@ export class Game implements ToolHost {
       return this.hud?.toast(t('{city} has no room or materials for it right now', { city: town.name }));
     }
     const b = [...this.buildings.list].reverse().find((x) => x.city === town.id && x.kind === kind && x.built < 1);
-    if (b) { b.investor = me.id; b.paid = (b.paid ?? 0) + half; this.refreshFlags(); }
+    if (b) { b.investor = me.id; b.paid = (b.paid ?? 0) + half; b.investShare = full ? 0.75 : 0.5; this.refreshFlags(); }
     town.relation = Math.min(100, rel + 6);
-    this.deal(town.id, t('Joint {name}: you paid half (${n}), the profit is shared', { name: t(d.name), n: half }), -half);
+    this.deal(town.id, full ? t('{name} built for {city}: you paid it all (${n}), 75% of the profit is yours', { name: t(d.name), city: town.name, n: half }) : t('Joint {name}: you paid half (${n}), the profit is shared', { name: t(d.name), n: half }), -half);
     sound.play('coin');
     this.hud?.toast(t('{city} is building a joint {name} — half of its profit will come to you', { city: town.name, name: t(d.name) }));
     this.refreshInspector();
@@ -5805,7 +5806,7 @@ export class Game implements ToolHost {
     const out: { b: Building; type: 'joint' | 'share'; pct: number }[] = [];
     for (const b of this.buildings.list) {
       if (b.removed || mine.has(b.city)) continue;
-      if (b.investor !== undefined && mine.has(b.investor)) out.push({ b, type: 'joint', pct: 0.5 });
+      if (b.investor !== undefined && mine.has(b.investor)) out.push({ b, type: 'joint', pct: b.investShare ?? 0.5 });
       else { const s = b.shares?.filter((x) => mine.has(x.city)).reduce((a, x) => a + x.pct, 0) ?? 0; if (s > 0) out.push({ b, type: 'share', pct: s }); }
     }
     return out;
@@ -5853,7 +5854,7 @@ export class Game implements ToolHost {
       const bk = b.books;
       if (bk) them += bk.wages + bk.tax;
       if (bk && bk.revenue > 0) {
-        const m = Math.max(0, Math.round((bk.revenue - bk.wages - bk.tax) * 0.5));
+        const m = Math.max(0, Math.round((bk.revenue - bk.wages - bk.tax) * (b.investShare ?? 0.5)));
         us += m; them += Math.max(0, Math.round(bk.revenue - bk.wages - bk.tax) - m);
         if (m > 0) { this.eco.add(town, 'money', -m, 'Investors\' share'); this.eco.add(me, 'money', m, 'Investments in neighbour towns'); got.push(`$${m}`); }
       }
@@ -5864,7 +5865,7 @@ export class Game implements ToolHost {
       if (y) for (const [res, why] of outs) {
         const same = this.buildings.list.filter((o) => o.city === town.id && o.kind === b.kind && o.built >= 1 && !o.removed).length || 1;
         const made = why.reduce((a, w) => a + Math.max(0, y[res]?.[w] ?? 0), 0) / same;
-        const n = Math.floor(Math.min(made * 0.5, town[res]));
+        const n = Math.floor(Math.min(made * (b.investShare ?? 0.5), town[res]));
         if (n >= 1) { this.eco.add(town, res, -n, 'Investors\' share'); this.eco.add(me, res, n, 'Investments in neighbour towns'); got.push(`${n} ${t(GOOD_NAME[res as Good] ?? res).toLowerCase()}`); const v = Math.round(n * (TRADE_PRICE[res] ?? 2)); us += v; them += v; }
       }
       this.logAbroad(b, us, them, got.join(', '));
@@ -6956,6 +6957,7 @@ export class Game implements ToolHost {
       if (b.abroad) nb.abroad = b.abroad;
       if (b.abroadSum) nb.abroadSum = b.abroadSum;
       if (b.paid) nb.paid = b.paid;
+      if (b.investShare) nb.investShare = b.investShare;
       if (b.total) nb.total = b.total;
       if (b.books) nb.books = b.books;
       if (b.sold) nb.sold = b.sold;
@@ -7027,7 +7029,7 @@ export class Game implements ToolHost {
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
         graves: b.graves, cattleCount: b.cattleCount, crop: b.cropKind, cropManual: b.cropManual || undefined,
         built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, parent: b.parent, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
-        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF, forSale: b.forSale, investor: b.investor, shares: b.shares, abroad: b.abroad, abroadSum: b.abroadSum, paid: b.paid, route: b.route, strike: b.strike, born: b.born, total: b.total, books: b.books, sold: b.sold, sales: b.sales ? Math.round(b.sales) : undefined,
+        rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF, forSale: b.forSale, investor: b.investor, shares: b.shares, abroad: b.abroad, abroadSum: b.abroadSum, paid: b.paid, investShare: b.investShare, route: b.route, strike: b.strike, born: b.born, total: b.total, books: b.books, sold: b.sold, sales: b.sales ? Math.round(b.sales) : undefined,
       })),
       population: this.pop.serialize(),
       cam: { x: this.cam.target.x, z: this.cam.target.z, yaw: this.cam.yaw, view: this.cam.viewHalf },
