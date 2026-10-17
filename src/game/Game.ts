@@ -1230,11 +1230,25 @@ export class Game implements ToolHost {
       void this.online.start();
       this.pushOnline();
     }
-    const gap = worldSeconds(o.started) - this.eco.clock;
+    if (this.menuPaused) { this.syncScale = 1; return; }
+    const target = worldSeconds(o.started);
+    const gap = target - this.eco.clock;
     // away for days: the autopilot lives through them in a moment and tells what happened
-    if (gap > DAY_SECONDS * 2 && !this.menuPaused) this.autopilot(Math.floor(gap / DAY_SECONDS) - 1);
-    const left = worldSeconds(o.started) - this.eco.clock;
-    this.syncScale = left > 8 ? Math.min(40, 1 + left / 25) : left < -8 ? 0 : 1;
+    if (gap > DAY_SECONDS * 2) this.autopilot(Math.floor(gap / DAY_SECONDS) - 1);
+    // behind by more than a minute (a hidden tab, a slow phone): the clock is set right at once, never fast-forwarded —
+    // a day that ends on the way is lived through as usual
+    let left = target - this.eco.clock;
+    if (left > 60) {
+      const days = Math.floor(target / DAY_SECONDS) - Math.floor(this.eco.clock / DAY_SECONDS);
+      for (let i = 0; i < days; i++) { this.eco.endOfDay(); this.life.update(0.01); if (this.eco.day !== this.lastDay) this.onNewDay(); }
+      this.eco.setClock(target);
+      left = 0;
+    } else if (left < -60) {
+      // ahead (the clock of this device was wrong): wait, unless it is still the same day — then just step back
+      if (Math.floor(target / DAY_SECONDS) === Math.floor(this.eco.clock / DAY_SECONDS)) { this.eco.setClock(target); left = 0; }
+    }
+    // a few seconds off: drift gently (at most 3×) until in step again
+    this.syncScale = left > 3 ? Math.min(3, 1 + left / 30) : left < -3 ? 0.5 : 1;
   }
 
   /** The card of a friend's building (online): what it is, whose it is, and what we can do with them. */

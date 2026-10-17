@@ -527,6 +527,8 @@ export class Hud {
     this.townBtn = townBtn;
     // the bar reads left to right: resources · time and speed · panels · menu
     top.append(corner, townBtn);
+    this.mDate.addEventListener('click', () => h.openStats());
+    this.root.appendChild(this.mDate);
     nav.classList.add('nav-right');
     top.appendChild(nav);
 
@@ -655,6 +657,8 @@ export class Hud {
   }
 
   private logBtn?: HTMLButtonElement;
+  /** Phones: the date and the time in a small tag under the top bar. */
+  private mDate = el('button', 'm-date');
   private onlineBtn?: HTMLButtonElement;
 
   /** New messages and deals waiting in the online world (a badge, and a pulse when something new comes). */
@@ -1056,6 +1060,7 @@ export class Hud {
     this.chip.happy.classList.toggle('warn', s.happiness < 45);
     const mins = Math.floor(s.timeOfDay * 24 * 60);
     this.stat.day.textContent = `${s.seasonIcon} ${s.dateText} · ${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+    if (this.mDate.textContent !== this.stat.day.textContent) this.mDate.textContent = this.stat.day.textContent;
     this.dayBar.style.width = `${Math.round(s.timeOfDay * 100)}%`;
     this.lastMoney = s.money;
     this.lastStone = s.stone;
