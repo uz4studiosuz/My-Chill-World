@@ -3710,6 +3710,7 @@ export class Game implements ToolHost {
       rows.push([t('At work now'), `${b.present}`], [t('Wage'), `$${Math.round(def.salary * wf * 10) / 10}/${t('day')}${wf !== 1 ? ` (${wf > 1 ? '+' : ''}${Math.round((wf - 1) * 100)}%)` : ''}${def.publicJob ? ` · ${t('paid by town')}` : ''}`]);
       const req = this.pop.need(b);
       if (b.strike !== undefined) tags.push({ text: t('On strike until {date}: the pay is below the usual wage', { date: dateLabel(b.strike) }), tone: 'bad' });
+      if ((b.kind === 'ranch' || b.kind === 'greenhouse') && b.built >= 1 && !b.powered) tags.push({ text: t('No electricity: it has stopped — lay a power cable to it'), tone: 'bad' });
       if (b.resting) tags.push({ text: t('Out of season: wrapped up until {date}, its workers have other jobs for now', { date: dateLabel(this.seasonBack(b.kind)) }), tone: 'info' });
       if ((b.depleted ?? 0) > 0) tags.push({ text: b.kind === 'woodcutter' ? t('No trees left nearby — workers are elsewhere for now') : t('No rock left to dig — workers are elsewhere for now'), tone: 'bad' });
       rows.push([t('Who can work here'), req === 2 ? t('Needs a university degree') : req === 1 ? t('Needs a learnt trade or a diploma') : t('Anyone of working age')]);

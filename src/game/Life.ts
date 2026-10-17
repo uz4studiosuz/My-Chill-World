@@ -1742,7 +1742,9 @@ export class Life {
       if (b.kind === 'orchard') f *= month >= 5 && month <= 9 ? 1.5 : month === 3 || month === 4 || month === 10 ? 0.4 : 0;
       if (b.kind === 'ranch') f *= (seasonOf(month) === 'winter' ? 0.7 : 1) * ((b.cattleCount ?? 4) / 4) * (b.cornFed ? 1.3 : 1);
       // a greenhouse grows vegetables all year, but only with electricity for its lamps and heating
-      if (b.kind === 'greenhouse') f *= b.powered ? 1 : 0.35;
+      if (b.kind === 'greenhouse') f *= b.powered ? 1 : 0;
+      // the ranch's milking machines and cold store run on electricity
+      if (b.kind === 'ranch' && !b.powered) f = 0;
       // bees make honey from spring to the end of summer, more with orchards, fields and flowers around
       if (b.kind === 'apiary') f *= (month >= 3 && month <= 8 ? 1 : 0) * (1 + Math.min(0.8, buildings.list.filter((o) => o.city === b.city && (o.kind === 'orchard' || o.kind === 'farm' || o.kind === 'flowerbed' || o.kind === 'park') && dist(o, b) <= 6).length * 0.2));
       // hens lay eggs all year, a little less in winter; corn feed makes them lay more
