@@ -33,6 +33,8 @@ export interface WorldTown {
   dealings: { day: number; text: string; money: number }[];
   /** Figures compared town by town (the same list, in the same order, for every town). */
   metrics: { label: string; value: number; text: string; better: 'high' | 'low' }[];
+  /** A friend's town in an online world (another player), and whether they are playing now. */
+  player?: { userId: string; online: boolean };
 }
 
 const MOOD: Record<string, [string, string]> = {
@@ -100,6 +102,37 @@ export class WorldPanel {
   }
 
   /** All towns side by side: a table, bars and the history of people and money. */
+  /** Another player's town: what they show of it, and what we can do together. */
+  private playerTown(body: HTMLElement, tw: WorldTown) {
+    const p = tw.player!;
+    const card = el('div', 'wt-card');
+    card.style.gridColumn = '1 / -1';
+    const head = el('div', 'wt-top');
+    head.innerHTML = '<i class="nb-dot"></i><div class="wt-name"><b></b><small></small></div><span class="wt-mood"></span>';
+    (head.querySelector('.nb-dot') as HTMLElement).style.background = tw.tint;
+    (head.querySelector('b') as HTMLElement).textContent = `🌐 ${tw.name}`;
+    (head.querySelector('small') as HTMLElement).textContent = t('A friend\'s town (another player)');
+    const st = head.querySelector('.wt-mood') as HTMLElement;
+    st.textContent = p.online ? `● ${t('playing now')}` : `○ ${t('away · the town runs on autopilot')}`;
+    st.style.color = p.online ? '#6fcf97' : '#8e96a1';
+    const grid = el('div', 'wt-card-grid');
+    for (const [k, v] of [[t('People'), num(tw.people)], [t('Treasury'), `$${short(tw.money)}`], [t('Happiness'), `${Math.round(tw.happiness)}%`]]) {
+      const f = el('div', 'wt-fact');
+      f.innerHTML = '<span></span><b></b>';
+      (f.querySelector('span') as HTMLElement).textContent = k;
+      (f.querySelector('b') as HTMLElement).textContent = v;
+      grid.appendChild(f);
+    }
+    const acts = el('div', 'emb-acts');
+    const mk = (label: string, what: 'chat' | 'gift' | 'invest' | 'goods', cls = 'btn-mini') => { const b = el('button', cls); b.textContent = label; b.addEventListener('click', () => this.onPlayer?.(p.userId, what)); acts.appendChild(b); };
+    mk(`💬 ${t('Chat')}`, 'chat');
+    mk(`🎁 ${t('Gift')} $500`, 'gift');
+    mk(`💰 ${t('Invest')} $2,000`, 'invest');
+    mk(`📦 ${t('Send or sell goods')}`, 'goods', 'btn-mini ghost');
+    card.append(head, grid, acts);
+    body.appendChild(card);
+  }
+
   private overview(body: HTMLElement, towns: WorldTown[], charts: (() => void)[]) {
     const help = el('div', 'snote');
     help.textContent = t('Neighbour towns run themselves: you cannot build on their land or change them. Trade with them, send gifts and answer their letters — friends pay more and sell cheaper.');
@@ -209,7 +242,9 @@ export class WorldPanel {
    * Every figure side by side: one row per figure, one column per town; the best town of each row is green, the
    * weakest red. Above it, how many rows each town leads.
    */
-  private matrix(body: HTMLElement, towns: WorldTown[]) {
+  private matrix(body: HTMLElement, all: WorldTown[]) {
+    // the detailed comparison covers the towns on this map (players' towns show their figures in the table above)
+    const towns = all.filter((x) => !x.player);
     const rows = towns[0]?.metrics ?? [];
     if (!rows.length || towns.length < 2) return;
     const wins = new Map<number, number>();
@@ -270,7 +305,11 @@ export class WorldPanel {
   }
 
   /** One town in detail. */
+  /** A friend's town (online): chat, gifts, deals. Set by the game. */
+  onPlayer?: (userId: string, what: 'chat' | 'gift' | 'invest' | 'goods') => void;
+
   private town(body: HTMLElement, tw: WorldTown, charts: (() => void)[]) {
+    if (tw.player) return this.playerTown(body, tw);
     const mood = MOOD[tw.mood] ?? MOOD.stable;
     const top = el('div', 'wt-card');
     top.style.gridColumn = '1 / -1';

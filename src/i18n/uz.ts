@@ -3959,4 +3959,5 @@ export const UZ: Record<string, string> = {
   "This offer is no longer open": "Bu taklif endi ochiq emas",
   "Wrong password": "Parol noto'g'ri",
   "Open": "Ochish",
+  "A friend's town (another player)": "Do'stingizning shahri (boshqa o'yinchi)",
 };

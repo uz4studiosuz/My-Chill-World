@@ -22,7 +22,7 @@ export interface OnlineMember {
   city_name: string;
   slot: number;
   last_seen: string;
-  summary: { day?: number; people?: number; money?: number; happy?: number; level?: number };
+  summary: { day?: number; people?: number; money?: number; happy?: number; level?: number; layout?: { b: [string, number, number, number, number][]; r: number[] } };
 }
 
 export type OfferKind = 'gift' | 'sell' | 'invest' | 'repay';
@@ -37,7 +37,7 @@ export interface Offer {
 export interface ChatMessage { id: number; world_id: string; user_id: string; name: string; text: string; created_at: string }
 
 /** What a town tells the others about itself. */
-export interface TownSummary { day: number; people: number; money: number; happy: number; level: number }
+export interface TownSummary { day: number; people: number; money: number; happy: number; level: number; layout?: { b: [string, number, number, number, number][]; r: number[] } }
 
 let client: SupabaseClient | null = null;
 const db = () => (client ??= createClient(URL, KEY, { auth: { persistSession: true, autoRefreshToken: true } }));
@@ -76,10 +76,10 @@ export const Online = {
   async signOut() { await db().auth.signOut(); },
 
   /** The worlds I play in, with my town's name. */
-  async myWorlds(): Promise<{ world: OnlineWorld; city: string; players: number }[] | string> {
+  async myWorlds(): Promise<{ world: OnlineWorld; city: string; players: number; slot: number }[] | string> {
     const s = await this.session();
     if (!s) return 'not signed in';
-    const { data: mine, error } = await db().from('world_members').select('world_id, city_name').eq('user_id', s.user.id);
+    const { data: mine, error } = await db().from('world_members').select('world_id, city_name, slot').eq('user_id', s.user.id);
     if (error) return why(error);
     if (!mine?.length) return [];
     const ids = mine.map((m) => m.world_id as string);
@@ -90,6 +90,7 @@ export const Online = {
       world: w as OnlineWorld,
       city: (mine.find((m) => m.world_id === w.id)?.city_name as string) ?? '',
       players: (all ?? []).filter((m) => m.world_id === w.id).length,
+      slot: (mine.find((m) => m.world_id === w.id)?.slot as number) ?? 0,
     }));
   },
 

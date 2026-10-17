@@ -69,6 +69,7 @@ import { DayWatch } from '../ui/DayWatch';
 import { Online, worldSeconds } from '../online/Online';
 import { OnlineSync, OnlineDebt } from '../online/OnlineSync';
 import { OnlinePanel } from '../ui/OnlinePanel';
+import { GhostTowns, TownLayout } from '../online/GhostTowns';
 import { confetti } from '../ui/Tutorial';
 import { GARAGE_CARS, METRO_FARE } from './Life';
 import { DriveMode } from './DriveMode';
@@ -505,7 +506,7 @@ export class Game implements ToolHost {
     this.eco.creative = this.creative;
     if (this.creative) this.calm = this.life.calm = true;
     if (opts.save) this.loadSave(opts.save);
-    else this.buildStarterTown(opts.create?.towns ?? 2);
+    else this.buildStarterTown(opts.create?.towns ?? 2, opts.create?.online?.slot);
     // pipes now carry the water (roads no longer do): a world from before, or a new one, gets pipes under its roads once
     if (!opts.save?.pipes2) this.pipesUnderRoads();
     // homes and towers join the water only through a pipe under them: those beside a pipe get one once
@@ -760,6 +761,7 @@ export class Game implements ToolHost {
     this.desk?.hide();
     this.tree?.hide();
     this.achPanel?.hide();
+    if (this.worldPanel) this.worldPanel.onPlayer = (uid, what) => this.friendAction(uid, what);
     this.onlinePanel?.hide();
     if (this.online && this.meta.online) this.onlinePanel = new OnlinePanel(this.hud.root, this.online, this.meta.online.world, this.meta.online.code, () => this.eco.city.name);
     this.achPanel = new AchievementsPanel(this.hud.root, () => ({ ctx: this.achievementCtx(), got: this.achievements, dateOf: (d) => dateLabel(d) }));
@@ -1078,6 +1080,30 @@ export class Game implements ToolHost {
   }
 
   private onlineT = 25;
+  private layoutTick = 0;
+  private layoutSent?: TownLayout;
+  private ghosts?: GhostTowns;
+
+  /** My town as the other players see it: its buildings and its streets. */
+  private myLayout(): TownLayout {
+    const id = this.eco.active;
+    const b = this.buildings.list.filter((x) => x.city === id && !x.removed && x.built >= 1).map((x) => [x.kind, x.x, x.z, Math.round(x.rot * 100) / 100, x.level || 1] as [string, number, number, number, number]);
+    const hall = this.buildings.townHall(id);
+    const r: number[] = [];
+    if (hall) for (let k = 0; k < this.net.type.length; k++) if (this.net.type[k] && Math.abs((k % N) - hall.x) <= 34 && Math.abs(((k / N) | 0) - hall.z) <= 34) r.push(k);
+    this.layoutSent = { b: b.slice(0, 900), r: r.slice(0, 3000) };
+    return this.layoutSent;
+  }
+
+  /** Friends' towns drawn on my map (once they have joined and played). */
+  private refreshGhosts() {
+    const s = this.online;
+    if (!s) return;
+    this.ghosts ??= new GhostTowns(this.scene, (k, x, z) => this.buildings.geometry(k, x, z));
+    const others = s.members.filter((m) => m.user_id !== s.me && m.summary?.layout);
+    for (const m of others) this.ghosts.set(m.user_id, m.city_name, ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6], m.summary.layout!);
+    this.ghosts.keep(others.map((m) => m.user_id));
+  }
   /** The online world while this town is played: other players, deals and chat. */
   private online?: OnlineSync;
   private onlinePanel?: OnlinePanel;
@@ -1092,13 +1118,20 @@ export class Game implements ToolHost {
     if (!this.onlineReady) {
       this.onlineReady = true;
       // a brand-new town starts at the world's present day and hour
-      if (this.eco.day <= 1 && this.eco.clock < DAY_SECONDS) this.eco.setClock(worldSeconds(o.started));
+      if (this.eco.day <= 1 && this.eco.clock < DAY_SECONDS) { this.eco.setClock(worldSeconds(o.started)); this.eco.city.name = this.meta.name; }
       this.online = new OnlineSync(o.worldId, {
         have: (g) => (g === 'money' ? this.eco.city.money : ((this.eco.city as unknown as Record<string, number>)[g] ?? 0)),
         add: (g, n, why) => { this.eco.add(this.eco.city, g as Res, n, why); this.refreshHud(); },
         toast: (m) => this.hud?.toast(m),
         event: (m) => { this.life.events.unshift(m); this.hud?.toast(m); },
-        changed: () => { this.onlinePanel?.render(); this.hud?.setLogBadge(this.eventLog?.unread ?? 0); },
+        changed: () => {
+          const mine = this.online?.members.find((m) => m.user_id === this.online?.me);
+          if (mine && mine.city_name && this.eco.city.name !== mine.city_name) { this.eco.city.name = mine.city_name; this.meta.name = mine.city_name; this.refreshHud(); }
+          this.onlinePanel?.render();
+          this.refreshGhosts();
+          if (this.worldPanel?.visible) this.worldPanel.render();
+          this.hud?.setLogBadge(this.eventLog?.unread ?? 0);
+        },
       }, this.pendingDebts);
       this.createUi();
       void this.online.start();
@@ -1109,6 +1142,16 @@ export class Game implements ToolHost {
     if (gap > DAY_SECONDS * 2 && !this.menuPaused) this.autopilot(Math.floor(gap / DAY_SECONDS) - 1);
     const left = worldSeconds(o.started) - this.eco.clock;
     this.syncScale = left > 8 ? Math.min(40, 1 + left / 25) : left < -8 ? 0 : 1;
+  }
+
+  /** A button on a friend's town in the world window. */
+  private async friendAction(uid: string, what: 'chat' | 'gift' | 'invest' | 'goods') {
+    const s = this.online;
+    if (!s) return;
+    if (what === 'chat') { this.worldPanel?.hide(); this.onlinePanel?.open('chat'); return; }
+    if (what === 'goods') { this.worldPanel?.hide(); this.onlinePanel?.openFor(uid); return; }
+    const e = what === 'gift' ? await s.gift(uid, 'money', 500) : await s.invest(uid, 2000);
+    this.hud?.toast(e ?? (what === 'gift' ? t('Sent $500 to {city}', { city: s.name(uid) }) : t('Offered {city} an investment of $2,000: they pay back $2,400 over 20 days if they take it', { city: s.name(uid) })));
   }
 
   /** Live through the days the player was away (at most 30, the rest pass quietly) and say what happened. */
@@ -1138,7 +1181,8 @@ export class Game implements ToolHost {
     if (!o) return;
     const c = this.eco.city;
     const people = this.life.populationByCity().get(c.id) ?? 0;
-    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people) });
+    this.layoutTick = (this.layoutTick + 1) % 2;
+    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people), layout: this.layoutTick === 1 || !this.layoutSent ? this.myLayout() : this.layoutSent });
   }
 
   setMenuPaused(p: boolean) {
@@ -1160,6 +1204,7 @@ export class Game implements ToolHost {
 
   dispose() {
     this.online?.dispose();
+    this.ghosts?.dispose();
     this.abort.abort();
     this.hud?.dispose();
     this.scene.traverse((o) => {
@@ -5482,7 +5527,15 @@ export class Game implements ToolHost {
         })(),
       });
     }
-    return out.sort((a, b) => Number(b.mine) - Number(a.mine) || b.people - a.people);
+    // friends' towns in an online world, next to the neighbour towns
+    if (this.online) for (const m of this.online.members) {
+      if (m.user_id === this.online.me) continue;
+      const sm = m.summary ?? {};
+      out.push({ id: -1000 - m.slot, name: m.city_name, tint: ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6], mine: false, mood: 'stable',
+        people: sm.people ?? 0, growth: 0, money: sm.money ?? 0, happiness: sm.happy ?? 0, tax: 0, loan: 0, buildings: 0, jobs: '—', homes: 0, millionaires: 0, richest: [],
+        news: [], res: [], history: [], dealings: [], metrics: [], player: { userId: m.user_id, online: this.online.online(m) } });
+    }
+    return out.sort((a, b) => Number(b.mine) - Number(a.mine) || Number(!!a.player) - Number(!!b.player) || b.people - a.people);
   }
 
   /** Neighbour towns that run themselves: what they lack (they pay well) and what they have plenty of. */
@@ -6937,12 +6990,15 @@ export class Game implements ToolHost {
 
   // ---------- world setup / saving ----------
 
-  private buildStarterTown(towns: number) {
+  private buildStarterTown(towns: number, slot?: number) {
     const capital = this.eco.found(townName(), START_GRANT);
-    this.layVillage(N / 2, N / 2, capital.id, 48, mulberry32(this.map.seed * 3 + 1));
+    // online: the players' towns lie in different places (the same places for everyone: they come from the seed)
+    const sites = slot === undefined ? [{ x: N / 2, z: N / 2 }] : this.playerSites();
+    const home = sites[Math.min(slot ?? 0, sites.length - 1)];
+    this.layVillage(home.x, home.z, capital.id, 48, mulberry32(this.map.seed * 3 + 1 + (slot ?? 0)));
     // one or two neighbour towns that run themselves
     const rnd = mulberry32(this.map.seed * 13 + 5);
-    const taken: Tile[] = [{ x: N / 2, z: N / 2 }];
+    const taken: Tile[] = [...sites];
     for (let i = 0; i < towns; i++) {
       const site = findTownSite(this.map, taken, towns > 2 ? 40 : 46, rnd);
       if (!site) break;
@@ -6957,7 +7013,15 @@ export class Game implements ToolHost {
     }
     this.eco.active = capital.id;
     this.net.clearUndo();
-    this.cam.setState(-1, 0, Math.PI / 4, 10);
+    this.cam.setState(slot === undefined ? -1 : tileToWorld(home.x), slot === undefined ? 0 : tileToWorld(home.z), Math.PI / 4, 10);
+  }
+
+  /** Where the towns of an online world's six players lie: the middle, then five places spread out over the map. */
+  private playerSites(): Tile[] {
+    const rnd = mulberry32(this.map.seed * 7 + 11);
+    const out: Tile[] = [{ x: N / 2, z: N / 2 }];
+    for (let k = 1; k < 6; k++) { const s = findTownSite(this.map, out, 44, rnd) ?? findTownSite(this.map, out, 34, rnd); if (s) out.push(s); }
+    return out;
   }
 
   /**

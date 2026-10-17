@@ -30,7 +30,7 @@ export interface MenuHandlers {
   /** Save and export the world being played. */
   exportCurrent?: () => void;
   /** Open (or start) my town in an online world. */
-  playOnline?: (w: OnlineWorld, city: string) => void;
+  playOnline?: (w: OnlineWorld, city: string, slot: number) => void;
 }
 
 /** Main menu, new-world form, world list and the in-game pause menu. */
@@ -138,7 +138,7 @@ export class Menu {
     if (typeof list === 'string') items.push(this.note(list, true));
     else if (list.length) {
       const box = el('div', 'worlds');
-      for (const { world, city, players } of list) {
+      for (const { world, city, players, slot } of list) {
         const row = el('div', 'world');
         const th = el('div', 'world-thumb');
         th.textContent = '🌐';
@@ -150,7 +150,7 @@ export class Menu {
         info.append(name, meta);
         const play = el('button', 'btn-mini');
         play.textContent = t('Play');
-        play.addEventListener('click', () => this.h.playOnline?.(world, city));
+        play.addEventListener('click', () => this.h.playOnline?.(world, city, slot));
         const leave = el('button', 'btn-mini ghost');
         leave.textContent = t('Leave');
         leave.addEventListener('click', async () => {

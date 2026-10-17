@@ -25,6 +25,8 @@ export class OnlinePanel {
 
   open(tab?: Tab) { if (tab) this.tab = tab; this.visible = true; this.root.classList.add('show'); this.last = ''; this.render(); }
   hide() { this.visible = false; this.root.classList.remove('show'); }
+  /** Open on one player with the goods form ready. */
+  openFor(userId: string) { this.form = userId; this.open('players'); }
   toggle() { if (this.visible) this.hide(); else this.open(); }
 
   private flash(text: string | null, okText: string) {
