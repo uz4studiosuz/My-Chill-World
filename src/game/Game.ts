@@ -1101,7 +1101,15 @@ export class Game implements ToolHost {
     if (!s) return;
     this.ghosts ??= new GhostTowns(this.scene, (k, x, z) => this.buildings.geometry(k, x, z));
     const others = s.members.filter((m) => m.user_id !== s.me && m.summary?.layout);
-    for (const m of others) this.ghosts.set(m.user_id, m.city_name, ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6], m.summary.layout!);
+    const sites = this.placesFor(others.map((m) => m.slot));
+    for (const m of others) {
+      const L = m.summary.layout!;
+      const hall = L.b.find((b) => b[0] === 'townhall');
+      const site = sites.get(m.slot);
+      const dx = hall && site ? site.x - hall[1] : 0, dz = hall && site ? site.z - hall[2] : 0;
+      const moved: TownLayout = dx || dz ? { b: L.b.map(([k, x, z, r, l]) => [k, x + dx, z + dz, r, l] as [string, number, number, number, number]), r: L.r.map((k) => { const x = (k % N) + dx, z = Math.floor(k / N) + dz; return x >= 0 && z >= 0 && x < N && z < N ? z * N + x : -1; }).filter((k) => k >= 0) } : L;
+      this.ghosts.set(m.user_id, m.city_name, ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6], moved);
+    }
     this.ghosts.keep(others.map((m) => m.user_id));
   }
   /** The online world while this town is played: other players, deals and chat. */
@@ -1145,9 +1153,16 @@ export class Game implements ToolHost {
   }
 
   /** A button on a friend's town in the world window. */
-  private async friendAction(uid: string, what: 'chat' | 'gift' | 'invest' | 'goods') {
+  private async friendAction(uid: string, what: 'chat' | 'gift' | 'invest' | 'goods' | 'show') {
     const s = this.online;
     if (!s) return;
+    if (what === 'show') {
+      const m = s.members.find((x) => x.user_id === uid);
+      const site = m ? this.placesFor(s.members.filter((x) => x.user_id !== s.me).map((x) => x.slot)).get(m.slot) : undefined;
+      if (!m?.summary?.layout) this.hud?.toast(t('{city} has not played the new version yet: their town appears on the map once they do', { city: s.name(uid) }));
+      if (site) { this.worldPanel?.hide(); this.cam.flyTo(tileToWorld(site.x), tileToWorld(site.z), 12); }
+      return;
+    }
     if (what === 'chat') { this.worldPanel?.hide(); this.onlinePanel?.open('chat'); return; }
     if (what === 'goods') { this.worldPanel?.hide(); this.onlinePanel?.openFor(uid); return; }
     const e = what === 'gift' ? await s.gift(uid, 'money', 500) : await s.invest(uid, 2000);
@@ -7014,6 +7029,25 @@ export class Game implements ToolHost {
     this.eco.active = capital.id;
     this.net.clearUndo();
     this.cam.setState(slot === undefined ? -1 : tileToWorld(home.x), slot === undefined ? 0 : tileToWorld(home.z), Math.PI / 4, 10);
+  }
+
+  /**
+   * Where each friend's town is drawn on my map: their own place, unless my town stands there (towns made before the
+   * places existed sit in the middle) — then the first place that is free.
+   */
+  private placesFor(slots: number[]) {
+    const all = this.playerSites();
+    const hall = this.buildings.townHall(this.eco.active);
+    const clear = (p: Tile) => !hall || Math.hypot(p.x - hall.x, p.z - hall.z) > 30;
+    const out = new Map<number, Tile>();
+    const used = new Set<number>();
+    for (const s of slots) { const i = s % all.length; if (clear(all[i]) && !used.has(i)) { out.set(s, all[i]); used.add(i); } }
+    for (const s of slots) {
+      if (out.has(s)) continue;
+      const i = all.findIndex((p, k) => !used.has(k) && clear(p));
+      if (i >= 0) { out.set(s, all[i]); used.add(i); }
+    }
+    return out;
   }
 
   /** Where the towns of an online world's six players lie: the middle, then five places spread out over the map. */

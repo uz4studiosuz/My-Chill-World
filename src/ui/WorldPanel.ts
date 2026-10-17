@@ -115,7 +115,7 @@ export class WorldPanel {
     const st = head.querySelector('.wt-mood') as HTMLElement;
     st.textContent = p.online ? `● ${t('playing now')}` : `○ ${t('away · the town runs on autopilot')}`;
     st.style.color = p.online ? '#6fcf97' : '#8e96a1';
-    const grid = el('div', 'wt-card-grid');
+    const grid = el('div', 'wt-card-grid ol-facts');
     for (const [k, v] of [[t('People'), num(tw.people)], [t('Treasury'), `$${short(tw.money)}`], [t('Happiness'), `${Math.round(tw.happiness)}%`]]) {
       const f = el('div', 'wt-fact');
       f.innerHTML = '<span></span><b></b>';
@@ -124,7 +124,8 @@ export class WorldPanel {
       grid.appendChild(f);
     }
     const acts = el('div', 'emb-acts');
-    const mk = (label: string, what: 'chat' | 'gift' | 'invest' | 'goods', cls = 'btn-mini') => { const b = el('button', cls); b.textContent = label; b.addEventListener('click', () => this.onPlayer?.(p.userId, what)); acts.appendChild(b); };
+    const mk = (label: string, what: 'chat' | 'gift' | 'invest' | 'goods' | 'show', cls = 'btn-mini') => { const b = el('button', cls); b.textContent = label; b.addEventListener('click', () => this.onPlayer?.(p.userId, what)); acts.appendChild(b); };
+    mk(`📍 ${t('Show on the map')}`, 'show', 'btn-mini ghost');
     mk(`💬 ${t('Chat')}`, 'chat');
     mk(`🎁 ${t('Gift')} $500`, 'gift');
     mk(`💰 ${t('Invest')} $2,000`, 'invest');
@@ -306,7 +307,7 @@ export class WorldPanel {
 
   /** One town in detail. */
   /** A friend's town (online): chat, gifts, deals. Set by the game. */
-  onPlayer?: (userId: string, what: 'chat' | 'gift' | 'invest' | 'goods') => void;
+  onPlayer?: (userId: string, what: 'chat' | 'gift' | 'invest' | 'goods' | 'show') => void;
 
   private town(body: HTMLElement, tw: WorldTown, charts: (() => void)[]) {
     if (tw.player) return this.playerTown(body, tw);

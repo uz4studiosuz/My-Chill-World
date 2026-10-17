@@ -3960,4 +3960,5 @@ export const UZ: Record<string, string> = {
   "Wrong password": "Parol noto'g'ri",
   "Open": "Ochish",
   "A friend's town (another player)": "Do'stingizning shahri (boshqa o'yinchi)",
+  "{city} has not played the new version yet: their town appears on the map once they do": "{city} hali yangi versiyada o'ynamagan: o'ynashi bilan shahri xaritada paydo bo'ladi",
 };

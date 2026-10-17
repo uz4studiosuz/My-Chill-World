@@ -2658,3 +2658,9 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
 .ol-chatbar input { flex: 1; }
 .ol-chatbar .btn-mini { width: auto; }
 .ol-chatnote { display: block; font-size: 10.5px; color: var(--muted); }
+
+/* a friend's town in the world window */
+.ol-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.ol-facts .wt-fact { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); }
+.ol-facts .wt-fact span { font-size: 11px; color: var(--muted); }
+.ol-facts .wt-fact b { font-size: 16px; }
