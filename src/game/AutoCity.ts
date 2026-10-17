@@ -283,7 +283,7 @@ export class AutoCity {
     const newDay = day !== this.lastDay;
     this.lastDay = day;
     for (const city of this.h.eco.cities.values()) {
-      if (!city.ai) continue;
+      if (!city.ai || city.remote) continue;
       if (newDay) this.daily(city);
       this.step(city);
     }

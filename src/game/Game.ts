@@ -677,7 +677,7 @@ export class Game implements ToolHost {
         sound.play('coin');
         this.refreshHud();
       },
-      towns: () => [...this.eco.cities.values()].filter((c) => c.ai || c.id === this.eco.city.id).map((c) => ({ id: c.id, name: c.name, tint: c.tint ?? '#f2b33d', mine: !c.ai })),
+      towns: () => [...this.eco.cities.values()].filter((c) => (c.ai && !c.remote) || c.id === this.eco.city.id).map((c) => ({ id: c.id, name: c.name, tint: c.tint ?? '#f2b33d', mine: !c.ai })),
       history: (id, g) => {
         const c = this.eco.cities.get(id);
         const now = c ? Math.round(this.midPrice(c, g, this.life.populationByCity().get(id) ?? 0) * 10) / 10 : 0;
@@ -1095,23 +1095,106 @@ export class Game implements ToolHost {
     return this.layoutSent;
   }
 
-  /** Friends' towns drawn on my map (once they have joined and played). */
-  private refreshGhosts() {
+  /**
+   * Friends' towns built on my map as real towns: their buildings and streets from what they send, families in their
+   * homes, lived here like a neighbour town (people walk, cars drive, buildings can be opened) — but it never builds by
+   * itself: it follows what the friend builds, and shows the friend's real treasury, people and happiness.
+   */
+  private syncRemote() {
     const s = this.online;
     if (!s) return;
-    this.ghosts ??= new GhostTowns(this.scene, (k, x, z) => this.buildings.geometry(k, x, z));
-    const others = s.members.filter((m) => m.user_id !== s.me && m.summary?.layout);
-    const sites = this.placesFor(others.map((m) => m.slot));
+    const TINT = ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'];
+    const others = s.members.filter((m) => m.user_id !== s.me && m.summary?.layout?.b?.length);
+    const places = this.placesFor(others.map((m) => m.slot));
+    let changed = false;
     for (const m of others) {
       const L = m.summary.layout!;
-      const hall = L.b.find((b) => b[0] === 'townhall');
-      const site = sites.get(m.slot);
-      const dx = hall && site ? site.x - hall[1] : 0, dz = hall && site ? site.z - hall[2] : 0;
-      const moved: TownLayout = dx || dz ? { b: L.b.map(([k, x, z, r, l]) => [k, x + dx, z + dz, r, l] as [string, number, number, number, number]), r: L.r.map((k) => { const x = (k % N) + dx, z = Math.floor(k / N) + dz; return x >= 0 && z >= 0 && x < N && z < N ? z * N + x : -1; }).filter((k) => k >= 0) } : L;
-      this.ghosts.set(m.user_id, m.city_name, ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6], moved);
+      let city = [...this.eco.cities.values()].find((c) => c.remote === m.user_id);
+      if (!city) {
+        const hall = L.b.find((b) => b[0] === 'townhall');
+        const site = places.get(m.slot);
+        if (!hall || !site) continue;
+        city = this.eco.found(m.city_name, START_GRANT);
+        city.ai = true;
+        city.remote = m.user_id;
+        city.relation = 75;
+        city.tint = TINT[m.slot % TINT.length];
+        city.remoteShift = [site.x - hall[1], site.z - hall[2]];
+      }
+      const [dx, dz] = city.remoteShift ?? [0, 0];
+      city.name = m.city_name;
+      // streets (with water mains and cables under them) first, so the buildings find their roads
+      const fresh: Tile[] = [];
+      const street = new Set<number>();
+      for (const k of L.r) {
+        const x = (k % N) + dx, z = Math.floor(k / N) + dz;
+        if (!inBounds(x, z)) continue;
+        const kk = idx(x, z);
+        street.add(kk);
+        if (!this.net.type[kk] && this.map.isLand(kk) && this.buildings.occ[kk] === -1) fresh.push({ x, z });
+      }
+      if (fresh.length) {
+        this.terrain.clearTiles(fresh.map((tl) => idx(tl.x, tl.z)));
+        // each new piece joined to its neighbours along the street (a lone tile only when it has none)
+        for (const tl of fresh) {
+          let joined = false;
+          for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = tl.x + ox, nz = tl.z + oz;
+            if (inBounds(nx, nz) && street.has(idx(nx, nz)) && (this.net.type[idx(nx, nz)] || this.map.isLand(idx(nx, nz)))) { this.net.buildPath([tl, { x: nx, z: nz }], ROAD_TWO_LANE); joined = true; }
+          }
+          if (!joined) this.net.buildPath([tl], ROAD_TWO_LANE);
+        }
+        this.pipes.add(fresh); this.cables.add(fresh);
+        changed = true;
+      }
+      // buildings: what they no longer have comes down, what is new goes up
+      const want = new Map(L.b.map(([k, x, z, , l]) => [`${k}:${x + dx}:${z + dz}`, { k: k as BuildingKind, x: x + dx, z: z + dz, l }]));
+      for (const b of this.buildings.list.filter((x) => x.city === city!.id && !x.removed)) {
+        const key = `${b.kind}:${b.x}:${b.z}`;
+        const w = want.get(key);
+        if (!w) { this.destroyBuilding(b, false); changed = true; continue; }
+        if ((b.level || 1) !== (w.l || 1) && BUILDINGS[b.kind].units) this.buildings.setLevel(b, w.l || 1);
+        want.delete(key);
+      }
+      for (const w of want.values()) {
+        if (!BUILDINGS[w.k]) continue;
+        this.terrain.clearTiles(this.buildings.footprint(w.k, w.x, w.z).map((f) => idx(f.x, f.z)));
+        if (!this.buildings.check(w.k, w.x, w.z).ok) continue;
+        this.buildings.place(w.k, w.x, w.z, { city: city.id, animate: false, built: 1, level: w.l || 1 });
+        changed = true;
+      }
+      // homes and the water tower stand on the water mains and the cables, like in every town
+      for (const b of this.buildings.list) {
+        if (b.city !== city.id || b.removed || (!BUILDINGS[b.kind].units && b.kind !== 'watertower')) continue;
+        const fp = this.buildings.footprint(b.kind, b.x, b.z).filter((f) => !this.pipes.tiles[idx(f.x, f.z)]);
+        if (fp.length) { this.pipes.add(fp); this.cables.add(fp); changed = true; }
+      }
+      // families move into its homes until it has about as many people as the friend's town
+      const target = Math.round((m.summary.people ?? 0) / 3.4);
+      const fams = [...this.pop.families.values()].filter((f) => this.buildings.get(f.home)?.city === city!.id);
+      let need = Math.min(8, target - fams.length);
+      for (const h of this.buildings.list.filter((b) => b.city === city!.id && !b.removed && BUILDINGS[b.kind].units)) {
+        if (need <= 0) break;
+        const room = BUILDINGS[h.kind].units * (h.level || 1) - fams.filter((f) => f.home === h.id).length;
+        for (let i = 0; i < room && need > 0; i++, need--) fams.push(this.pop.createFamily(h.id, { carChance: 0.4 }));
+        changed = true;
+      }
+      // the friend's real figures
+      if (m.summary.money !== undefined) city.money = m.summary.money;
+      if (m.summary.happy !== undefined) city.happiness = m.summary.happy;
     }
-    this.ghosts.keep(others.map((m) => m.user_id));
+    // a friend who left: their town goes
+    for (const c of [...this.eco.cities.values()]) {
+      if (!c.remote || s.members.some((m) => m.user_id === c.remote)) continue;
+      for (const f of [...this.pop.families.values()]) if (this.buildings.get(f.home)?.city === c.id) this.pop.removeFamily(f);
+      for (const b of this.buildings.list.filter((x) => x.city === c.id && !x.removed)) this.destroyBuilding(b, false);
+      this.eco.cities.delete(c.id);
+      changed = true;
+    }
+    if (changed) { this.pipes.rebuild(); this.cables.rebuild(); this.networkChanged(); this.pop.assign(this.buildings); }
   }
+
+
   /** The online world while this town is played: other players, deals and chat. */
   private online?: OnlineSync;
   private onlinePanel?: OnlinePanel;
@@ -1136,7 +1219,7 @@ export class Game implements ToolHost {
           const mine = this.online?.members.find((m) => m.user_id === this.online?.me);
           if (mine && mine.city_name && this.eco.city.name !== mine.city_name) { this.eco.city.name = mine.city_name; this.meta.name = mine.city_name; this.refreshHud(); }
           this.onlinePanel?.render();
-          this.refreshGhosts();
+          this.syncRemote();
           if (this.worldPanel?.visible) this.worldPanel.render();
           this.hud?.setLogBadge(this.eventLog?.unread ?? 0);
           this.hud?.setOnlineBadge((this.online?.unread ?? 0) + (this.online?.waiting ?? 0));
@@ -2924,7 +3007,7 @@ export class Game implements ToolHost {
       city.tourists += visitors;
       const deals: string[] = [];
       // planes carry people; goods fly only between two neighbour towns (the player trades in the trade window)
-      if (city.ai && from.ai) {
+      if (city.ai && from.ai && !city.remote && !from.remote) {
         const seller = city, buyer = from;
         for (const g of GOODS) {
           if (deals.length >= 3) break;
@@ -3086,7 +3169,7 @@ export class Game implements ToolHost {
     const options = DECISIONS.filter((d) => (!d.when || d.when(ctx)) && !(d.id === 'neighbour' && realNeighbours) && d.id !== 'iron');
     // now and then a neighbour town writes to the town hall
     const noMoney = (m: number) => city.money < m ? t('You do not have enough money: the treasury has ${have}, this needs ${n}', { have: Math.floor(city.money), n: m }) : null;
-    const towns = [...this.eco.cities.values()].filter((c) => c.ai);
+    const towns = [...this.eco.cities.values()].filter((c) => c.ai && !c.remote);
     const town = towns[Math.floor(Math.random() * towns.length)];
     const wish = town && Math.random() < 0.3 ? this.autoCity.wish(town) : null;
     if (town && wish && Math.random() < 0.5) {
@@ -5577,8 +5660,17 @@ export class Game implements ToolHost {
       });
     }
     // friends' towns in an online world, next to the neighbour towns
+    if (this.online) for (const tw of out) {
+      const c = this.eco.cities.get(tw.id);
+      const m = c?.remote ? this.online.members.find((x) => x.user_id === c.remote) : undefined;
+      if (!m) continue;
+      tw.player = { userId: m.user_id, online: this.online.online(m) };
+      tw.relation = undefined;
+      const real = m.summary?.town as WorldTown | undefined;
+      if (real) Object.assign(tw, { people: real.people, growth: real.growth, money: real.money, happiness: real.happiness, tax: real.tax, loan: real.loan, history: real.history, metrics: real.metrics, res: real.res, richest: real.richest, millionaires: real.millionaires });
+    }
     if (this.online) for (const m of this.online.members) {
-      if (m.user_id === this.online.me) continue;
+      if (m.user_id === this.online.me || [...this.eco.cities.values()].some((c) => c.remote === m.user_id)) continue;
       const sm = m.summary ?? {};
       const tint = ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6];
       const player = { userId: m.user_id, online: this.online.online(m) };
@@ -5597,7 +5689,7 @@ export class Game implements ToolHost {
     const pops = this.life.populationByCity();
     const out = [];
     for (const c of this.eco.cities.values()) {
-      if (!c.ai) continue;
+      if (!c.ai || c.remote) continue;
       const people = pops.get(c.id) ?? 0;
       const rel = c.relation ?? 40;
       // every good has its own price in every town: scarce is dear, plenty is cheap (friends get a better deal)
@@ -5913,6 +6005,7 @@ export class Game implements ToolHost {
   private giftTown(id: number, m: number) {
     const me = this.eco.city, town = this.eco.cities.get(id);
     if (!town) return;
+    if (town.remote) { void this.friendAction(town.remote, 'gift'); return; }
     if (me.money < m) { this.embassy?.flash(t('Not enough money — needs ${n}', { n: m }), false); return this.hud?.toast(t('Not enough money — needs ${n}', { n: m })); }
     this.eco.add(me, 'money', -m, 'Help to neighbour towns');
     this.eco.add(town, 'money', m, 'Help from a neighbour town');
@@ -5926,6 +6019,8 @@ export class Game implements ToolHost {
 
   /** The embassy on one neighbour town (needs an embassy in the active town). */
   private openEmbassyFor(id: number) {
+    const rc = this.eco.cities.get(id);
+    if (rc?.remote) { this.cityReport?.hide(); this.onlinePanel?.open('players'); return; }
     if (!this.hasEmbassy()) return this.hud?.toast(t('Build an Embassy first: it handles the deals with the neighbour towns'));
     this.cityReport?.hide();
     this.embassy?.openTown(id);
@@ -5933,6 +6028,8 @@ export class Game implements ToolHost {
 
   /** Trade and contracts with one neighbour town. */
   private openTradeWith(id: number) {
+    const rc = this.eco.cities.get(id);
+    if (rc?.remote) { this.cityReport?.hide(); this.onlinePanel?.openFor(rc.remote); return; }
     this.cityReport?.hide();
     this.trade.newDay(this.eco.day);
     this.tradePanel?.openTown(id);
@@ -5996,7 +6093,7 @@ export class Game implements ToolHost {
     const options = (Object.keys(BUILDINGS) as BuildingKind[]).filter((k) => this.investable(k) && BUILDINGS[k].buildable && ITEMS.some((i) => i.tool === k))
       .map((k) => ({ kind: k, name: t(BUILDINGS[k].name), half: this.fullCost(k), cat: ['business', 'production', 'services'].includes(catOf(k)) ? catOf(k) : 'buildings', jobs: BUILDINGS[k].jobs, aid: this.aidKind(k), fee: BUILDINGS[k].power ? Math.round(BUILDINGS[k].power / 10) : 0 }));
     let total = 0;
-    const towns = [...this.eco.cities.values()].filter((c) => c.ai).map((c) => {
+    const towns = [...this.eco.cities.values()].filter((c) => c.ai && !c.remote).map((c) => {
       const joint = this.buildings.list.filter((b) => b.investor === me.id && b.city === c.id && !b.removed).map((b) => {
         const profit = b.books ? Math.max(0, Math.round((b.books.revenue - b.books.wages - b.books.tax) * 0.5)) : 0;
         total += profit;
@@ -6029,7 +6126,7 @@ export class Game implements ToolHost {
       for (const { b } of this.ownedAbroad()) { const e = b.abroad?.find((x) => x.d === d); if (e) { us += e.us; them += e.them; } }
       days.push({ d, us, them });
     }
-    const shares = Object.fromEntries([...this.eco.cities.values()].filter((c) => c.ai).map((c) => [c.id, this.buildings.list
+    const shares = Object.fromEntries([...this.eco.cities.values()].filter((c) => c.ai && !c.remote).map((c) => [c.id, this.buildings.list
       .filter((b) => b.city === c.id && b.built >= 1 && !b.removed && b.investor === undefined && (BUSINESS_KINDS.includes(b.kind) || SHOP_PRICE[b.kind] || VISIT_PRICE[b.kind]))
       .map((b) => {
         const held = b.shares?.find((s) => s.city === me.id)?.pct ?? 0;

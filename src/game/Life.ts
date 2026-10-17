@@ -1515,7 +1515,7 @@ export class Life {
       // jobless families of the neighbour towns move here for the work
       if (lacking >= 4 && eco.cities.size > 1 && Math.random() < 0.5) {
         const owners = new Set(buildings.list.map((b) => b.owner));
-        const fam = [...pop.families.values()].find((x) => { const h = buildings.get(x.home); return !!h && h.city !== city.id && !!eco.cities.get(h.city)?.ai && !owners.has(x.id) && pop.members(x).some((m) => pop.canWork(m) && m.job < 0); });
+        const fam = [...pop.families.values()].find((x) => { const h = buildings.get(x.home); return !!h && h.city !== city.id && !!eco.cities.get(h.city)?.ai && !eco.cities.get(h.city)?.remote && !owners.has(x.id) && pop.members(x).some((m) => pop.canWork(m) && m.job < 0); });
         if (fam && this.relocate(fam, buildings.get(fam.home)!.city, false)) { this.cityEvent(city.id, t('The {family} family came from a neighbour town for the open jobs', { family: fam.surname })); continue; }
       }
       if (eco.cities.size > 1 && Math.random() < 0.4) {
