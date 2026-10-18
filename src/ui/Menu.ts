@@ -119,7 +119,7 @@ export class Menu {
     items.push(this.note(t('Signed in as {email}', { email: s.user.email ?? '' })));
     if (typeof mine === 'string') items.push(this.note(mine, true));
     const list = await Online.servers();
-    const box = el('div', 'worlds');
+    const box = el('div', 'worlds srv-list');
     if (typeof list === 'string') items.push(this.note(list, true));
     else if (mine && typeof mine !== 'string') {
       // my server: only this one
@@ -166,33 +166,100 @@ export class Menu {
     this.renderHome(items, 'Online');
   }
 
-  private showLogin(msg = '') {
-    const email = input('Email', '', 60);
+  /** Sign in or create an account: two tabs, the email remembered, the password can be shown, Enter sends. */
+  private showLogin(msg = '', mode: 'in' | 'up' = 'in') {
+    let saved = '';
+    try { saved = localStorage.getItem('mcw_email') ?? ''; } catch { /* ignore */ }
+    const tabs = el('div', 'auth-tabs');
+    for (const [m, label] of [['in', 'Sign in'], ['up', 'Create an account']] as const) {
+      const b = el('button', `auth-tab${mode === m ? ' on' : ''}`);
+      b.textContent = t(label);
+      b.addEventListener('click', () => this.showLogin('', m));
+      tabs.appendChild(b);
+    }
+    const form = el('form', 'home-form auth-form') as HTMLFormElement;
+    const name = input('Your name', '', 24);
+    name.autocomplete = 'name';
+    const email = input('Email', saved, 80);
     email.type = 'email';
     email.autocomplete = 'email';
-    const pass = input('Password', '', 60);
+    email.inputMode = 'email';
+    const pass = input('Password', '', 72);
     pass.type = 'password';
-    pass.autocomplete = 'current-password';
-    const name = input('Your name (for a new account)', '', 24);
-    const form = el('div', 'home-form');
-    form.append(email.parentElement!, pass.parentElement!, name.parentElement!);
-    const status = this.note(msg);
-    const busy = async (fn: () => Promise<void>) => { status.textContent = t('Please wait…'); await fn(); };
-    this.renderHome([
-      form, status,
-      homeItem('Sign in', () => void busy(async () => {
-        const e = await Online.signIn(email.value, pass.value);
-        if (e) status.textContent = t(e); else void this.showOnline();
-      }), undefined, true, 'check'),
-      homeItem('Create an account', () => void busy(async () => {
-        if (pass.value.length < 6) { status.textContent = t('The password must be at least 6 characters'); return; }
-        const e = await Online.signUp(email.value, pass.value, name.value);
-        if (e === 'confirm') status.textContent = t('Account created: open the email we sent you, confirm it, then sign in here.');
-        else if (e) status.textContent = t(e);
-        else void this.showOnline(t('Welcome! Your account is ready.'));
-      }), t('Email and a password of 6 or more characters'), false, 'plus'),
-      homeItem('Back', () => this.showMain()),
-    ], 'Online');
+    pass.autocomplete = mode === 'in' ? 'current-password' : 'new-password';
+    const pass2 = input('Repeat the password', '', 72);
+    pass2.type = 'password';
+    pass2.autocomplete = 'new-password';
+    // the eye shows or hides the password
+    const eye = el('button', 'auth-eye');
+    eye.type = 'button';
+    eye.textContent = '👁';
+    eye.title = t('Show the password');
+    eye.addEventListener('click', () => { const show = pass.type === 'password'; pass.type = pass2.type = show ? 'text' : 'password'; eye.classList.toggle('on', show); });
+    pass.parentElement!.classList.add('auth-pass');
+    pass.parentElement!.appendChild(eye);
+    if (mode === 'up') form.append(name.parentElement!);
+    form.append(email.parentElement!, pass.parentElement!);
+    if (mode === 'up') form.append(pass2.parentElement!);
+    const status = this.note(msg, /wrong|not|must|exist|match|xato|yo'q|kerak/i.test(msg));
+    const say = (text: string, bad = true) => { status.textContent = text; status.classList.toggle('bad', bad); };
+    const send = el('button', 'auth-send');
+    send.type = 'submit';
+    send.textContent = t(mode === 'in' ? 'Sign in' : 'Create an account');
+    form.append(send);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const em = email.value.trim();
+      if (!/^\S+@\S+\.\S+$/.test(em)) return say(t('Enter your email'));
+      if (pass.value.length < 6) return say(t('The password must be at least 6 characters'));
+      if (mode === 'up' && pass.value !== pass2.value) return say(t('The passwords do not match'));
+      try { localStorage.setItem('mcw_email', em); } catch { /* ignore */ }
+      send.disabled = true;
+      say(t('Please wait…'), false);
+      const err = mode === 'in' ? await Online.signIn(em, pass.value) : await Online.signUp(em, pass.value, name.value.trim() || em.split('@')[0]);
+      send.disabled = false;
+      if (err === 'confirm') return say(t('Account created: open the email we sent you, confirm it, then sign in here.'), false);
+      if (err) return say(t(err));
+      void this.showOnline(mode === 'up' ? t('Welcome! Your account is ready.') : '');
+    });
+    const items: (HTMLElement | null)[] = [tabs, form, status];
+    if (mode === 'in') {
+      const forgot = el('button', 'auth-link');
+      forgot.type = 'button';
+      forgot.textContent = t('Forgot your password?');
+      forgot.addEventListener('click', async () => {
+        const em = email.value.trim();
+        if (!/^\S+@\S+\.\S+$/.test(em)) return say(t('Write your email above first'));
+        say(t('Please wait…'), false);
+        const err = await Online.resetPassword(em);
+        say(err ? t(err) : t('A link to set a new password was sent to {email}', { email: em }), !!err);
+      });
+      items.push(forgot);
+    }
+    items.push(homeItem('Back', () => this.showMain()));
+    this.renderHome(items, 'Online');
+    setTimeout(() => (mode === 'up' ? name : saved ? pass : email).focus(), 50);
+  }
+
+  /** Back from the email link: choose a new password. */
+  showNewPassword() {
+    const form = el('form', 'home-form auth-form') as HTMLFormElement;
+    const pass = input('New password', '', 72);
+    pass.type = 'password';
+    pass.autocomplete = 'new-password';
+    const send = el('button', 'auth-send');
+    send.type = 'submit';
+    send.textContent = t('Save the password');
+    form.append(pass.parentElement!, send);
+    const status = this.note('');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (pass.value.length < 6) { status.textContent = t('The password must be at least 6 characters'); return; }
+      const err = await Online.setPassword(pass.value);
+      if (err) { status.textContent = t(err); return; }
+      void this.showOnline(t('Your new password is saved.'));
+    });
+    this.renderHome([form, status, homeItem('Back', () => this.showMain())], 'Online');
   }
 
   /** A line of text on a menu page (an error in red). */

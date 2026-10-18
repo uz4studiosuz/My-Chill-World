@@ -77,6 +77,22 @@ export const Online = {
 
   async signOut() { await db().auth.signOut(); },
 
+  /** A link to set a new password goes to this email (it opens the game again). */
+  async resetPassword(email: string): Promise<string | null> {
+    const { error } = await db().auth.resetPasswordForEmail(email.trim(), { redirectTo: location.origin + location.pathname });
+    return error ? why(error) : null;
+  },
+
+  async setPassword(password: string): Promise<string | null> {
+    const { error } = await db().auth.updateUser({ password });
+    return error ? why(error) : null;
+  },
+
+  /** Called when the player came back from the "set a new password" email link. */
+  onRecovery(fn: () => void) {
+    db().auth.onAuthStateChange((event) => { if (event === 'PASSWORD_RECOVERY') fn(); });
+  },
+
   /** The worlds I play in, with my town's name. */
   async myWorlds(): Promise<{ world: OnlineWorld; city: string; players: number; slot: number }[] | string> {
     const s = await this.session();

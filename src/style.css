@@ -2688,3 +2688,16 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
 .srv-row.full { opacity: .55; }
 .srv-bar { height: 5px; border-radius: 3px; background: var(--raised-hi); margin-top: 4px; overflow: hidden; }
 .srv-bar i { display: block; height: 100%; background: var(--accent); }
+
+/* the online pages: server list and sign-in */
+.home-side .worlds.srv-list { max-height: none; overflow: visible; }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line); width: 100%; }
+.auth-tab { padding: 9px 6px; border-radius: 9px; border: 0; background: transparent; color: var(--muted); font: 800 13px var(--font-ui); cursor: pointer; }
+.auth-tab.on { background: var(--accent); color: var(--on-accent); }
+.auth-form { display: grid; gap: 10px; width: 100%; }
+.auth-pass { position: relative; }
+.auth-eye { position: absolute; right: 8px; bottom: 7px; width: 32px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); color: var(--text); cursor: pointer; opacity: .6; }
+.auth-eye.on { opacity: 1; border-color: var(--accent); }
+.auth-send { margin-top: 2px; padding: 12px; border-radius: 12px; border: 0; background: var(--accent); color: var(--on-accent); font: 800 15px var(--font-ui); cursor: pointer; }
+.auth-send:disabled { opacity: .6; cursor: wait; }
+.auth-link { align-self: center; background: none; border: 0; color: var(--accent); font: 700 12.5px var(--font-ui); cursor: pointer; text-decoration: underline; padding: 4px; }

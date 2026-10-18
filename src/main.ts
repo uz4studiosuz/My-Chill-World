@@ -6,6 +6,7 @@ import { Menu } from './ui/Menu';
 import { Gallery } from './gallery/Gallery';
 import { exportWorld } from './save/Transfer';
 import { SaveStore } from './save/SaveStore';
+import { Online } from './online/Online';
 import { renderThumbnails } from './models/catalog';
 import { getLang, setLang, t } from './i18n/i18n';
 import { sound } from './audio/Sound';
@@ -76,6 +77,8 @@ async function boot() {
         // a world that cannot be opened must not leave the loading screen hanging
         console.error('[load]', e);
         openMainMenu();
+  // back from the "set a new password" email link
+  Online.onRecovery(() => menu.showNewPassword());
         alert(`${t('This world could not be opened')}: ${(e as Error)?.message ?? e}`);
         return;
       }
