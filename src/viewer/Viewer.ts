@@ -12,19 +12,41 @@ import { transform } from 'sucrase';
 const MODULES = import.meta.glob(['../models/**/*.ts', '../utils/*.ts', '../buildings/BuildingTypes.ts', '../fx/BakedShade.ts', '../world/grid.ts', '../config.ts'], { eager: true }) as Record<string, Record<string, unknown>>;
 const KEY = 'mcw_viewer_code';
 
-/** The module for an import path: the one whose path ends the same way (the more parts match, the better). */
-function resolve(spec: string): Record<string, unknown> {
-  if (spec === 'three') return THREE as unknown as Record<string, unknown>;
-  const want = spec.replace(/\.(ts|js)$/, '').split('/').filter((p) => p && p !== '.' && p !== '..');
-  let best: Record<string, unknown> | null = null, score = 0;
-  for (const [path, mod] of Object.entries(MODULES)) {
-    const have = path.replace(/\.ts$/, '').split('/');
-    let n = 0;
-    while (n < want.length && n < have.length && want[want.length - 1 - n] === have[have.length - 1 - n]) n++;
-    if (n > score) { score = n; best = mod; }
+/** The names a file imports from each path (`import { a, b as c } from 'x'`), to tell same-named files apart. */
+function importedNames(src: string) {
+  const out = new Map<string, string[]>();
+  for (const m of src.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/g)) {
+    const names = m[1].split(',').map((x) => x.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]).filter(Boolean);
+    out.set(m[2], [...(out.get(m[2]) ?? []), ...names]);
   }
-  if (!best) throw new Error(`Cannot find the module "${spec}" in the game`);
-  return best;
+  return out;
+}
+
+/**
+ * The module for an import path: among the game's files whose path ends the same way (the more parts match, the
+ * better), the one that really has every name the file takes from it (many folders have their own _shared).
+ */
+function resolver(names: Map<string, string[]>) {
+  return (spec: string): Record<string, unknown> => {
+    if (spec === 'three') return THREE as unknown as Record<string, unknown>;
+    const want = spec.replace(/\.(ts|js)$/, '').split('/').filter((p) => p && p !== '.' && p !== '..');
+    const need = names.get(spec) ?? [];
+    const has = (mod: Record<string, unknown>) => need.every((n) => n in mod);
+    let best: Record<string, unknown> | null = null, score = -1;
+    for (const [path, mod] of Object.entries(MODULES)) {
+      const have = path.replace(/\.ts$/, '').split('/');
+      let n = 0;
+      while (n < want.length && n < have.length && want[want.length - 1 - n] === have[have.length - 1 - n]) n++;
+      if (!n) continue;
+      // a file with all the names wins over a closer name without them
+      const s = n + (has(mod) ? 100 : 0);
+      if (s > score) { score = s; best = mod; }
+    }
+    // nothing by that name: any file of the game that has all the names
+    if ((!best || !has(best)) && need.length) best = Object.values(MODULES).find(has) ?? best;
+    if (!best) throw new Error(`Cannot find the module "${spec}" in the game`);
+    return best;
+  };
 }
 
 export class Viewer {
@@ -124,7 +146,7 @@ export class Viewer {
       const js = transform(src, { transforms: ['typescript', 'imports'], production: true }).code;
       const module = { exports: {} as Record<string, unknown> };
       // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      new Function('require', 'exports', 'module', js)(resolve, module.exports, module);
+      new Function('require', 'exports', 'module', js)(resolver(importedNames(src)), module.exports, module);
       for (const [name, value] of Object.entries(module.exports)) {
         if (typeof value === 'function') {
           try {
