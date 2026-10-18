@@ -895,7 +895,7 @@ export class Game implements ToolHost {
         land: (x, z) => {
           const wx = tileToWorld(x), wz = tileToWorld(z);
           this.cam.setState(wx, wz, this.cam.yaw, this.cam.maxView);
-          this.cam.flyTo(wx, wz, 16, 1.4);
+          this.cam.flyTo(wx, wz, 14, 2.4);
         },
       }, () => { this.hud?.setGlobe(false); });
       this.globe.resize(...this.size);

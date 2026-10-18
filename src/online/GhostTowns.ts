@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BUILDINGS, BuildingKind } from '../buildings/BuildingTypes';
 import { N, tileToWorld } from '../world/grid';
+import { townTag } from '../world/Globe';
 
 /** A town as another player shows it: its buildings (kind, x, z, turn, level) and its road tiles. */
 export interface TownLayout { b: [string, number, number, number, number][]; r: number[] }
@@ -79,23 +80,14 @@ export class GhostTowns {
   dispose() { for (const id of [...this.towns.keys()]) this.drop(id); }
 }
 
-/** A floating name tag: "🌐 Name". */
+/** The friend's name over their town: the same small tag as on the globe. */
 function label(text: string, tint: string, x: number, z: number) {
-  const c = document.createElement('canvas');
-  c.width = 512; c.height = 128;
-  const g = c.getContext('2d')!;
-  g.fillStyle = 'rgba(26,29,34,0.88)';
-  g.beginPath(); g.roundRect(8, 16, 496, 96, 28); g.fill();
-  g.strokeStyle = tint; g.lineWidth = 8; g.stroke();
-  g.fillStyle = '#ffffff';
-  g.font = 'bold 54px Fredoka, Nunito, sans-serif';
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(`🌐 ${text}`.slice(0, 22), 256, 66);
+  const c = townTag(text, tint, true);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
-  s.scale.set(3, 0.75, 1);
-  s.position.set(x, 2.4, z);
+  s.scale.set((0.5 * c.width) / c.height, 0.5, 1);
+  s.position.set(x, 2.2, z);
   s.renderOrder = 20;
   return s;
 }

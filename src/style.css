@@ -2883,3 +2883,6 @@ body .emb-tab em { letter-spacing: 0; background: var(--bad); color: #fff; }
 .price-board td.hi b { color: var(--accent); }
 .price-board small.up { color: #3ecf8e; }
 .price-board small.down { color: #f0616d; }
+.gl-cloud { position: fixed; inset: 0; pointer-events: none; opacity: 0; z-index: 60; background: radial-gradient(ellipse at 50% 55%, #ffffff 0%, #e6f1fa 45%, #b9d6ee 100%); }
+.globe-ui .gl-top, .globe-ui .gl-back { transition: opacity .3s; }
+.globe-ui.diving .gl-top, .globe-ui.diving .gl-back { opacity: 0; pointer-events: none; }

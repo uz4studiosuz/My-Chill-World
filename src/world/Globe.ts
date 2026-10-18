@@ -103,7 +103,7 @@ export class Globe {
     // the controls: a layer over the map while the globe is shown
     this.ui = document.createElement('div');
     this.ui.className = 'globe-ui';
-    this.ui.innerHTML = `<div class="gl-top"><b></b><small></small></div><button class="gl-back"></button><div class="gl-fade"></div>`;
+    this.ui.innerHTML = `<div class="gl-top"><b></b><small></small></div><button class="gl-back"></button>`;
     (this.ui.querySelector('.gl-top b') as HTMLElement).textContent = t('The world');
     (this.ui.querySelector('.gl-top small') as HTMLElement).textContent = IS_TOUCH ? t('Drag to turn · pinch in to land · tap a town') : t('Drag to turn · scroll in to land · click a town');
     const back = this.ui.querySelector('.gl-back') as HTMLButtonElement;
@@ -137,12 +137,14 @@ export class Globe {
     const f = this.host.focus();
     const a = tileAngles(f.x, f.z);
     this.phi = a.phi; this.theta = a.theta;
-    this.dist = 1.3; this.goal = this.fit();
+    this.dist = 1.03; this.goal = this.fit();
+    this.arrive = 0;
     this.vel = { x: 0, y: 0 };
     this.leaving = null;
     this.active = true;
     this.ui.classList.add('show');
-    this.flash();
+    this.ui.classList.remove('diving');
+    this.cloud(1);
     document.body.classList.add('globe-on');
     this.apply();
   }
@@ -152,6 +154,7 @@ export class Globe {
     if (!this.active || this.leaving) return;
     const a = tileAngles(x, z);
     this.leaving = { t: 0, x, z };
+    this.ui.classList.add('diving');
     this.vel = { x: 0, y: 0 };
     this.fromAngles = { phi: this.phi, theta: this.theta, dist: this.dist };
     // the short way round, even after the planet turned many times
@@ -160,6 +163,14 @@ export class Globe {
     this.toAngles = { phi: this.phi + dp, theta: a.theta };
   }
   private fromAngles = { phi: 0, theta: 0, dist: 0 };
+  private arrive = 1;
+  /** A veil of cloud over the whole screen (0..1), faded over `fade` seconds. */
+  private veil?: HTMLDivElement;
+  private cloud(v: number, fade = 0) {
+    if (!this.veil) { this.veil = document.createElement('div'); this.veil.className = 'gl-cloud'; document.body.appendChild(this.veil); }
+    this.veil.style.transition = fade ? `opacity ${fade}s ease-out` : 'none';
+    this.veil.style.opacity = `${THREE.MathUtils.clamp(v, 0, 1)}`;
+  }
   private toAngles = { phi: 0, theta: 0 };
 
   private close() {
@@ -173,13 +184,17 @@ export class Globe {
     if (!this.active) return;
     if (this.leaving) {
       const L = this.leaving;
-      L.t = Math.min(1, L.t + dt / 0.9);
-      const e = L.t < 0.5 ? 2 * L.t * L.t : 1 - Math.pow(-2 * L.t + 2, 2) / 2;
-      this.phi = this.fromAngles.phi + (this.toAngles.phi - this.fromAngles.phi) * e;
-      this.theta = this.fromAngles.theta + (this.toAngles.theta - this.fromAngles.theta) * e;
-      this.dist = this.fromAngles.dist + (1.08 - this.fromAngles.dist) * e;
+      // like Google Earth: first the planet turns to the place, then the camera falls towards it through the clouds
+      L.t = Math.min(1, L.t + dt / 2.1);
+      const ease = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+      const turn = ease(Math.min(1, L.t / 0.6));
+      const fall = L.t < 0.3 ? 0 : (L.t - 0.3) / 0.7;
+      this.phi = this.fromAngles.phi + (this.toAngles.phi - this.fromAngles.phi) * turn;
+      this.theta = this.fromAngles.theta + (this.toAngles.theta - this.fromAngles.theta) * turn;
+      this.dist = R + (this.fromAngles.dist - R) * Math.pow(1 - fall, 2.4) + 0.012;
+      this.cloud(L.t < 0.78 ? 0 : (L.t - 0.78) / 0.22);
       this.apply();
-      if (L.t >= 1) { this.flash(); this.host.land(L.x, L.z); this.close(); }
+      if (L.t >= 1) { this.host.land(L.x, L.z); this.close(); this.cloud(0, 0.9); }
       return;
     }
     // spin on after a flick, slowing down; after a while alone it turns by itself
@@ -191,7 +206,13 @@ export class Globe {
       this.vel.x *= k; this.vel.y *= k;
       if (this.idle > 6) this.phi += dt * 0.05;
     }
-    this.dist += (this.goal - this.dist) * Math.min(1, dt * 6);
+    // arriving from the map: the camera rises out of the clouds into space
+    if (this.arrive < 1) {
+      this.arrive = Math.min(1, this.arrive + dt / 1.9);
+      const e = 1 - Math.pow(1 - this.arrive, 3);
+      this.dist = 1.03 + (this.goal - 1.03) * e;
+      this.cloud(Math.max(0, 1 - this.arrive * 3));
+    } else this.dist += (this.goal - this.dist) * Math.min(1, dt * 6);
     if (this.clouds) this.clouds.rotation.y += dt * 0.006;
     this.apply();
   }
@@ -203,7 +224,7 @@ export class Globe {
     this.camera.updateMatrixWorld();
     // name tags only on the side facing us, and a little smaller far away
     const cam = this.camera.position;
-    const tag = 0.05 * Math.min(1, 0.45 + this.camera.aspect * 0.55);
+    const tag = 0.034 * Math.min(1, 0.5 + this.camera.aspect * 0.5);
     for (const m of this.markers.children) {
       const facing = m.position.dot(cam) / (m.position.length() * cam.length());
       m.visible = facing > 0.25;
@@ -361,33 +382,18 @@ export class Globe {
     this.group.add(this.land);
   }
 
-  /** Name tags over every town (yours in amber, friends with a globe). */
+  /** A small name tag over every town (a dot in the town's colour, yours in amber). */
   private townMarkers() {
     for (const m of [...this.markers.children] as THREE.Sprite[]) { m.material.map?.dispose(); m.material.dispose(); this.markers.remove(m); }
     for (const tw of this.host.towns()) {
       const a = tileAngles(tw.x, tw.z);
-      const c = document.createElement('canvas');
-      const g = c.getContext('2d')!;
-      const label = `${tw.friend ? '🌐 ' : ''}${tw.name}`;
-      const sub = t('{n} people', { n: tw.people.toLocaleString('en-US') });
-      g.font = '800 44px Nunito, system-ui, sans-serif';
-      const w = Math.ceil(Math.max(g.measureText(label).width, 200) + 96);
-      c.width = w; c.height = 128;
-      g.fillStyle = 'rgba(16,19,24,.88)';
-      g.beginPath(); g.roundRect(4, 8, w - 8, 112, 30); g.fill();
-      g.strokeStyle = tw.mine ? '#f2a93b' : tw.tint; g.lineWidth = 6; g.stroke();
-      g.fillStyle = tw.mine ? '#f2a93b' : tw.tint;
-      g.beginPath(); g.arc(44, 64, 13, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#fff'; g.font = '800 44px Nunito, system-ui, sans-serif'; g.textBaseline = 'middle';
-      g.fillText(label, 72, 50);
-      g.fillStyle = '#aab3bf'; g.font = '700 30px Nunito, system-ui, sans-serif';
-      g.fillText(sub, 72, 92);
+      const c = townTag(tw.name, tw.mine ? '#f2a93b' : tw.tint, tw.friend);
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: false }));
-      s.center.set(0.1, 0);
+      s.center.set(0.5, 0);
       s.position.copy(point(a.phi, a.theta, R * 1.004));
-      s.userData = { w: w / 128, town: tw };
+      s.userData = { w: c.width / c.height, town: tw };
       s.renderOrder = 10;
       this.markers.add(s);
     }
@@ -451,11 +457,11 @@ export class Globe {
     }
     // turn the planet: the surface follows the finger (slower when close)
     const k = (this.dist - R * 0.92) * 1.4 / Math.max(300, window.innerHeight);
-    this.phi += dx * k;
+    this.phi -= dx * k;
     this.theta = THREE.MathUtils.clamp(this.theta - dy * k, 0.2, Math.PI - 0.2);
     const dt = Math.max(1, performance.now() - this.press.time) / 1000;
     this.press.time = performance.now();
-    this.vel = { x: (dx * k) / Math.max(0.016, dt), y: (-dy * k) / Math.max(0.016, dt) };
+    this.vel = { x: (-dx * k) / Math.max(0.016, dt), y: (-dy * k) / Math.max(0.016, dt) };
   };
 
   private up = (e: PointerEvent) => {
@@ -512,17 +518,10 @@ export class Globe {
     if (tile) this.leave(tile.x, tile.z);
   }
 
-  /** A short soft flash hides the switch between the map and the globe. */
-  private flash() {
-    const f = this.ui.querySelector('.gl-fade') as HTMLElement;
-    f.classList.remove('go');
-    void f.offsetWidth;
-    f.classList.add('go');
-  }
-
   dispose() {
     window.removeEventListener('keydown', this.key);
     this.ui.remove();
+    this.veil?.remove();
     document.body.classList.remove('globe-on');
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -531,4 +530,24 @@ export class Globe {
       if (mat) { mat.map?.dispose(); mat.dispose(); }
     });
   }
+}
+
+/** A small, quiet name tag: a dark pill with a coloured dot and the name (the same for towns on the globe and friends' towns on the map). */
+export function townTag(name: string, color: string, friend = false) {
+  const c = document.createElement('canvas');
+  const g = c.getContext('2d')!;
+  const font = '700 30px Nunito, system-ui, sans-serif';
+  g.font = font;
+  const text = name.length > 22 ? `${name.slice(0, 21)}…` : name;
+  const w = Math.ceil(g.measureText(text).width) + 58;
+  c.width = w; c.height = 52;
+  g.font = font;
+  g.fillStyle = 'rgba(14,17,21,.74)';
+  g.beginPath(); g.roundRect(1, 1, w - 2, 50, 25); g.fill();
+  g.fillStyle = color;
+  g.beginPath(); g.arc(25, 26, 7.5, 0, Math.PI * 2); g.fill();
+  if (friend) { g.strokeStyle = color; g.lineWidth = 2.5; g.beginPath(); g.arc(25, 26, 12.5, 0, Math.PI * 2); g.stroke(); }
+  g.fillStyle = '#f4f6f8'; g.textBaseline = 'middle';
+  g.fillText(text, 43, 27);
+  return c;
 }
