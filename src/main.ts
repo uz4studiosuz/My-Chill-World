@@ -17,8 +17,16 @@ const THUMB_IDS = ['eldercare', 'restaurant', 'zoo', 'pier', 'forestry', 'greenh
 /** /editor (or editor.html, #editor) opens the model editor instead of the game. */
 const isEditor = () => /\/editor(\.html)?\/?$/.test(location.pathname) || location.hash === '#editor';
 
+/** /viewer (linked from nowhere): paste a model file and see it in 3D. */
+const isViewer = () => /\/viewer(\.html)?\/?$/.test(location.pathname) || location.hash === '#viewer';
+
 async function boot() {
   setLang(getLang());
+  if (isViewer()) {
+    const { Viewer } = await import('./viewer/Viewer');
+    new Viewer(document.getElementById('app')!);
+    return;
+  }
   if (isEditor()) {
     const { Editor } = await import('./editor/Editor');
     new Editor(document.getElementById('app')!);
