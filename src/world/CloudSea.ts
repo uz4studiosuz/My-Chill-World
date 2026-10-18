@@ -30,7 +30,7 @@ export class CloudSea {
       const tex = cloudTexture(seed + i * 17, solid);
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       tex.repeat.set(rep, rep);
-      const mat = new THREE.MeshLambertMaterial({ map: tex, alphaMap: edge, transparent: true, depthWrite: i === 0, emissive: new THREE.Color('#2a2f36') });
+      const mat = new THREE.MeshLambertMaterial({ map: tex, alphaMap: edge, transparent: true, depthWrite: false, alphaTest: 0.01, emissive: new THREE.Color('#2a2f36') });
       const m = new THREE.Mesh(new THREE.PlaneGeometry(SPAN, SPAN).rotateX(-Math.PI / 2), mat);
       m.position.y = y;
       m.renderOrder = 2 + i;
