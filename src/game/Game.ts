@@ -1103,7 +1103,7 @@ export class Game implements ToolHost {
   private syncRemote() {
     const s = this.online;
     if (!s) return;
-    const TINT = ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'];
+    const TINT = ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020', '#4fc3c8', '#c9a227'];
     const others = s.members.filter((m) => m.user_id !== s.me && m.summary?.layout?.b?.length);
     const places = this.placesFor(others.map((m) => m.slot));
     let changed = false;
@@ -5686,7 +5686,7 @@ export class Game implements ToolHost {
     if (this.online) for (const m of this.online.members) {
       if (m.user_id === this.online.me || [...this.eco.cities.values()].some((c) => c.remote === m.user_id)) continue;
       const sm = m.summary ?? {};
-      const tint = ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020'][m.slot % 6];
+      const tint = ['#e8738f', '#5f9fe0', '#b07ad9', '#6fcf97', '#f2a93b', '#e0a020', '#4fc3c8', '#c9a227'][m.slot % 8];
       const player = { userId: m.user_id, online: this.online.online(m) };
       if (sm.town) { out.push({ ...(sm.town as WorldTown), id: -1000 - m.slot, name: m.city_name, tint, mine: false, relation: undefined, news: [], dealings: [], player }); continue; }
       const lb = sm.layout?.b ?? [];
@@ -7204,7 +7204,7 @@ export class Game implements ToolHost {
   private playerSites(): Tile[] {
     const rnd = mulberry32(this.map.seed * 7 + 11);
     const out: Tile[] = [{ x: N / 2, z: N / 2 }];
-    for (let k = 1; k < 6; k++) { const s = findTownSite(this.map, out, 44, rnd) ?? findTownSite(this.map, out, 34, rnd); if (s) out.push(s); }
+    for (let k = 1; k < 8; k++) { const s = findTownSite(this.map, out, 44, rnd) ?? findTownSite(this.map, out, 34, rnd) ?? findTownSite(this.map, out, 28, rnd); if (s) out.push(s); }
     return out;
   }
 

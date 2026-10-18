@@ -104,6 +104,36 @@ export const Online = {
     return error ? why(error) : (data as OnlineWorld);
   },
 
+  /** The four servers and how many play on each. */
+  async servers(): Promise<{ id: string; code: string; name: string; players: number; max_players: number; started_at: string }[] | string> {
+    const { data, error } = await db().rpc('server_list');
+    return error ? why(error) : (data ?? []);
+  },
+
+  /** The server this account chose (it can choose only once), or null. */
+  async myServer(): Promise<OnlineWorld | null | string> {
+    const s = await this.session();
+    if (!s) return 'not signed in';
+    const { data: p, error } = await db().from('profiles').select('server_id').eq('id', s.user.id).maybeSingle();
+    if (error) return why(error);
+    if (!p?.server_id) return null;
+    const { data: w } = await db().from('worlds').select('*').eq('id', p.server_id).maybeSingle();
+    return (w as OnlineWorld) ?? null;
+  },
+
+  /** My town on a server: its name and its place (slot). */
+  async myTown(worldId: string): Promise<{ city: string; slot: number } | null> {
+    const s = await this.session();
+    if (!s) return null;
+    const { data } = await db().from('world_members').select('city_name, slot').eq('world_id', worldId).eq('user_id', s.user.id).maybeSingle();
+    return data ? { city: data.city_name as string, slot: data.slot as number } : null;
+  },
+
+  async joinServer(id: string, city: string): Promise<OnlineWorld | string> {
+    const { data, error } = await db().rpc('join_server', { p_world: id, p_city: city });
+    return error ? why(error) : (data as OnlineWorld);
+  },
+
   async leaveWorld(id: string): Promise<string | null> {
     const { error } = await db().rpc('leave_world', { p_world: id });
     return error ? why(error) : null;

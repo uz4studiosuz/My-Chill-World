@@ -103,7 +103,7 @@ async function boot() {
       const id = `on_${w.id}`;
       const save = SaveStore.load(id);
       if (save) start({ save });
-      else start({ create: { id, name: city, seed: w.seed, towns: 2, online: { worldId: w.id, code: w.code, world: w.name, host: false, started: w.started_at, daySeconds: w.day_seconds, slot } } });
+      else start({ create: { id, name: city, seed: w.seed, towns: 0, online: { worldId: w.id, code: w.code, world: w.name, host: false, started: w.started_at, daySeconds: w.day_seconds, slot } } });
     },
     loadWorld: (id) => {
       const save = SaveStore.load(id);

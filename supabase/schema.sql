@@ -187,3 +187,66 @@ create trigger offers_tidy after insert on public.offers for each row execute fu
 
 do $$ begin alter publication supabase_realtime add table public.offers; exception when duplicate_object then null; end $$;
 do $$ begin alter publication supabase_realtime add table public.chat; exception when duplicate_object then null; end $$;
+
+-- =====================================================================
+-- Servers: four public worlds of up to 8 players each (people only, no AI towns).
+-- Every account chooses one server, once, and plays only there.
+-- =====================================================================
+alter table public.worlds alter column host drop not null;
+alter table public.worlds add column if not exists is_server boolean not null default false;
+alter table public.profiles add column if not exists server_id uuid references public.worlds (id) on delete set null;
+
+insert into public.worlds (code, name, host, seed, max_players, is_server)
+select v.code, v.name, null, v.seed, 8, true
+from (values ('SRV1', 'Server 1 · Toshkent', 104729), ('SRV2', 'Server 2 · Samarqand', 224737),
+             ('SRV3', 'Server 3 · Buxoro', 350377), ('SRV4', 'Server 4 · Xiva', 479909)) as v (code, name, seed)
+where not exists (select 1 from public.worlds w where w.code = v.code);
+
+drop policy if exists "worlds of my own" on public.worlds;
+create policy "worlds of my own" on public.worlds for select to authenticated using (is_server or host = auth.uid() or public.is_member(id));
+
+-- the servers with how many play on each (everyone may see this list)
+create or replace function public.server_list()
+returns table (id uuid, code text, name text, players int, max_players int, started_at timestamptz)
+language sql security definer stable set search_path = public as $$
+  select w.id, w.code, w.name, (select count(*)::int from public.world_members m where m.world_id = w.id), w.max_players, w.started_at
+  from public.worlds w where w.is_server order by w.code;
+$$;
+
+-- join a server: only the one chosen the first time, and only while it has room
+create or replace function public.join_server(p_world uuid, p_city text)
+returns public.worlds
+language plpgsql security definer set search_path = public as $$
+declare
+  w public.worlds;
+  mine uuid;
+  s int;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  select server_id into mine from public.profiles where id = auth.uid();
+  if mine is not null and mine <> p_world then raise exception 'You already chose a server: you can play only on that one'; end if;
+  select * into w from public.worlds where id = p_world and is_server;
+  if w.id is null then raise exception 'No such server'; end if;
+  if not exists (select 1 from public.world_members where world_id = w.id and user_id = auth.uid()) then
+    if (select count(*) from public.world_members where world_id = w.id) >= w.max_players then raise exception 'This server is full'; end if;
+    select min(g) into s from generate_series(0, w.max_players - 1) g
+     where not exists (select 1 from public.world_members m where m.world_id = w.id and m.slot = g);
+    insert into public.world_members (world_id, user_id, city_name, slot)
+    values (w.id, auth.uid(), left(coalesce(nullif(trim(p_city), ''), 'My town'), 30), s);
+  end if;
+  insert into public.profiles (id, server_id) values (auth.uid(), w.id)
+  on conflict (id) do update set server_id = excluded.server_id;
+  return w;
+end $$;
+
+grant execute on function public.server_list() to authenticated;
+grant execute on function public.join_server(uuid, text) to authenticated;
+
+-- a server is never closed when its last player leaves
+create or replace function public.leave_world(p_world uuid)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.world_members where world_id = p_world and user_id = auth.uid();
+  delete from public.worlds w where w.id = p_world and not w.is_server and not exists (select 1 from public.world_members m where m.world_id = w.id);
+end $$;

@@ -2681,3 +2681,10 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
   body.photo-mode .m-date, body.pov-mode .m-date, body.lapse-mode .m-date { display: none; }
   body:has(.stats.show, .trade-panel.show, .embassy.show, .chain-view.show, .inspector.show, .sidebar.open) .m-date { display: none; }
 }
+
+/* online servers on the main menu */
+.srv-row { display: flex; align-items: center; gap: 10px; }
+.srv-row.mine { border-color: var(--accent); }
+.srv-row.full { opacity: .55; }
+.srv-bar { height: 5px; border-radius: 3px; background: var(--raised-hi); margin-top: 4px; overflow: hidden; }
+.srv-bar i { display: block; height: 100%; background: var(--accent); }

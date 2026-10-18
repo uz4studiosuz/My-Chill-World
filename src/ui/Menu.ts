@@ -92,7 +92,7 @@ export class Menu {
     this.renderHome([
       w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${dateLabel(w.day)} · ${t('{n} people', { n: w.population })}`, true, 'play') : null,
       homeItem('New World', () => this.showNew(), t('A fresh valley, a small village'), !w, 'plus'),
-      homeItem('Online', () => this.onlineGate(), t('Play together with friends in one world'), false, 'globe'),
+      homeItem('Online', () => void this.showOnline(), t('Play with other people on a server'), false, 'globe'),
       worlds.length ? homeItem('Load World', () => this.showLoad(), t('{n} saved worlds', { n: worlds.length }), false, 'folder') : null,
       homeItem('Import a world', () => this.pickImport(), t('Open a world file from another computer or phone'), false, 'folder'),
       worlds.length ? homeItem('Records', () => this.showRecords(), undefined, false, 'trophy') : null,
@@ -105,67 +105,61 @@ export class Menu {
 
   // ---------- online ----------
 
-  /** The online pages are behind a password while they are being tested (asked once per visit). */
-  private onlineGate(msg = '') {
-    let ok = false;
-    try { ok = sessionStorage.getItem('mcw_online_gate') === '1'; } catch { /* ignore */ }
-    if (ok) { void this.showOnline(); return; }
-    const pass = input('Password', '', 20);
-    pass.type = 'password';
-    const form = el('div', 'home-form');
-    form.appendChild(pass.parentElement!);
-    const status = this.note(msg, !!msg);
-    const enter = () => {
-      if (pass.value.trim() !== '123098') { this.onlineGate(t('Wrong password')); return; }
-      try { sessionStorage.setItem('mcw_online_gate', '1'); } catch { /* ignore */ }
-      void this.showOnline();
-    };
-    pass.addEventListener('keydown', (e) => { if (e.key === 'Enter') enter(); });
-    this.renderHome([form, status, homeItem('Open', enter, undefined, true, 'check'), homeItem('Back', () => this.showMain())], 'Online');
-    setTimeout(() => pass.focus(), 50);
-  }
-
-  /** Online: sign in with email and password, then my worlds, create one (host) or join one with its code. */
+  /**
+   * Online: sign in with email and password, then the server. Four servers of up to 8 people each (no AI towns); every
+   * account chooses one server, once, and plays only there.
+   */
   async showOnline(msg = '') {
     this.renderHome([this.note(t('Connecting…'))], 'Online');
     const s = await Online.session();
     if (!s) return this.showLogin(msg);
-    const list = await Online.myWorlds();
+    const mine = await Online.myServer();
     const items: (HTMLElement | null)[] = [];
     if (msg) items.push(this.note(msg));
-    const who = this.note(t('Signed in as {email}', { email: s.user.email ?? '' }));
-    items.push(who);
+    items.push(this.note(t('Signed in as {email}', { email: s.user.email ?? '' })));
+    if (typeof mine === 'string') items.push(this.note(mine, true));
+    const list = await Online.servers();
+    const box = el('div', 'worlds');
     if (typeof list === 'string') items.push(this.note(list, true));
-    else if (list.length) {
-      const box = el('div', 'worlds');
-      for (const { world, city, players, slot } of list) {
-        const row = el('div', 'world');
-        const th = el('div', 'world-thumb');
-        th.textContent = '🌐';
-        const info = el('div', 'world-info');
-        const name = el('b', '');
-        name.textContent = `${world.name} · ${city}`;
-        const meta = el('small', '');
-        meta.textContent = `${t('Code')} ${world.code} · ${t('{n} of {m} players', { n: players, m: world.max_players })}${world.host === s.user.id ? ` · ${t('you are the host')}` : ''}`;
-        info.append(name, meta);
-        const play = el('button', 'btn-mini');
-        play.textContent = t('Play');
-        play.addEventListener('click', () => this.h.playOnline?.(world, city, slot));
-        const leave = el('button', 'btn-mini ghost');
-        leave.textContent = t('Leave');
-        leave.addEventListener('click', async () => {
-          if (!confirm(t('Leave the online world {name}? Your town in it will be gone.', { name: world.name }))) return;
-          const e = await Online.leaveWorld(world.id);
-          void this.showOnline(e ?? t('You left {name}', { name: world.name }));
+    else if (mine && typeof mine !== 'string') {
+      // my server: only this one
+      const srv = list.find((x) => x.id === mine.id);
+      const town = await Online.myTown(mine.id);
+      const row = el('div', 'world srv-row mine');
+      row.innerHTML = '<div class="world-thumb">🌐</div><div class="world-info"><b></b><small></small></div>';
+      (row.querySelector('b') as HTMLElement).textContent = mine.name;
+      (row.querySelector('small') as HTMLElement).textContent = `${t('Your town')}: ${town?.city ?? '—'} · ${t('{n} of {m} players', { n: srv?.players ?? 0, m: srv?.max_players ?? 8 })}`;
+      box.appendChild(row);
+      items.push(box, homeItem('Play', () => this.h.playOnline?.(mine, town?.city ?? t('My town'), town?.slot ?? 0), t('Your server — you play only here'), true, 'play'));
+    } else if (typeof list !== 'string') {
+      // choose a server: once and for all
+      items.push(this.note(t('Choose your server. You can choose only once: afterwards you always play on it. Only people play there — no AI towns.')));
+      const city = input('Your town name', t('My town'), 30);
+      const form = el('div', 'home-form');
+      form.appendChild(city.parentElement!);
+      items.push(form);
+      for (const v of list) {
+        const full = v.players >= v.max_players;
+        const row = el('div', `world srv-row${full ? ' full' : ''}`);
+        row.innerHTML = '<div class="world-thumb">🌐</div><div class="world-info"><b></b><small></small><div class="srv-bar"><i></i></div></div>';
+        (row.querySelector('b') as HTMLElement).textContent = v.name;
+        (row.querySelector('small') as HTMLElement).textContent = full ? t('Full ({n} of {m})', { n: v.players, m: v.max_players }) : t('{n} of {m} players · {f} places free', { n: v.players, m: v.max_players, f: v.max_players - v.players });
+        (row.querySelector('.srv-bar i') as HTMLElement).style.width = `${Math.round((v.players / v.max_players) * 100)}%`;
+        const go = el('button', 'btn-mini');
+        go.textContent = t('Choose');
+        go.disabled = full;
+        go.addEventListener('click', async () => {
+          if (!confirm(t('Play on {name}? You can choose a server only once — later you cannot move to another one.', { name: v.name }))) return;
+          const w = await Online.joinServer(v.id, city.value);
+          if (typeof w === 'string') { void this.showOnline(t(w)); return; }
+          void this.showOnline(t('Welcome to {name}! Press Play to start your town.', { name: w.name }));
         });
-        row.append(th, info, play, leave);
+        row.appendChild(go);
         box.appendChild(row);
       }
       items.push(box);
-    } else items.push(this.note(t('You are not in any online world yet: create one (you will be its host) or join a friend\'s with their code.')));
+    }
     items.push(
-      homeItem('Create an online world', () => this.showCreateOnline(), t('You are the host: friends join with its code'), true, 'plus'),
-      homeItem('Join with a code', () => this.showJoinOnline(), t('A 6-letter code from a friend'), false, 'people'),
       homeItem('Sign out', async () => { await Online.signOut(); void this.showOnline(); }, s.user.email ?? '', false, 'undo'),
       homeItem('Back', () => this.showMain()),
     );
@@ -199,43 +193,6 @@ export class Menu {
       }), t('Email and a password of 6 or more characters'), false, 'plus'),
       homeItem('Back', () => this.showMain()),
     ], 'Online');
-  }
-
-  private showCreateOnline() {
-    const name = input('World name', t('Friends\' valley'), 40);
-    const city = input('Your town name', t('My town'), 30);
-    const form = el('div', 'home-form');
-    const note = el('small', 'calm-note');
-    note.textContent = t('Everyone starts from nothing. Time runs the same for all (no speeding up). Up to 6 players; when someone is away their town runs on autopilot.');
-    form.append(name.parentElement!, city.parentElement!, note);
-    const status = this.note('');
-    this.renderHome([form, status,
-      homeItem('Create', async () => {
-        status.textContent = t('Please wait…');
-        const w = await Online.createWorld(name.value, city.value);
-        if (typeof w === 'string') { status.textContent = t(w); return; }
-        void this.showOnline(t('World created! Its code is {code} — send it to your friends.', { code: w.code }));
-      }, undefined, true),
-      homeItem('Back', () => void this.showOnline()),
-    ], 'Create an online world');
-  }
-
-  private showJoinOnline() {
-    const code = input('Code', '', 6);
-    code.style.textTransform = 'uppercase';
-    const city = input('Your town name', t('My town'), 30);
-    const form = el('div', 'home-form');
-    form.append(code.parentElement!, city.parentElement!);
-    const status = this.note('');
-    this.renderHome([form, status,
-      homeItem('Join', async () => {
-        status.textContent = t('Please wait…');
-        const w = await Online.joinWorld(code.value, city.value);
-        if (typeof w === 'string') { status.textContent = t(w); return; }
-        void this.showOnline(t('You joined {name}!', { name: w.name }));
-      }, undefined, true, 'check'),
-      homeItem('Back', () => void this.showOnline()),
-    ], 'Join with a code');
   }
 
   /** A line of text on a menu page (an error in red). */
