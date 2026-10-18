@@ -283,3 +283,22 @@ drop policy if exists "write my layout" on public.town_layouts;
 create policy "write my layout" on public.town_layouts for insert to authenticated with check (user_id = auth.uid() and public.is_member(world_id));
 drop policy if exists "update my layout" on public.town_layouts;
 create policy "update my layout" on public.town_layouts for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- =====================================================================
+-- Cloud saves: each player's whole town in each world, so it opens the same on every device.
+-- =====================================================================
+create table if not exists public.town_saves (
+  world_id uuid not null references public.worlds (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  updated bigint not null default 0,
+  data text not null,
+  updated_at timestamptz not null default now(),
+  primary key (world_id, user_id)
+);
+alter table public.town_saves enable row level security;
+drop policy if exists "read my save" on public.town_saves;
+create policy "read my save" on public.town_saves for select to authenticated using (user_id = auth.uid());
+drop policy if exists "write my save" on public.town_saves;
+create policy "write my save" on public.town_saves for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists "update my save" on public.town_saves;
+create policy "update my save" on public.town_saves for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());

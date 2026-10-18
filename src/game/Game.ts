@@ -1,11 +1,10 @@
 import * as THREE from 'three';
-import { Globe } from '../world/Globe';
 import { CloudSea } from '../world/CloudSea';
 import { UPGRADABLE, canUpgrade, levelMult, seatsOf, upgradeCost, waterOf } from '../buildings/Upgrades';
 import { believer } from './Leisure';
 import { SKIN, SHIRTS, DRESSES } from '../models/people/_shared';
 import { DAY_SECONDS, DAYS_PER_YEAR, IS_TOUCH, MAP_SIZE } from '../config';
-import { DIRS, N, Tile, idx, inBounds, tileToWorld, worldToTile } from '../world/grid';
+import { DIRS, N, Tile, idx, inBounds, tileToWorld } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
 import { generateWorld } from '../world/WorldGen';
 import { Terrain } from '../world/Terrain';
@@ -407,7 +406,6 @@ export class Game implements ToolHost {
       sound.play('complete', b.mesh.position);
     };
     this.cam = new CameraRig(canvas);
-    this.cam.onPastMax = () => this.openGlobe();
 
     this.pop.priority = (b) => {
       const o = this.eco.cities.get(b.city)?.jobPriority[b.kind];
@@ -571,8 +569,8 @@ export class Game implements ToolHost {
     }, { signal: this.abort.signal });
 
     const signal = this.abort.signal;
-    document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(); }, { signal });
-    window.addEventListener('pagehide', () => this.save(), { signal });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(false, true); }, { signal });
+    window.addEventListener('pagehide', () => this.save(false, true), { signal });
   }
 
   /** (Re)build the HUD — also used after switching language. */
@@ -602,7 +600,6 @@ export class Game implements ToolHost {
       openPhoto: () => this.togglePhoto(),
       setLayer: (l) => { this.mapLayer = this.mapLayer === l ? 'none' : l; this.overlayT = 0; if (this.mapLayer === 'none') this.overlays.showTiles([]); this.hud?.setLayer(this.mapLayer); void LAYER_NOTE; },
       goHome: () => this.goHome(),
-      openGlobe: () => this.openGlobe(),
       openBuildings: () => { this.stats?.hide(); this.goalsPanel?.hide(); this.eventLog?.hide(); this.buildingList?.toggle(); },
       openWorld: () => { this.resPanel?.hide(); this.stats?.hide(); this.tradePanel?.hide(); this.worldPanel?.toggle(); },
       openTrade: () => { this.resPanel?.hide(); this.stats?.hide(); this.trade.newDay(this.eco.day); this.tradePanel?.toggle(); },
@@ -853,63 +850,16 @@ export class Game implements ToolHost {
 
   resize(w: number, h: number) {
     this.cam.resize(w, h);
-    this.globe?.resize(w, h);
-    this.size = [w, h];
     this.povCam.aspect = w / Math.max(1, h);
     this.drive?.resize(w / Math.max(1, h));
     this.povCam.updateProjectionMatrix();
   }
 
   /** The camera to render with (first-person view or the normal map view). */
-  get viewCamera(): THREE.Camera { return this.globe?.active ? this.globe.camera : this.drive?.active ? this.drive.camera : this.pov ? this.povCam : this.cam.camera; }
-  /** The scene to render: the town, or the planet when zoomed out to the globe. */
-  get viewScene(): THREE.Scene { return this.globe?.active ? this.globe.scene : this.scene; }
+  get viewCamera(): THREE.Camera { return this.drive?.active ? this.drive.camera : this.pov ? this.povCam : this.cam.camera; }
+  /** The scene to render. */
+  get viewScene(): THREE.Scene { return this.scene; }
 
-  private globe?: Globe;
-  private size: [number, number] = [1, 1];
-
-  /** Zoom out to the globe: the whole planet, with our land and its towns on it. */
-  openGlobe() {
-    if (!this.hud || this.drive?.active || this.pov || this.lapse || this.globe?.active) return;
-    const g = this.makeGlobe();
-    this.select(null);
-    g.open();
-    this.hud.setGlobe(true);
-  }
-
-  /** The globe (made once; its planet is painted in the background while the town is played). */
-  private globeWarm = 0;
-  private makeGlobe() {
-    if (!this.globe) {
-      this.globe = new Globe(this.hud!.root, {
-        map: this.map, seed: this.map.seed, roads: this.net.type, trees: this.terrain.trees,
-        buildings: () => this.buildings.list.filter((b) => !b.removed).map((b) => {
-          const tint = this.eco.cities.get(b.city)?.tint;
-          const c = new THREE.Color(KIND_BADGE[b.kind]?.[1] ?? '#c9c2b4').lerp(new THREE.Color('#efe7da'), 0.4);
-          if (tint && b.kind === 'townhall') c.set(tint);
-          return { x: b.x, z: b.z, size: BUILDINGS[b.kind].size, color: `#${c.getHexString()}` };
-        }),
-        towns: () => {
-          const pops = this.life.populationByCity();
-          return [...this.eco.cities.values()].flatMap((c) => {
-            const h = this.buildings.townHall(c.id);
-            return h ? [{ id: c.id, name: c.name, x: h.x, z: h.z, people: pops.get(c.id) ?? 0, mine: !c.ai, friend: !!c.remote, tint: c.tint ?? '#aab4be' }] : [];
-          });
-        },
-        focus: () => ({ x: worldToTile(this.cam.target.x), z: worldToTile(this.cam.target.z) }),
-        timeOfDay: () => this.eco.timeOfDay,
-        land: (x, z) => {
-          // outside the map there are only clouds: land at the nearest place of the map
-          x = Math.max(0, Math.min(N - 1, x)); z = Math.max(0, Math.min(N - 1, z));
-          const wx = tileToWorld(x), wz = tileToWorld(z);
-          this.cam.setState(wx, wz, this.cam.yaw, this.cam.maxView);
-          this.cam.flyTo(wx, wz, 14, 2.4);
-        },
-      }, () => { this.hud?.setGlobe(false); });
-      this.globe.resize(...this.size);
-    }
-    return this.globe;
-  }
 
   /** Take the wheel: from a vehicle on the road, or on a street next to the active Town Hall. */
   startDrive(from?: { x: number; z: number; heading: number; color?: THREE.Color }) {
@@ -1046,9 +996,7 @@ export class Game implements ToolHost {
   private povHidden?: Walker;
 
   update(dt: number) {
-    this.globe?.update(dt);
-    if (!this.globe?.active) this.clouds.update(dt);
-    if (!this.demo && this.hud && !this.globe?.active && (this.globeWarm += dt) > 4) this.makeGlobe().prepare(IS_TOUCH ? 2 : 4);
+    this.clouds.update(dt);
     this.buildings.day = this.eco.day;
     if (this.watch) this.updateWatch();
     // a loaded world: fields out of season are wrapped up straight away
@@ -1399,17 +1347,28 @@ export class Game implements ToolHost {
     }
   }
 
+  /** When the town was last sent to the cloud (online). */
+  private cloudAt = 0;
+
   setMenuPaused(p: boolean) {
     this.menuPaused = p;
     if (this.input) this.input.enabled = !p;
     if (p) this.tool?.cancel();
   }
 
-  save(manual = false) {
+  save(manual = false, leaving = false) {
     if (this.demo) return;
     this.saveT = 0;
     try {
-      SaveStore.save(this.toSave());
+      const data = this.toSave();
+      SaveStore.save(data);
+      // online: the town is kept in the cloud too, so it opens the same on any device (at most once a minute,
+      // and always when the page is left or hidden)
+      const o = this.meta.online;
+      if (o && (manual || leaving || Date.now() - this.cloudAt > 60_000)) {
+        this.cloudAt = Date.now();
+        void Online.pushSave(o.worldId, data.meta.updated, JSON.stringify(data)).then((err) => { if (err) console.warn('[cloud save]', err); });
+      }
       if (manual) this.hud?.toast(t('Game saved'));
     } catch (e) {
       console.warn('[save]', e);
@@ -1417,7 +1376,6 @@ export class Game implements ToolHost {
   }
 
   dispose() {
-    this.globe?.dispose();
     this.online?.dispose();
     this.ghosts?.dispose();
     this.abort.abort();

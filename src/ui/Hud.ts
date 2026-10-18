@@ -257,8 +257,6 @@ export interface HudHandlers {
   openAchievements?: () => void;
   /** The online world: players, deals and chat (only set in an online world). */
   openOnline?: () => void;
-  /** Zoom out to the globe. */
-  openGlobe?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -513,18 +511,8 @@ export class Hud {
       b.addEventListener('click', h.goHome);
       return b;
     };
-    // the planet: zoom all the way out to the globe
-    const globe = (cls: string) => {
-      const b = el('button', cls);
-      b.innerHTML = icon('globe');
-      b.title = t('The world: zoom out to the globe');
-      b.setAttribute('aria-label', t('The world'));
-      b.addEventListener('click', () => this.h.openGlobe?.());
-      return b;
-    };
     rot.appendChild(home('sbtn home-btn'));
-    rot.appendChild(globe('sbtn globe-btn'));
-    mob.append(this.playBtn, this.stepBtn, home('sbtn home-btn'), globe('sbtn globe-btn'), mUndo);
+    mob.append(this.playBtn, this.stepBtn, home('sbtn home-btn'), mUndo);
     window.addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey) h.goHome(); });
     corner.append(speeds, mob, rot, ver);
     if (h.openOnline) {
@@ -675,8 +663,6 @@ export class Hud {
   private mDate = el('button', 'm-date');
   private onlineBtn?: HTMLButtonElement;
 
-  /** The globe is shown: the town's panels step aside. */
-  setGlobe(on: boolean) { this.root.classList.toggle('globe-mode', on); }
 
   /** New messages and deals waiting in the online world (a badge, and a pulse when something new comes). */
   setOnlineBadge(n: number, ping = false) {

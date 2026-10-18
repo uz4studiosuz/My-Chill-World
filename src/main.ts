@@ -6,7 +6,7 @@ import { Game, GameOptions } from './game/Game';
 import { Menu } from './ui/Menu';
 import { Gallery } from './gallery/Gallery';
 import { exportWorld } from './save/Transfer';
-import { SaveStore } from './save/SaveStore';
+import { WorldSave, SaveStore } from './save/SaveStore';
 import { Online } from './online/Online';
 import { renderThumbnails } from './models/catalog';
 import { getLang, setLang, t } from './i18n/i18n';
@@ -103,9 +103,31 @@ async function boot() {
   const menu = new Menu(ui, {
     newWorld: (name, seed, calm, towns, creative) => start({ create: { name, seed, calm, towns, creative } }),
     // my town in an online world: kept on this device under the world's id, started fresh the first time
-    playOnline: (w, city, slot) => {
+    playOnline: async (w, city, slot) => {
       const id = `on_${w.id}`;
-      const save = SaveStore.load(id);
+      // the town as saved here and as saved in the cloud (from another device): the newer one is played
+      menu.showLoading(t('Loading your town…'));
+      let save = SaveStore.load(id);
+      const cloud = await Online.pullSave(w.id).catch(() => null);
+      let fromCloud: WorldSave | null = null;
+      try { fromCloud = cloud ? JSON.parse(cloud.json) as WorldSave : null; } catch { fromCloud = null; }
+      let useCloud = !!fromCloud && cloud!.updated > (save?.meta.updated ?? 0);
+      // the two differ a lot (a fresh town on a new device, or an old copy): the player chooses
+      if (fromCloud && save) {
+        const a = save.buildings.length, b = fromCloud.buildings.length;
+        if (Math.abs(a - b) > Math.max(3, Math.min(a, b) * 0.2)) {
+          const info = (x: WorldSave) => t('{p} people, {b} buildings, saved {d}', { p: x.meta.population, b: x.buildings.length, d: new Date(x.meta.updated).toLocaleString() });
+          useCloud = confirm([t('Your town is saved differently in the cloud and on this device.'), '', `☁️ ${t('Cloud')}: ${info(fromCloud)}`, `💻 ${t('This device')}: ${info(save)}`, '', t("OK = play the cloud town, Cancel = keep this device's town")].join(String.fromCharCode(10)));
+        }
+      }
+      if (fromCloud && useCloud) {
+        try {
+          const s = fromCloud;
+          s.meta.id = id;
+          SaveStore.save(s);
+          save = SaveStore.load(id) ?? s;
+        } catch (e) { console.warn('[cloud save]', e); }
+      }
       if (save) start({ save });
       else start({ create: { id, name: city, seed: w.seed, towns: 0, online: { worldId: w.id, code: w.code, world: w.name, host: false, started: w.started_at, daySeconds: w.day_seconds, slot } } });
     },

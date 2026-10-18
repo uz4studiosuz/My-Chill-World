@@ -4018,4 +4018,10 @@ export const UZ: Record<string, string> = {
   "Back to the town": "Shaharga qaytish",
   "Cannot build here": "Bu yerga qurib bo'lmaydi",
   "drag it to a free place": "bo'sh joyga torting",
+  "Loading your town…": "Shahringiz yuklanmoqda…",
+  "{p} people, {b} buildings, saved {d}": "{p} aholi, {b} bino, saqlangan: {d}",
+  "Your town is saved differently in the cloud and on this device.": "Shahringiz bulutda va shu qurilmada turlicha saqlangan.",
+  "Cloud": "Bulut",
+  "This device": "Shu qurilma",
+  "OK = play the cloud town, Cancel = keep this device's town": "OK — bulutdagi shaharni o'ynash, Bekor qilish — shu qurilmadagisini qoldirish",
 };

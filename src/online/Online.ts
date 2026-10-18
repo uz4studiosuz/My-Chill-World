@@ -214,6 +214,24 @@ export const Online = {
     await db().from('world_members').update({ layout_ver: ver }).eq('world_id', worldId).eq('user_id', s.user.id);
   },
 
+  /** My whole town saved in the cloud (packed), so it opens the same on any device. */
+  async pushSave(worldId: string, updated: number, json: string): Promise<string | null> {
+    const s = await this.session();
+    if (!s) return 'not signed in';
+    const data = await pack(json);
+    const { error } = await db().from('town_saves').upsert({ world_id: worldId, user_id: s.user.id, updated, data, updated_at: new Date().toISOString() });
+    return error?.message ?? null;
+  },
+
+  /** My town as last saved in the cloud (from any device), or null. */
+  async pullSave(worldId: string): Promise<{ updated: number; json: string } | null> {
+    const s = await this.session();
+    if (!s) return null;
+    const { data, error } = await db().from('town_saves').select('updated, data').eq('world_id', worldId).eq('user_id', s.user.id).maybeSingle();
+    if (error || !data) return null;
+    try { return { updated: Number(data.updated), json: await unpack(data.data as string) }; } catch { return null; }
+  },
+
   /** The maps and cards of these players' towns. */
   async layouts(worldId: string, users: string[]): Promise<{ user_id: string; ver: number; layout: unknown; town: unknown }[]> {
     if (!users.length) return [];
@@ -237,4 +255,20 @@ export function worldDay(started: string, dayLength: number, now = Date.now()) {
 /** Game seconds since an online world started (one real second is one game second at 1×). */
 export function worldSeconds(started: string, now = Date.now()) {
   return Math.max(0, (now - Date.parse(started)) / 1000);
+}
+
+/** A save packed for the cloud: gzip + base64 when the browser can (prefixed "gz:"), plain text otherwise. */
+async function pack(json: string): Promise<string> {
+  if (typeof CompressionStream === 'undefined') return json;
+  const buf = new Uint8Array(await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return 'gz:' + btoa(bin);
+}
+async function unpack(data: string): Promise<string> {
+  if (!data.startsWith('gz:')) return data;
+  const bin = atob(data.slice(3));
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 }

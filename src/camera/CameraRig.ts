@@ -18,9 +18,6 @@ export class CameraRig {
   /** A smooth flight to a place (cancelled when the player moves the camera). */
   private fly: { x0: number; z0: number; v0: number; x1: number; z1: number; v1: number; t: number; d: number } | null = null;
   private rect: DOMRect;
-  /** Zooming out further at the widest view: past a little more, the world turns into a globe. */
-  onPastMax?: () => void;
-  private over = 0;
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private ndc = new THREE.Vector2();
@@ -75,12 +72,6 @@ export class CameraRig {
   /** Zoom keeping the ground point under the cursor fixed. */
   zoomAt(factor: number, clientX: number, clientY: number) {
     this.fly = null;
-    if (factor > 1 && this.viewHalf >= this.maxView - 0.01) {
-      this.over += Math.log(factor);
-      if (this.over > 0.45) { this.over = 0; this.onPastMax?.(); }
-      return;
-    }
-    this.over = 0;
     const ok = this.groundAt(clientX, clientY, this.a);
     this.viewHalf = THREE.MathUtils.clamp(this.viewHalf * factor, this.minView, this.maxView);
     this.apply();

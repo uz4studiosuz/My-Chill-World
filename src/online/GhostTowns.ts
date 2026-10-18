@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { BUILDINGS, BuildingKind } from '../buildings/BuildingTypes';
 import { N, tileToWorld } from '../world/grid';
-import { townTag } from '../world/Globe';
 
 /** A town as another player shows it: its buildings (kind, x, z, turn, level) and its road tiles. */
 export interface TownLayout { b: [string, number, number, number, number][]; r: number[] }
@@ -80,7 +79,7 @@ export class GhostTowns {
   dispose() { for (const id of [...this.towns.keys()]) this.drop(id); }
 }
 
-/** The friend's name over their town: the same small tag as on the globe. */
+/** The friend's name over their town: a small, quiet tag. */
 function label(text: string, tint: string, x: number, z: number) {
   const c = townTag(text, tint, true);
   const tex = new THREE.CanvasTexture(c);
@@ -90,4 +89,24 @@ function label(text: string, tint: string, x: number, z: number) {
   s.position.set(x, 2.2, z);
   s.renderOrder = 20;
   return s;
+}
+
+/** A small, quiet name tag: a dark pill with a coloured dot (ringed for a friend) and the name. */
+function townTag(name: string, color: string, friend = false) {
+  const c = document.createElement('canvas');
+  const g = c.getContext('2d')!;
+  const font = '700 30px Nunito, system-ui, sans-serif';
+  g.font = font;
+  const text = name.length > 22 ? `${name.slice(0, 21)}…` : name;
+  const w = Math.ceil(g.measureText(text).width) + 58;
+  c.width = w; c.height = 52;
+  g.font = font;
+  g.fillStyle = 'rgba(14,17,21,.74)';
+  g.beginPath(); g.roundRect(1, 1, w - 2, 50, 25); g.fill();
+  g.fillStyle = color;
+  g.beginPath(); g.arc(25, 26, 7.5, 0, Math.PI * 2); g.fill();
+  if (friend) { g.strokeStyle = color; g.lineWidth = 2.5; g.beginPath(); g.arc(25, 26, 12.5, 0, Math.PI * 2); g.stroke(); }
+  g.fillStyle = '#f4f6f8'; g.textBaseline = 'middle';
+  g.fillText(text, 43, 27);
+  return c;
 }
