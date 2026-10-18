@@ -4,8 +4,7 @@ import type { WorldMap } from './WorldMap';
 import { N } from './grid';
 import { t } from '../i18n/i18n';
 import { fbm } from '../utils/rng';
-import { LAKE_COLOR, WildTile, groundColor, riversOut, worldSample, wrapX } from './Wild';
-import { RIVER_REACH } from './Skirt';
+import { LAKE_COLOR, RIVER_REACH, WildTile, groundColor, riversOut, worldSample, wrapX } from './Wild';
 
 /** One town shown on the globe. */
 export interface GlobeTown { id: number; name: string; x: number; z: number; people: number; mine: boolean; friend: boolean; tint: string }
@@ -22,6 +21,8 @@ export interface GlobeHost {
   towns(): GlobeTown[];
   /** The tile the map camera looks at. */
   focus(): { x: number; z: number };
+  /** The time of day (0 midnight … 0.5 noon): the sun goes round the planet with it. */
+  timeOfDay(): number;
   /** Back down to the map at this tile. */
   land(x: number, z: number): void;
 }
@@ -76,6 +77,11 @@ export class Globe {
   readonly camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
   active = false;
   private group = new THREE.Group();
+  /** Starlight on the night side, the sun on the day side (it stands over our land at noon). */
+  private ambient = new THREE.AmbientLight('#9fb3ff', 0.32);
+  private sun = new THREE.DirectionalLight('#fff4e0', 2.6);
+  private lights?: THREE.Points;
+  private sunDir = new THREE.Vector3(0, 0, 1);
   private land?: THREE.Mesh;
   private clouds?: THREE.Mesh;
   private markers = new THREE.Group();
@@ -95,10 +101,10 @@ export class Globe {
 
   constructor(parent: HTMLElement, private host: GlobeHost, private onExit: () => void) {
     this.scene.background = new THREE.Color('#05070d');
-    this.scene.add(new THREE.AmbientLight('#cfd8ff', 0.75));
-    const sun = new THREE.DirectionalLight('#fff4e0', 2.1);
+    this.scene.add(this.ambient);
+    const sun = this.sun;
     sun.position.set(-3, 2, 4);
-    this.camera.add(sun);
+    this.scene.add(sun, sun.target);
     this.scene.add(this.camera, this.group, this.stars());
     this.group.add(this.markers);
     this.atmosphere();
@@ -217,6 +223,7 @@ export class Globe {
       this.cloud(Math.max(0, 1 - this.arrive * 3));
     } else this.dist += (this.goal - this.dist) * Math.min(1, dt * 6);
     if (this.clouds) this.clouds.rotation.y += dt * 0.006;
+    this.daylight();
     this.updateDetail();
     this.apply();
   }
@@ -235,6 +242,41 @@ export class Globe {
       const s = m.userData.w as number;
       (m as THREE.Sprite).scale.set(s * tag, tag, 1);
     }
+  }
+
+  /** The sun where the town's clock says (noon over our land, midnight behind the planet); towns light up at night. */
+  private daylight() {
+    const tod = this.host.timeOfDay();
+    const phi = Math.PI / 2 + (tod - 0.5) * Math.PI * 2;
+    this.sunDir.copy(point(phi, Math.PI / 2 - 0.35)).normalize();
+    this.sun.position.copy(this.sunDir).multiplyScalar(10);
+    if (this.lights) (this.lights.material as THREE.ShaderMaterial).uniforms.sun.value.copy(this.sunDir);
+  }
+
+  /** Warm lights of every building, seen on the night side of the planet. */
+  private cityLights() {
+    if (this.lights) { this.group.remove(this.lights); this.lights.geometry.dispose(); (this.lights.material as THREE.Material).dispose(); }
+    const list = this.host.buildings();
+    const pos = new Float32Array(list.length * 3), size = new Float32Array(list.length);
+    list.forEach((b, i) => {
+      const a = tileAngles(b.x + (b.size - 1) / 2, b.z + (b.size - 1) / 2);
+      point(a.phi, a.theta, R * 1.004).toArray(pos, i * 3);
+      size[i] = 1.5 + b.size * 0.9;
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(size, 1));
+    this.lights = new THREE.Points(geo, new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { sun: { value: this.sunDir.clone() }, scale: { value: 1 } },
+      vertexShader: `attribute float size; uniform vec3 sun; varying float vNight;
+        void main() { vec3 n = normalize(position); vNight = smoothstep(0.05, -0.2, dot(n, sun));
+          vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size * (3.2 / -mv.z) * 3.2; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `varying float vNight; void main() { float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d) * vNight;
+        if (a < 0.01) discard; gl_FragColor = vec4(1.0, 0.78, 0.42, a); }`,
+    }));
+    this.lights.renderOrder = 5;
+    this.group.add(this.lights);
   }
 
   // ---------- the close-up: sharper land under the camera as it comes near ----------
@@ -323,6 +365,8 @@ export class Globe {
     this.prepare(1e6);
     this.landPatch();
     this.townMarkers();
+    this.cityLights();
+    this.daylight();
   }
 
   /** The planet's picture is painted a few rows per frame in the background, so opening the globe is quick. */

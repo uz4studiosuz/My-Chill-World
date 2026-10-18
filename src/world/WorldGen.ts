@@ -1,6 +1,7 @@
 import { DIRS, N, idx, inBounds } from './grid';
 import { WorldMap } from './WorldMap';
 import { fbm, mulberry32 } from '../utils/rng';
+import { wildFields, WildFields } from './Wild';
 
 /** Radius around the map centre kept flat and dry for the starting town. */
 export const CENTER_CLEAR = 15;
@@ -109,4 +110,39 @@ function distanceField(src: Uint8Array, max: number) {
     frontier = next;
   }
   return dist;
+}
+
+/**
+ * A good seed for a new world: a few are tried and the best kept — some lakes and a river, hills for stone, not too
+ * much desert or frozen north, open dry land round the town, and the sea's coast not far beyond the map.
+ */
+export function pickSeed(tries = 12): number {
+  let best = 0, bestScore = Infinity;
+  const away = (v: number, lo: number, hi: number) => (v < lo ? (lo - v) / lo : v > hi ? (v - hi) / hi : 0);
+  const f = {} as WildFields;
+  for (let i = 0; i < tries; i++) {
+    const seed = Math.floor(Math.random() * 1e9);
+    const map = generateWorld(seed);
+    let water = 0, hills = 0, desert = 0, cold = 0, open = 0, near = 0;
+    for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+      const k = idx(x, z);
+      if (map.water[k]) water++;
+      if (map.height[k]) hills++;
+      if (map.arid[k] > 0.6) desert++;
+      if (map.cold[k] > 0.5) cold++;
+      if (Math.hypot(x - N / 2, z - N / 2) < 45) { near++; if (!map.water[k] && !map.height[k]) open++; }
+    }
+    const T = N * N;
+    // the sea round the map: how much of a ring 40–140 tiles out is water
+    let sea = 0, ring = 0;
+    for (let a = 0; a < 64; a++) for (const d of [40, 80, 140]) {
+      const ang = (a / 64) * Math.PI * 2, r = N / 2 + d;
+      wildFields(seed, N / 2 + Math.cos(ang) * r * 1.2, N / 2 + Math.sin(ang) * r * 1.2, f);
+      ring++; if (f.sea < 0) sea++;
+    }
+    const score = away(water / T, 0.06, 0.14) * 2 + away(hills / T, 0.04, 0.12) + away(desert / T, 0.01, 0.16) + away(cold / T, 0.01, 0.22)
+      + away(open / Math.max(1, near), 0.8, 1) * 3 + away(sea / ring, 0.25, 0.6) * 1.5;
+    if (score < bestScore) { bestScore = score; best = seed; }
+  }
+  return best;
 }

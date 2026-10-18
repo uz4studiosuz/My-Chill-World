@@ -362,7 +362,7 @@ export class Menu {
       form,
       homeItem('Create', () => {
         const s = parseInt(seed.value, 10);
-        this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : Math.floor(Math.random() * 1e9), calm, towns, creative);
+        this.h.newWorld(name.value.trim() || t('My World {n}', { n }), Number.isFinite(s) ? Math.abs(s) : -1, calm, towns, creative);
       }, undefined, true),
       homeItem('Back', () => this.showMain()),
     ], 'New World');

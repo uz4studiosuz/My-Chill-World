@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { pickSeed } from './world/WorldGen';
 import './style.css';
 import { IS_TOUCH } from './config';
 import { Game, GameOptions } from './game/Game';
@@ -72,6 +73,8 @@ async function boot() {
     setTimeout(() => {
       let g: Game;
       try {
+        // no seed typed: a few are tried and the best landscape kept
+        if (opts.create && opts.create.seed < 0) opts = { ...opts, create: { ...opts.create, seed: pickSeed() } };
         g = new Game(canvas, { ...opts, thumbs }, pause);
       } catch (e) {
         // a world that cannot be opened must not leave the loading screen hanging

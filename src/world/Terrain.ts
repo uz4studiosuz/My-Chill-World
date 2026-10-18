@@ -14,23 +14,23 @@ interface DecorRef { mesh: THREE.InstancedMesh; index: number; tree: boolean; m:
 
 const REGROW_DAYS = 6;
 
-const LEAF_GREEN = ['#5f9a3e', '#6faa45', '#4f8a3a', '#7bb24c'];
-const LEAF_AUTUMN = ['#e0822f', '#e9b23a', '#c95a2b', '#d99a2e', '#b8862f'];
-const AUTUMN_TINT = new THREE.Color('#b7a258');
-const SPRING_TINT = new THREE.Color('#79c04a');
-const BARE = new THREE.Color('#7d6b55');
-const BLOSSOM = new THREE.Color('#f4a9c8');
-const FRESH = new THREE.Color('#9be070');
-const SNOWY = new THREE.Color('#eef3f6');
-const TUNDRA = new THREE.Color('#8fa792');
-const TUFT_GRASS = ['#7da84a', '#6c9a40', '#93b858', '#86ad4e'];
-const TUFT_FLOWER = ['#f2efe2', '#f0d54a', '#b9a3e0', '#e8738f', '#f29b4b'];
-const TUFT_DRY = ['#c2b46a', '#b3a35a', '#d0c27c', '#a89a58'];
-const BUSH_GREEN = ['#5f8f3a', '#6c9a40', '#4f7d34'];
-const BUSH_DRY = ['#9a8a4e', '#8a7a46', '#a8975a'];
-const smoothstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export const LEAF_GREEN = ['#5f9a3e', '#6faa45', '#4f8a3a', '#7bb24c'];
+export const LEAF_AUTUMN = ['#e0822f', '#e9b23a', '#c95a2b', '#d99a2e', '#b8862f'];
+export const AUTUMN_TINT = new THREE.Color('#b7a258');
+export const SPRING_TINT = new THREE.Color('#79c04a');
+export const BARE = new THREE.Color('#7d6b55');
+export const BLOSSOM = new THREE.Color('#f4a9c8');
+export const FRESH = new THREE.Color('#9be070');
+export const SNOWY = new THREE.Color('#eef3f6');
+export const TUNDRA = new THREE.Color('#8fa792');
+export const TUFT_GRASS = ['#7da84a', '#6c9a40', '#93b858', '#86ad4e'];
+export const TUFT_FLOWER = ['#f2efe2', '#f0d54a', '#b9a3e0', '#e8738f', '#f29b4b'];
+export const TUFT_DRY = ['#c2b46a', '#b3a35a', '#d0c27c', '#a89a58'];
+export const BUSH_GREEN = ['#5f8f3a', '#6c9a40', '#4f7d34'];
+export const BUSH_DRY = ['#9a8a4e', '#8a7a46', '#a8975a'];
+export const smoothstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-const C = {
+export const C = {
   grassA: new THREE.Color('#8cb156'),
   grassB: new THREE.Color('#a4c064'),
   dry: new THREE.Color('#bdb873'),
@@ -69,8 +69,9 @@ export class Terrain {
   private topMask = new Float32Array(0);
   /** Cold of the tile under each ground vertex: the north keeps its snow longer. */
   private coldMask = new Float32Array(0);
-  private pineMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  private waterMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.82 });
+  /** Shared with the faraway land, so its pines get snow and its lakes freeze with the map's. */
+  readonly pineMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  readonly waterMat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.82 });
   private canopy?: THREE.InstancedMesh;
   private tuftMesh?: THREE.InstancedMesh;
   private leafGreen: THREE.Color[] = [];
@@ -511,7 +512,7 @@ export class Terrain {
 }
 
 /** Accumulates flat-shaded quads; normal is derived from the winding (a,b,c). */
-class QuadBuilder {
+export class QuadBuilder {
   private pos: number[] = [];
   private nor: number[] = [];
   private col: number[] = [];
@@ -539,7 +540,7 @@ class QuadBuilder {
 }
 
 /** Vertical wall on one edge of a tile, facing outwards in direction `bit`. */
-function side(b: QuadBuilder, bit: number, x0: number, z0: number, x1: number, z1: number, top: number, bot: number, c: THREE.Color) {
+export function side(b: QuadBuilder, bit: number, x0: number, z0: number, x1: number, z1: number, top: number, bot: number, c: THREE.Color) {
   switch (bit) {
     case 1: b.quad([x0, top, z0], [x1, top, z0], [x1, bot, z0], [x0, bot, z0], c); break;
     case 4: b.quad([x1, top, z1], [x0, top, z1], [x0, bot, z1], [x1, bot, z1], c); break;

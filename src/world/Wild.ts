@@ -45,10 +45,13 @@ const smooth = (a: number, b: number, v: number) => { const t = Math.max(0, Math
 const tmp = new THREE.Color();
 
 /** What a place is: water (1 lake or river, 2 sea), its hill height (0 = flat) and its ground colour. */
-export interface WildTile { water: 0 | 1 | 2; h: number; cold: number }
+export interface WildTile { water: 0 | 1 | 2; h: number; cold: number; arid: number; forest: number; n: number; sea: number }
 
 export function wildTile(f: WildFields, river: boolean, col: THREE.Color, out: WildTile): WildTile {
   out.cold = Math.max(0, Math.min(1, f.cold));
+  out.arid = Math.max(0, Math.min(1, f.arid));
+  if (out.cold > 0.3) out.arid = Math.min(out.arid, 0.4);
+  out.forest = f.forest; out.n = f.n; out.sea = f.sea;
   if (f.sea < 0) {
     out.water = 2; out.h = 0;
     col.copy(C.sea).lerp(C.deep, Math.min(1, -f.sea * 6));
@@ -145,7 +148,15 @@ export function worldSample(seed: number, tx: number, tz: number, river: boolean
   else if (x - (SEAM - ROUND) < BAND) mixFields(fa, wildFields(seed, x + ROUND, tz, fb), 0.5 * (1 - (x - (SEAM - ROUND)) / BAND));
   wildTile(fa, river, col, out);
   if (out.h > 0) col.multiplyScalar(1 + out.h * 0.015);
-  const lat = Math.abs(Math.cos(T0 + (tz / N) * SPAN));
-  if (lat > 0.78) { col.lerp(SNOW, Math.min(0.95, (lat - 0.78) * 7)); out.cold = Math.max(out.cold, 1); }
+  const ice = polarIce(tz);
+  if (ice > 0) { col.lerp(SNOW, ice); out.cold = Math.max(out.cold, 1); }
   return out;
 }
+
+/** Ice towards the poles (0 … 0.95) for a row of the world. */
+export function polarIce(tz: number) {
+  const lat = Math.abs(Math.cos(T0 + (tz / N) * SPAN));
+  return lat > 0.78 ? Math.min(0.95, (lat - 0.78) * 7) : 0;
+}
+/** How far the rivers are followed out of the map (tiles). */
+export const RIVER_REACH = 220;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Globe } from '../world/Globe';
-import { Skirt, WildChunks } from '../world/Skirt';
+import { Faraway } from '../world/Faraway';
+import { RIVER_REACH } from '../world/Wild';
 import { UPGRADABLE, canUpgrade, levelMult, seatsOf, upgradeCost, waterOf } from '../buildings/Upgrades';
 import { believer } from './Leisure';
 import { SKIN, SHIRTS, DRESSES } from '../models/people/_shared';
@@ -187,8 +188,7 @@ export class Game implements ToolHost {
 
   private map: WorldMap;
   private terrain: Terrain;
-  private skirt: Skirt;
-  private wild: WildChunks;
+  private wild: Faraway;
   private net = new RoadNetwork();
   private roadMesh: RoadMesh;
   private footpaths = new Footpaths();
@@ -350,10 +350,8 @@ export class Game implements ToolHost {
 
     this.map = generateWorld(seed);
     this.terrain = new Terrain(this.map);
-    // the land goes on past the map's edges, to the horizon
-    this.skirt = new Skirt(this.map);
-    this.scene.add(this.skirt.mesh);
-    this.wild = new WildChunks(this.map.seed, this.skirt.rivers);
+    // the land goes on past the map's edges, made like the map, all round the planet
+    this.wild = new Faraway(this.map, this.terrain.pineMat, this.terrain.waterMat, RIVER_REACH);
     this.scene.add(this.wild.group);
     this.roadMesh = new RoadMesh(this.net, this.map);
     this.canals = new Canals(this.map);
@@ -549,7 +547,6 @@ export class Game implements ToolHost {
     if (!opts.save) this.pop.planDay();
     this.lastDay = this.eco.day;
     this.terrain.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
-    this.skirt.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
     this.wild.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
     this.weather.newDay(seasonOf(monthOf(this.eco.day)));
 
@@ -903,10 +900,11 @@ export class Game implements ToolHost {
           });
         },
         focus: () => ({ x: worldToTile(this.cam.target.x), z: worldToTile(this.cam.target.z) }),
+        timeOfDay: () => this.eco.timeOfDay,
         land: (x, z) => {
           const wx = tileToWorld(x), wz = tileToWorld(z);
           this.cam.setState(wx, wz, this.cam.yaw, this.cam.maxView);
-          this.wild.update(this.cam.target.x, this.cam.target.z, this.cam.maxView, 200);
+          this.wild.update(this.cam.target.x, this.cam.target.z, this.cam.maxView, 60);
           this.cam.flyTo(wx, wz, 14, 2.4);
         },
       }, () => { this.hud?.setGlobe(false); });
@@ -1105,7 +1103,6 @@ export class Game implements ToolHost {
     if (this.seasonT <= 0) {
       this.seasonT = 0.4;
       this.terrain.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
-      this.skirt.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
       this.wild.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
     }
     this.updateLighting();
