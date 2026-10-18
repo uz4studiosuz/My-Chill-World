@@ -77,8 +77,6 @@ async function boot() {
         // a world that cannot be opened must not leave the loading screen hanging
         console.error('[load]', e);
         openMainMenu();
-  // back from the "set a new password" email link
-  Online.onRecovery(() => menu.showNewPassword());
         alert(`${t('This world could not be opened')}: ${(e as Error)?.message ?? e}`);
         return;
       }
@@ -136,6 +134,8 @@ async function boot() {
   });
 
   openMainMenu();
+  // back from the "set a new password" email link
+  Online.onRecovery(() => menu.showNewPassword());
 
   const clock = new THREE.Clock();
   // automatic quality: if the device can't keep ~40 fps, drop shadows and render resolution
@@ -163,7 +163,7 @@ async function boot() {
     }
     if (!game) return;
     game.update(dt);
-    renderer.render(game.scene, game.viewCamera);
+    renderer.render(game.viewScene, game.viewCamera);
     // photo mode: save the frame that was just drawn
     if (game.shotPending) {
       const g = game;

@@ -1,4 +1,5 @@
 import { ToolId } from '../build/BuildTool';
+import { goodIcon } from './GoodIcons';
 import { IS_TOUCH } from '../config';
 import { BUILDINGS, BuildingKind, PIPE_COST, CABLE_COST, PATH_COST, TUNNEL_COST, extraCost } from '../buildings/BuildingTypes';
 import { ROAD_COST, ROUNDABOUT_COST } from '../roads/RoadNetwork';
@@ -256,6 +257,8 @@ export interface HudHandlers {
   openAchievements?: () => void;
   /** The online world: players, deals and chat (only set in an online world). */
   openOnline?: () => void;
+  /** Zoom out to the globe. */
+  openGlobe?: () => void;
 }
 
 export const SPEEDS = [0, 1, 3, 10, 50];
@@ -509,8 +512,18 @@ export class Hud {
       b.addEventListener('click', h.goHome);
       return b;
     };
+    // the planet: zoom all the way out to the globe
+    const globe = (cls: string) => {
+      const b = el('button', cls);
+      b.innerHTML = icon('globe');
+      b.title = t('The world: zoom out to the globe');
+      b.setAttribute('aria-label', t('The world'));
+      b.addEventListener('click', () => this.h.openGlobe?.());
+      return b;
+    };
     rot.appendChild(home('sbtn home-btn'));
-    mob.append(this.playBtn, this.stepBtn, home('sbtn home-btn'), mUndo);
+    rot.appendChild(globe('sbtn globe-btn'));
+    mob.append(this.playBtn, this.stepBtn, home('sbtn home-btn'), globe('sbtn globe-btn'), mUndo);
     window.addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey) h.goHome(); });
     corner.append(speeds, mob, rot, ver);
     if (h.openOnline) {
@@ -660,6 +673,9 @@ export class Hud {
   /** Phones: the date and the time in a small tag under the top bar. */
   private mDate = el('button', 'm-date');
   private onlineBtn?: HTMLButtonElement;
+
+  /** The globe is shown: the town's panels step aside. */
+  setGlobe(on: boolean) { this.root.classList.toggle('globe-mode', on); }
 
   /** New messages and deals waiting in the online world (a badge, and a pulse when something new comes). */
   setOnlineBadge(n: number, ping = false) {
@@ -883,7 +899,6 @@ export class Hud {
       ['happy', 'r_happy', 'Happiness', `${Math.round(s.happiness)}%`, undefined, s.happiness < 45],
       ['jobs', 'r_jobs', 'Working / jobs', `${f(s.workers)}/${f(s.workers + s.vacancies)}`],
     ];
-    const EMOJI: Record<string, string> = { bricks: '🧱', planks: '🪵', coal: '⚫', grain: '🌾', flour: '🥡', milk: '🥛', cotton: '☁️', garments: '👕', furniture: '🛋️', steel: '🔩', feed: '🌽' };
     const key = JSON.stringify([main.map((m) => m[3] + (m[4] ?? '')), s.goods]);
     if (this.resPop.dataset.key === key) return;
     this.resPop.dataset.key = key;
@@ -908,7 +923,7 @@ export class Hud {
       const h2 = el('div', 'rpp-sec');
       h2.textContent = t('Goods in the stores');
       grid.appendChild(h2);
-      for (const [k, label, v] of goods) card(EMOJI[k] ?? '📦', t(label), f(v));
+      for (const [k, label, v] of goods) card(goodIcon(k, 26), t(label), f(v));
     }
     this.resPop.append(head, grid);
   }
