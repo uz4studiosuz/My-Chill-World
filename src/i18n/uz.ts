@@ -4024,4 +4024,7 @@ export const UZ: Record<string, string> = {
   "Cloud": "Bulut",
   "This device": "Shu qurilma",
   "OK = play the cloud town, Cancel = keep this device's town": "OK — bulutdagi shaharni o'ynash, Bekor qilish — shu qurilmadagisini qoldirish",
+  "Your town was opened on another device": "Shahringiz boshqa qurilmada ochildi",
+  "A town runs on one device at a time, so it stopped here. Nothing from this window is saved over it.": "Shahar bir vaqtda faqat bitta qurilmada yuradi, shuning uchun bu yerda to'xtadi. Bu oynadagi hech narsa uning ustiga saqlanmaydi.",
+  "Continue here": "Shu yerda davom etish",
 };

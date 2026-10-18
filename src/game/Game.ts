@@ -1329,14 +1329,14 @@ export class Game implements ToolHost {
   /** My town's figures for the other players of the online world. */
   private pushOnline() {
     const o = this.meta.online;
-    if (!o) return;
+    if (!o || this.elsewhere) return;
     const c = this.eco.city;
     const people = this.life.populationByCity().get(c.id) ?? 0;
     // the card of my town as my World window shows it (the others see the same figures, charts and comparison)
     const card = this.worldView().find((x) => x.id === c.id);
     const town = card ? { ...card, news: [], dealings: [], player: undefined } : undefined;
     // the figures every half minute (small); the map and the card only when they changed — the map at most every 2 minutes, the card every 5
-    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people) });
+    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people), device: this.device, deviceAt: this.deviceAt }).then((mine) => { if (!mine) this.openedElsewhere(); });
     const now = Date.now();
     const layout = this.myLayout();
     const key = JSON.stringify(layout);
@@ -1349,6 +1349,27 @@ export class Game implements ToolHost {
 
   /** When the town was last sent to the cloud (online). */
   private cloudAt = 0;
+  /** Online: this page's mark, and when it opened the town (the last device to open the town holds it). */
+  private device = Math.random().toString(36).slice(2, 12);
+  private deviceAt = Date.now();
+  /** The town was opened on another device: this one stops (no more saving or sending). */
+  private elsewhere = false;
+
+  private openedElsewhere() {
+    if (this.elsewhere) return;
+    this.elsewhere = true;
+    this.online?.dispose();
+    this.setMenuPaused(true);
+    const box = document.createElement('div');
+    box.className = 'elsewhere';
+    box.innerHTML = '<div class="el-card"><b></b><p></p><button class="btn-mini"></button></div>';
+    (box.querySelector('b') as HTMLElement).textContent = t('Your town was opened on another device');
+    (box.querySelector('p') as HTMLElement).textContent = t('A town runs on one device at a time, so it stopped here. Nothing from this window is saved over it.');
+    const btn = box.querySelector('button') as HTMLButtonElement;
+    btn.textContent = t('Continue here');
+    btn.addEventListener('click', () => location.reload());
+    document.body.appendChild(box);
+  }
 
   setMenuPaused(p: boolean) {
     this.menuPaused = p;
@@ -1365,9 +1386,14 @@ export class Game implements ToolHost {
       // online: the town is kept in the cloud too, so it opens the same on any device (at most once a minute,
       // and always when the page is left or hidden)
       const o = this.meta.online;
-      if (o && (manual || leaving || Date.now() - this.cloudAt > 60_000)) {
+      if (o && !this.elsewhere && (manual || leaving || Date.now() - this.cloudAt > 60_000)) {
         this.cloudAt = Date.now();
-        void Online.pushSave(o.worldId, data.meta.updated, JSON.stringify(data)).then((err) => { if (err) console.warn('[cloud save]', err); });
+        const json = JSON.stringify(data);
+        // only while this device still holds the town (another one may have opened it since)
+        void Online.stillMine(o.worldId, this.device, this.deviceAt).then((mine) => {
+          if (!mine) { this.openedElsewhere(); return; }
+          return Online.pushSave(o.worldId, data.meta.updated, json).then((err) => { if (err) console.warn('[cloud save]', err); });
+        });
       }
       if (manual) this.hud?.toast(t('Game saved'));
     } catch (e) {

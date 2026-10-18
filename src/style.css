@@ -2888,3 +2888,8 @@ body .emb-tab em { letter-spacing: 0; background: var(--bad); color: #fff; }
 .globe-ui.diving .gl-top, .globe-ui.diving .gl-back { opacity: 0; pointer-events: none; }
 .pending.bad .ptext { color: var(--bad); }
 .pending .pbtn.ok:disabled { opacity: .4; cursor: default; }
+.elsewhere { position: fixed; inset: 0; z-index: 100; background: rgba(10,12,16,.72); display: flex; align-items: center; justify-content: center; padding: 16px; pointer-events: auto; }
+.el-card { width: min(380px, 100%); background: var(--base); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+.el-card b { font: 600 18px var(--font-display); }
+.el-card p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+.el-card .btn-mini { margin: 4px auto 0; padding: 10px 18px; font-size: 14px; }

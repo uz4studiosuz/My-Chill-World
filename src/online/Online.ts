@@ -39,7 +39,7 @@ export interface Offer {
 export interface ChatMessage { id: number; world_id: string; user_id: string; name: string; text: string; created_at: string }
 
 /** What a town tells the others about itself. */
-export interface TownSummary { day: number; people: number; money: number; happy: number; level: number; layout?: { b: [string, number, number, number, number][]; r: number[] }; town?: unknown }
+export interface TownSummary { day: number; people: number; money: number; happy: number; level: number; device?: string; deviceAt?: number; layout?: { b: [string, number, number, number, number][]; r: number[] }; town?: unknown }
 
 let client: SupabaseClient | null = null;
 const db = () => (client ??= createClient(URL, KEY, { auth: { persistSession: true, autoRefreshToken: true } }));
@@ -240,10 +240,25 @@ export const Online = {
   },
 
   /** My town's figures for the others (and that I am here now). */
-  async pushSummary(worldId: string, summary: TownSummary) {
+  /**
+   * My town's figures for the others (and that I am here now). The town runs on one device at a time: the device that
+   * opened it last holds it, and an older one gets false back (it was opened elsewhere) and writes nothing.
+   */
+  async pushSummary(worldId: string, summary: TownSummary): Promise<boolean> {
     const s = await this.session();
-    if (!s) return;
-    await db().from('world_members').update({ summary, last_seen: new Date().toISOString() }).eq('world_id', worldId).eq('user_id', s.user.id);
+    if (!s) return true;
+    let q = db().from('world_members').update({ summary, last_seen: new Date().toISOString() }).eq('world_id', worldId).eq('user_id', s.user.id);
+    if (summary.device) q = q.or(holder(summary.device, summary.deviceAt ?? 0));
+    const { data, error } = await q.select('user_id');
+    return !!error || !!data?.length;
+  },
+
+  /** Does this device still hold my town (no other device opened it since)? */
+  async stillMine(worldId: string, device: string, at: number): Promise<boolean> {
+    const s = await this.session();
+    if (!s) return true;
+    const { data, error } = await db().from('world_members').update({ last_seen: new Date().toISOString() }).eq('world_id', worldId).eq('user_id', s.user.id).or(holder(device, at)).select('user_id');
+    return !!error || !!data?.length;
   },
 };
 
@@ -272,3 +287,6 @@ async function unpack(data: string): Promise<string> {
   for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
   return new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 }
+
+/** The row is mine to write when no device holds it, this one does, or the holder opened it before this one. */
+const holder = (device: string, at: number) => `summary->>device.is.null,summary->>device.eq.${device},summary->>deviceAt.lte.${at}`;
