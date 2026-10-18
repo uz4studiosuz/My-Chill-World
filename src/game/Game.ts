@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Globe } from '../world/Globe';
+import { Skirt, WildChunks } from '../world/Skirt';
 import { UPGRADABLE, canUpgrade, levelMult, seatsOf, upgradeCost, waterOf } from '../buildings/Upgrades';
 import { believer } from './Leisure';
 import { SKIN, SHIRTS, DRESSES } from '../models/people/_shared';
@@ -186,6 +187,8 @@ export class Game implements ToolHost {
 
   private map: WorldMap;
   private terrain: Terrain;
+  private skirt: Skirt;
+  private wild: WildChunks;
   private net = new RoadNetwork();
   private roadMesh: RoadMesh;
   private footpaths = new Footpaths();
@@ -347,6 +350,11 @@ export class Game implements ToolHost {
 
     this.map = generateWorld(seed);
     this.terrain = new Terrain(this.map);
+    // the land goes on past the map's edges, to the horizon
+    this.skirt = new Skirt(this.map);
+    this.scene.add(this.skirt.mesh);
+    this.wild = new WildChunks(this.map.seed, this.skirt.rivers);
+    this.scene.add(this.wild.group);
     this.roadMesh = new RoadMesh(this.net, this.map);
     this.canals = new Canals(this.map);
     this.buildings = new Buildings(this.map, this.net, {
@@ -403,6 +411,7 @@ export class Game implements ToolHost {
     };
     this.cam = new CameraRig(canvas);
     this.cam.onPastMax = () => this.openGlobe();
+    this.cam.onWrap = (dx) => this.wild?.shift(dx);
 
     this.pop.priority = (b) => {
       const o = this.eco.cities.get(b.city)?.jobPriority[b.kind];
@@ -540,6 +549,8 @@ export class Game implements ToolHost {
     if (!opts.save) this.pop.planDay();
     this.lastDay = this.eco.day;
     this.terrain.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
+    this.skirt.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
+    this.wild.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
     this.weather.newDay(seasonOf(monthOf(this.eco.day)));
 
     if (this.demo) {
@@ -895,6 +906,7 @@ export class Game implements ToolHost {
         land: (x, z) => {
           const wx = tileToWorld(x), wz = tileToWorld(z);
           this.cam.setState(wx, wz, this.cam.yaw, this.cam.maxView);
+          this.wild.update(this.cam.target.x, this.cam.target.z, this.cam.maxView, 200);
           this.cam.flyTo(wx, wz, 14, 2.4);
         },
       }, () => { this.hud?.setGlobe(false); });
@@ -1039,7 +1051,8 @@ export class Game implements ToolHost {
 
   update(dt: number) {
     this.globe?.update(dt);
-    if (!this.demo && this.hud && !this.globe?.active && (this.globeWarm += dt) > 4) this.makeGlobe().prepare(IS_TOUCH ? 4 : 8);
+    if (!this.globe?.active) this.wild.update(this.cam.target.x, this.cam.target.z, this.cam.viewHalf);
+    if (!this.demo && this.hud && !this.globe?.active && (this.globeWarm += dt) > 4) this.makeGlobe().prepare(IS_TOUCH ? 2 : 4);
     this.buildings.day = this.eco.day;
     if (this.watch) this.updateWatch();
     // a loaded world: fields out of season are wrapped up straight away
@@ -1092,6 +1105,8 @@ export class Game implements ToolHost {
     if (this.seasonT <= 0) {
       this.seasonT = 0.4;
       this.terrain.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
+      this.skirt.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
+      this.wild.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
     }
     this.updateLighting();
     this.updateMarker(dt);

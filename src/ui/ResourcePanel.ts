@@ -1,3 +1,4 @@
+import { labelWithGood } from './GoodIcons';
 import { el, icon, IconName, hoverBusy } from './dom';
 import { t } from '../i18n/i18n';
 
@@ -96,7 +97,7 @@ export class ResourcePanel {
       for (const [label, value, text] of sec.bars ?? []) {
         const row = el('div', 'rp-bar');
         row.innerHTML = `<div class="rp-bar-l"><span></span><span></span></div><div class="rp-track"><i></i></div>`;
-        (row.querySelector('.rp-bar-l span') as HTMLElement).textContent = label;
+        labelWithGood(row.querySelector('.rp-bar-l span') as HTMLElement, label);
         (row.querySelectorAll('.rp-bar-l span')[1] as HTMLElement).textContent = text;
         (row.querySelector('.rp-track i') as HTMLElement).style.width = `${Math.max(0, Math.min(1, value)) * 100}%`;
         body.appendChild(row);
@@ -105,7 +106,7 @@ export class ResourcePanel {
         const grid = el('div', 'rp-grid');
         for (const [k, val2, tone] of sec.rows) {
           const a = el('span', 'k');
-          a.textContent = k;
+          labelWithGood(a, k);
           const b = el('span', `v ${tone ?? ''}`);
           b.textContent = val2;
           grid.append(a, b);

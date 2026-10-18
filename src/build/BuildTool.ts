@@ -103,7 +103,7 @@ export class BuildTool {
         this.current = null;
         const r = this.host.checkPlace(wasWaiting.tool as PlaceKind, target, this.rotDir);
         const tiles = isLine(wasWaiting.tool) ? `${tr('{n} tiles', { n: wasWaiting.path.length })} · ` : '';
-        this.host.pending({ text: `${tiles}${cost(r)}`, ok: r.ok, canRotate: true });
+        this.host.pending({ text: r.ok ? `${tiles}${cost(r)}` : `⛔ ${r.reason ?? tr('Cannot build here')} · ${tr('drag it to a free place')}`, ok: r.ok, canRotate: true });
       }
     }
   }
@@ -139,6 +139,13 @@ export class BuildTool {
     const r = isLine(tool) ? this.host.checkLine(tool, path) : isPlace(tool) ? this.host.checkPlace(tool, cur, this.rotDir) : { ok: false };
     this.start = null;
     this.current = null;
+    // a building that cannot stand here still goes down (in red, saying why): drag it to a good place
+    if (!r.ok && isPlace(tool)) {
+      this.waiting = { tool, path, cur };
+      this.host.pending({ text: `⛔ ${r.reason ?? tr('Cannot build here')} · ${tr('drag it to a free place')}`, ok: false, canRotate: true });
+      this.host.showHint(null);
+      return;
+    }
     if (!r.ok) {
       this.cancel();
       if (isLine(tool)) this.host.buildLine(tool, path);

@@ -1,3 +1,4 @@
+import { labelWithGood } from './GoodIcons';
 import { Sample } from '../sim/History';
 import { drawChart, Series } from './Chart';
 import { el, icon, IconName, hoverBusy } from './dom';
@@ -471,7 +472,7 @@ export class StatsPanel {
       if (steps.length && steps.every((st) => st.startsWith('✓') || st.startsWith('✗'))) {
         const r = el('div', `chain-row${good === false ? ' broken' : good ? ' ok' : ''}`);
         const name = el('div', 'chain-name');
-        name.textContent = k;
+        labelWithGood(name, k);
         const chips = el('div', 'chain-chips');
         for (const st of steps) {
           const chip = el('span', `chain-chip ${st.startsWith('✓') ? 'yes' : 'no'}`);

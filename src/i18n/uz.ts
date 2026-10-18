@@ -4016,4 +4016,6 @@ export const UZ: Record<string, string> = {
   "Drag to turn · pinch in to land · tap a town": "Aylantirish uchun suring · qo'nish uchun kattalashtiring · shaharni bosing",
   "Drag to turn · scroll in to land · click a town": "Aylantirish uchun torting · qo'nish uchun g'ildirakni aylantiring · shaharni bosing",
   "Back to the town": "Shaharga qaytish",
+  "Cannot build here": "Bu yerga qurib bo'lmaydi",
+  "drag it to a free place": "bo'sh joyga torting",
 };

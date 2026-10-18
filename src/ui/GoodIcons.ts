@@ -1,3 +1,5 @@
+import { t } from '../i18n/i18n';
+
 /**
  * Goods drawn as small shaded pictures (not emoji stickers): a loaf of bread, stacked logs, a steel ingot… Every
  * picture is an SVG with its own gradients, a soft shadow and a highlight, so it reads like an item in a shop.
@@ -89,3 +91,22 @@ export function goodIcon(good: string, size = 28): string {
 
 const CRATE = `<defs><linearGradient id="a§" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9a866"/><stop offset="1" stop-color="#94602c"/></linearGradient></defs>${SHADOW}
   <rect x="12" y="18" width="40" height="34" rx="3" fill="url(#a§)"/><path d="M12 30h40M12 41h40M24 18v34M40 18v34" stroke="#6e4319" stroke-width="1.5" opacity=".6"/>`;
+
+/** Goods by their name as the player reads it (in the chosen language), to put the picture next to any label. */
+const NAMES: Record<string, string> = {
+  Money: 'money', Food: 'food', Wood: 'wood', Stone: 'stone', Iron: 'iron', Coal: 'coal', Planks: 'planks', Bricks: 'bricks', Grain: 'grain',
+  Flour: 'flour', Milk: 'milk', Cotton: 'cotton', Clothes: 'garments', Furniture: 'furniture', Steel: 'steel', Feed: 'feed', Cars: 'car', Logs: 'logs',
+};
+let byLabel: Map<string, string> | null = null, lang = '';
+export function goodOfLabel(label: string): string | undefined {
+  const key = t('Food') + t('Wood');
+  if (!byLabel || lang !== key) { lang = key; byLabel = new Map(Object.entries(NAMES).flatMap(([en, g]) => [[en.toLowerCase(), g], [t(en).toLowerCase(), g]])); }
+  return byLabel.get(label.trim().toLowerCase());
+}
+
+/** Put a good's picture before a label's text when the label names a good (Food, Wood, Bricks…). */
+export function labelWithGood(e: HTMLElement, label: string, size = 18) {
+  const g = goodOfLabel(label);
+  e.textContent = label;
+  if (g) { e.insertAdjacentHTML('afterbegin', goodIcon(g, size)); e.classList.add('gi-lab'); }
+}

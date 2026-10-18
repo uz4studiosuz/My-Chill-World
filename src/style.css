@@ -2676,7 +2676,7 @@ body.photo-mode .daywatch, body.lapse-mode .daywatch { display: none !important;
 /* phones: the date and the time stay in sight, in a small tag under the top bar */
 .m-date { display: none; }
 @media (max-width: 760px) {
-  .m-date { display: block; position: absolute; z-index: 6; left: 50%; transform: translateX(-50%); top: calc(var(--top-h, 52px) + 6px); padding: 4px 12px; border-radius: 999px;
+  .m-date { display: block; position: absolute; z-index: 6; left: 0; transform: none; top: calc(var(--top-h, 52px) + 4px); padding: 3px 8px; border-radius: 0 6px 6px 0; border-left: 0 !important; font-size: 11px !important; opacity: .92;
     background: var(--base); border: 1px solid var(--line); color: var(--text); font: 800 12px var(--font-ui); white-space: nowrap; pointer-events: auto; }
   body.photo-mode .m-date, body.pov-mode .m-date, body.lapse-mode .m-date { display: none; }
   body:has(.stats.show, .trade-panel.show, .embassy.show, .chain-view.show, .inspector.show, .sidebar.open) .m-date { display: none; }
@@ -2886,3 +2886,5 @@ body .emb-tab em { letter-spacing: 0; background: var(--bad); color: #fff; }
 .gl-cloud { position: fixed; inset: 0; pointer-events: none; opacity: 0; z-index: 60; background: radial-gradient(ellipse at 50% 55%, #ffffff 0%, #e6f1fa 45%, #b9d6ee 100%); }
 .globe-ui .gl-top, .globe-ui .gl-back { transition: opacity .3s; }
 .globe-ui.diving .gl-top, .globe-ui.diving .gl-back { opacity: 0; pointer-events: none; }
+.pending.bad .ptext { color: var(--bad); }
+.pending .pbtn.ok:disabled { opacity: .4; cursor: default; }

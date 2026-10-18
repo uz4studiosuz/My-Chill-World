@@ -4,6 +4,8 @@ import type { WorldMap } from './WorldMap';
 import { N } from './grid';
 import { t } from '../i18n/i18n';
 import { fbm } from '../utils/rng';
+import { LAKE_COLOR, WildTile, groundColor, riversOut, worldSample, wrapX } from './Wild';
+import { RIVER_REACH } from './Skirt';
 
 /** One town shown on the globe. */
 export interface GlobeTown { id: number; name: string; x: number; z: number; people: number; mine: boolean; friend: boolean; tint: string }
@@ -154,6 +156,7 @@ export class Globe {
     if (!this.active || this.leaving) return;
     const a = tileAngles(x, z);
     this.leaving = { t: 0, x, z };
+    this.dropDetail();
     this.ui.classList.add('diving');
     this.vel = { x: 0, y: 0 };
     this.fromAngles = { phi: this.phi, theta: this.theta, dist: this.dist };
@@ -204,7 +207,7 @@ export class Globe {
       this.theta = THREE.MathUtils.clamp(this.theta + this.vel.y * dt, 0.2, Math.PI - 0.2);
       const k = Math.exp(-dt * 2.6);
       this.vel.x *= k; this.vel.y *= k;
-      if (this.idle > 6) this.phi += dt * 0.05;
+      if (this.idle > 6 && this.goal > 2.5) this.phi += dt * 0.05;
     }
     // arriving from the map: the camera rises out of the clouds into space
     if (this.arrive < 1) {
@@ -214,6 +217,7 @@ export class Globe {
       this.cloud(Math.max(0, 1 - this.arrive * 3));
     } else this.dist += (this.goal - this.dist) * Math.min(1, dt * 6);
     if (this.clouds) this.clouds.rotation.y += dt * 0.006;
+    this.updateDetail();
     this.apply();
   }
 
@@ -233,6 +237,87 @@ export class Globe {
     }
   }
 
+  // ---------- the close-up: sharper land under the camera as it comes near ----------
+  private detail?: THREE.Mesh;
+  private detailAt = { x: 1e9, z: 1e9 };
+  private detailJob?: { x0: number; z0: number; img: ImageData; c: HTMLCanvasElement; row: number };
+  /** Tiles covered by the close-up and its pixels per tile. */
+  private static DSPAN = 150;
+  private static DPX = 3;
+
+  private updateDetail() {
+    if (this.dist > 1.9 || this.leaving) { if (this.detail && this.dist > 2.2) this.dropDetail(); return; }
+    const c = this.placeAt(this.phi, this.theta);
+    const near = (a: { x: number; z: number }) => Math.abs(wrapX(a.x - c.x + N / 2) - N / 2) < Globe.DSPAN * 0.22 && Math.abs(a.z - c.z) < Globe.DSPAN * 0.22;
+    if (this.detailJob ? near({ x: this.detailJob.x0 + Globe.DSPAN / 2, z: this.detailJob.z0 + Globe.DSPAN / 2 }) : near(this.detailAt)) {
+      if (this.detailJob) this.stepDetail(18);
+      return;
+    }
+    const S = Globe.DSPAN * Globe.DPX;
+    const cv = document.createElement('canvas');
+    cv.width = S; cv.height = S;
+    this.detailJob = { x0: c.x - Globe.DSPAN / 2, z0: c.z - Globe.DSPAN / 2, c: cv, img: cv.getContext('2d')!.createImageData(S, S), row: 0 };
+  }
+
+  /** Paint a few rows of the close-up; when done, lay it over the planet. */
+  private stepDetail(rows: number) {
+    const J = this.detailJob!, S = Globe.DSPAN * Globe.DPX, D = Globe.DPX;
+    const map = this.host.map, rivers = this.rivers ??= riversOut(map, RIVER_REACH);
+    const col = new THREE.Color(), wt = {} as WildTile, d = J.img.data;
+    for (const stop = Math.min(Globe.DSPAN, J.row + rows); J.row < stop; J.row++) {
+      const tz = J.z0 + J.row;
+      for (let i = 0; i < Globe.DSPAN; i++) {
+        const tx = J.x0 + i, wx = Math.floor(wrapX(tx));
+        let a = 255;
+        if (wx >= 0 && tz >= 0 && wx < N && tz < N) {
+          // our map: deep inside, its own detailed picture shows through; near its edge (where that picture fades) the ground is drawn here
+          if (Math.min(wx, tz, N - 1 - wx, N - 1 - tz) > 14) a = 0;
+          else {
+            const k = tz * N + wx;
+            if (map.water[k]) col.copy(LAKE_COLOR);
+            else if (this.host.roads[k]) col.copy(PAL.road);
+            else groundColor(map.height[k], map.arid[k], map.cold[k], 0.5, this.host.trees.has(k) ? 0.65 : 0.4, col);
+          }
+        }
+        else {
+          const river = wx >= -rivers.off && tz >= -rivers.off && wx < N + rivers.off && tz < N + rivers.off && rivers.set.has(rivers.key(wx, tz));
+          worldSample(this.host.seed, tx + 0.5, tz + 0.5, river, col, wt);
+        }
+        // soft edges so the close-up melts into the planet
+        const e = Math.min(i, Globe.DSPAN - 1 - i, J.row, Globe.DSPAN - 1 - J.row) / 14;
+        if (e < 1) a *= e * e * (3 - 2 * e);
+        for (let py = 0; py < D; py++) for (let px = 0; px < D; px++) {
+          const k = ((J.row * D + py) * S + i * D + px) * 4;
+          if (a) put(d, k, col, a); else d[k + 3] = 0;
+        }
+      }
+    }
+    if (J.row < Globe.DSPAN) return;
+    J.c.getContext('2d')!.putImageData(J.img, 0, 0);
+    this.dropDetail();
+    const tex = new THREE.CanvasTexture(J.c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
+    tex.magFilter = THREE.NearestFilter;
+    const a = tileAngles(J.x0, J.z0);
+    const span = (Globe.DSPAN / N) * SPAN;
+    const phi0 = a.phi - ((0.5 / N) * SPAN), th0 = a.theta - ((0.5 / N) * SPAN);
+    this.detail = new THREE.Mesh(new THREE.SphereGeometry(R * 1.0026, 64, 64, phi0, span, Math.max(0.01, th0), span), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.95 }));
+    this.group.add(this.detail);
+    this.detailAt = { x: J.x0 + Globe.DSPAN / 2, z: J.z0 + Globe.DSPAN / 2 };
+    this.detailJob = undefined;
+  }
+
+  private dropDetail() {
+    if (!this.detail) return;
+    this.group.remove(this.detail);
+    this.detail.geometry.dispose();
+    (this.detail.material as THREE.MeshStandardMaterial).map?.dispose();
+    (this.detail.material as THREE.Material).dispose();
+    this.detail = undefined;
+    this.detailAt = { x: 1e9, z: 1e9 };
+  }
+
   // ---------- building the planet ----------
   private build() {
     this.prepare(1e6);
@@ -241,45 +326,48 @@ export class Globe {
   }
 
   /** The planet's picture is painted a few rows per frame in the background, so opening the globe is quick. */
+  private rivers?: ReturnType<typeof riversOut>;
   private paint?: { W: number; H: number; img: ImageData; c: HTMLCanvasElement; y: number; seed: number };
 
   /** Paint part of the planet (called every frame while the town is played); true when it is ready. */
   prepare(rows = 12) {
     if (this.baseSeed === this.host.seed) return true;
     if (!this.paint || this.paint.seed !== this.host.seed) {
-      const W = IS_TOUCH ? 1024 : 1536, H = W / 2;
+      const W = IS_TOUCH ? 768 : 1024, H = W / 2;
       const c = document.createElement('canvas');
       c.width = W; c.height = H;
       this.paint = { W, H, c, img: c.getContext('2d')!.createImageData(W, H), y: 0, seed: this.host.seed };
     }
     const P = this.paint, { W, H, img } = P;
-    const s = this.host.seed;
-    const front = point(Math.PI / 2, Math.PI / 2);
-    const p = new THREE.Vector3(), col = new THREE.Color();
+    const s = this.host.seed, map = this.host.map;
+    const rivers = this.rivers ??= riversOut(map, RIVER_REACH);
+    const col = new THREE.Color(), col2 = new THREE.Color();
+    const wt = {} as WildTile;
+    // the land of the map carried on all round the planet: one turn is ROUND tiles, the seam lies behind it
+    const ROUND = (N * Math.PI * 2) / SPAN, seam = N / 2 + ROUND / 2;
     for (const stop = Math.min(H, P.y + rows); P.y < stop; P.y++) {
       const y = P.y;
       const theta = ((y + 0.5) / H) * Math.PI;
       const lat = Math.abs(Math.cos(theta));
+      const tz = ((theta - T0) / SPAN) * N;
       for (let x = 0; x < W; x++) {
         const phi = ((x + 0.5) / W) * Math.PI * 2;
-        p.set(-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta));
-        // continents from noise; around our land the ground rises so the map sits inside a continent
-        const near = p.angleTo(front);
-        const h = fbm3(p, 1.6, s, 5) - 0.53 + Math.max(0, 1.05 - near) * 0.8;
-        if (h < 0) {
-          col.copy(PAL.deep).lerp(PAL.ocean, THREE.MathUtils.clamp(1 + h * 6, 0, 1)).lerp(PAL.shallow, THREE.MathUtils.clamp(1 + h * 22, 0, 1) * 0.8);
-          if (lat > 0.9) col.lerp(PAL.snow, 0.85);
-        } else if (h < 0.015) col.copy(PAL.sand);
-        else {
-          const dry = fbm3(p, 2.3, s + 40, 2);
-          col.copy(PAL.grass).lerp(PAL.grass2, noise3(p.x * 14, p.y * 14, p.z * 14, s + 3));
-          if (fbm3(p, 5, s + 17, 2) > 0.56) col.lerp(PAL.forest, 0.7);
-          if (dry > 0.58 && lat < 0.6) col.lerp(dry > 0.64 ? PAL.desert : PAL.steppe, 0.85);
-          if (h > 0.2) col.lerp(PAL.rock, Math.min(1, (h - 0.2) * 6));
-          if (h > 0.3) col.lerp(PAL.snow, Math.min(1, (h - 0.3) * 8));
-          if (lat > 0.72) col.lerp(PAL.tundra, Math.min(1, (lat - 0.72) * 6));
-          if (lat > 0.86) col.lerp(PAL.snow, Math.min(1, (lat - 0.86) * 9));
+        let tx = ((phi - P0) / SPAN) * N;
+        if (tx > seam) tx -= ROUND;
+        if (tx < seam - ROUND) tx += ROUND;
+        const ix = Math.floor(tx), iz = Math.floor(tz);
+        if (ix >= 0 && iz >= 0 && ix < N && iz < N) {
+          // our own map: exactly its ground (the detailed picture lies over it)
+          const k = iz * N + ix;
+          if (map.water[k]) col.copy(LAKE_COLOR);
+          else groundColor(map.height[k], map.arid[k], map.cold[k], 0.5, 0.5, col);
+        } else {
+          const river = ix >= -rivers.off && iz >= -rivers.off && ix < N + rivers.off && iz < N + rivers.off && rivers.set.has(rivers.key(ix, iz));
+          worldSample(s, tx, tz, river, col, wt);
+          put(img.data, (y * W + x) * 4, col);
+          continue;
         }
+        if (lat > 0.78) col.lerp(col2.copy(PAL.snow), Math.min(0.95, (lat - 0.78) * 7));
         put(img.data, (y * W + x) * 4, col);
       }
     }
@@ -363,7 +451,7 @@ export class Globe {
     }
     // the edges fade into the land around it
     const d = g.getImageData(0, 0, S, S);
-    const f = S * 0.07;
+    const f = S * 0.035;
     for (let y = 0; y < S; y++) {
       const ey = Math.min(y, S - 1 - y);
       for (let x = 0; x < S; x++) {
@@ -488,18 +576,16 @@ export class Globe {
   private zoom(f: number) {
     if (this.leaving) return;
     if (f < 1 && this.goal <= MIN_D + 0.01) {
-      const tile = this.tileAtAngles(this.phi, this.theta) ?? this.host.focus();
+      const tile = this.placeAt(this.phi, this.theta);
       this.leave(tile.x, tile.z);
       return;
     }
     this.goal = THREE.MathUtils.clamp(R + (this.goal - R) * f, MIN_D, this.maxD);
   }
 
-  private tileAtAngles(phi: number, theta: number) {
-    const tau = Math.PI * 2;
-    const p = ((phi - P0) % tau + tau) % tau;
-    const x = Math.floor((p / SPAN) * N), z = Math.floor(((theta - T0) / SPAN) * N);
-    return x >= 0 && z >= 0 && x < N && z < N ? { x, z } : null;
+  /** The place under these angles anywhere on the planet (x round the world, z from pole to pole). */
+  private placeAt(phi: number, theta: number) {
+    return { x: Math.floor(wrapX(((phi - P0) / SPAN) * N)), z: Math.floor(((theta - T0) / SPAN) * N) };
   }
 
   /** A tap: on a town's tag → go there; on our land → land there. */
@@ -514,8 +600,8 @@ export class Globe {
     const v = g.point.clone().normalize();
     const theta = Math.acos(THREE.MathUtils.clamp(v.y, -1, 1));
     const phi = Math.atan2(v.z, -v.x);
-    const tile = this.tileAtAngles(phi, theta);
-    if (tile) this.leave(tile.x, tile.z);
+    const tile = this.placeAt(phi, theta);
+    this.leave(tile.x, tile.z);
   }
 
   dispose() {

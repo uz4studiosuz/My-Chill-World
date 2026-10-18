@@ -1,3 +1,4 @@
+import { labelWithGood } from './GoodIcons';
 import { el, icon, hoverBusy } from './dom';
 import { t } from '../i18n/i18n';
 import { drawChart, Series } from './Chart';
@@ -227,7 +228,7 @@ export class CityReport {
             const row = el('div', '');
             row.innerHTML = `<i></i><span></span><b></b>`;
             (row.querySelector('i') as HTMLElement).style.background = col;
-            (row.querySelector('span') as HTMLElement).textContent = label;
+            labelWithGood(row.querySelector('span') as HTMLElement, label);
             (row.querySelector('b') as HTMLElement).textContent = `${Math.round((Math.max(0, val) / total) * 100)}%`;
             legend.appendChild(row);
           }
@@ -240,7 +241,7 @@ export class CityReport {
           for (const [label, val, col, text] of sec.bars) {
             const row = el('div', 'wt-bar');
             row.innerHTML = `<span></span><div><i></i></div><b></b>`;
-            (row.querySelector('span') as HTMLElement).textContent = label;
+            labelWithGood(row.querySelector('span') as HTMLElement, label);
             const bar = row.querySelector('i') as HTMLElement;
             bar.style.width = `${Math.max(1, (Math.abs(val) / max) * 100)}%`;
             bar.style.background = col;
@@ -264,7 +265,7 @@ export class CityReport {
         for (const [k, val, tone, show] of all.slice(page * PAGE, page * PAGE + PAGE)) {
           const r = el('div', 'info-row');
           r.innerHTML = '<span></span><span></span>';
-          (r.children[0] as HTMLElement).textContent = k;
+          labelWithGood(r.children[0] as HTMLElement, k);
           (r.children[1] as HTMLElement).textContent = val;
           if (tone) (r.children[1] as HTMLElement).className = tone === 'good' ? 'pos' : 'neg';
           if (show) {
@@ -351,7 +352,7 @@ export class CityReport {
       for (const [k, val, tone] of rows) {
         const r = el('div', 'info-row');
         r.innerHTML = '<span></span><span></span>';
-        (r.children[0] as HTMLElement).textContent = k;
+        labelWithGood(r.children[0] as HTMLElement, k);
         (r.children[1] as HTMLElement).textContent = val;
         if (tone) (r.children[1] as HTMLElement).className = tone === 'good' ? 'pos' : 'neg';
         box.appendChild(r);

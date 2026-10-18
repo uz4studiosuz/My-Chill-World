@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { N } from '../world/grid';
+import { ROUND } from '../world/Wild';
 
 const DISTANCE = 80;
 
@@ -20,6 +21,8 @@ export class CameraRig {
   private rect: DOMRect;
   /** Zooming out further at the widest view: past a little more, the world turns into a globe. */
   onPastMax?: () => void;
+  /** The camera went round the planet and came back from the other side (moved by `dx`). */
+  onWrap?: (dx: number) => void;
   private over = 0;
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -145,8 +148,14 @@ export class CameraRig {
   }
 
   private clamp() {
-    const lim = N / 2;
-    this.target.x = THREE.MathUtils.clamp(this.target.x, -lim, lim);
-    this.target.z = THREE.MathUtils.clamp(this.target.z, -lim, lim);
+    // the world goes round: past the far side of the planet the camera comes back from the other side;
+    // north and south it stops before the poles
+    if (this.target.x > ROUND / 2 || this.target.x < -ROUND / 2) {
+      const d = this.target.x > 0 ? -ROUND : ROUND;
+      this.target.x += d;
+      if (this.fly) { this.fly.x0 += d; this.fly.x1 += d; }
+      this.onWrap?.(d);
+    }
+    this.target.z = THREE.MathUtils.clamp(this.target.z, -N / 2 - 180, N / 2 + 180);
   }
 }

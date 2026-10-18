@@ -311,6 +311,7 @@ export class Hud {
   private lastIron = 0;
   private modal?: HTMLDivElement;
   private pendingEl: HTMLDivElement;
+  private okBtn?: HTMLButtonElement;
   private pendingText: HTMLSpanElement;
   private rotBtn: HTMLButtonElement;
   private descEl?: HTMLDivElement;
@@ -576,7 +577,7 @@ export class Hud {
     this.rotBtn.innerHTML = icon('rotR') + `<span>${t('Rotate')} (R)</span>`;
     this.rotBtn.setAttribute('title', t('Rotate building (R)'));
     this.rotBtn.addEventListener('click', () => h.rotateBuild?.());
-    const okBtn = el('button', 'pbtn ok');
+    const okBtn = this.okBtn = el('button', 'pbtn ok');
     okBtn.innerHTML = icon('check') + `<span>${t('Build')}</span>`;
     okBtn.addEventListener('click', h.confirmBuild);
     const noBtn = el('button', 'pbtn no');
@@ -917,7 +918,7 @@ export class Hud {
       if (open) c.addEventListener('click', () => { this.resPop.classList.remove('show'); open(); });
       grid.appendChild(c);
     };
-    for (const [k, ic, label, value, sub, bad] of main) card(icon(ic), t(label), value, sub, bad, () => this.h.openResource(k === 'jobs' ? 'pop' : k));
+    for (const [k, ic, label, value, sub, bad] of main) card(['money', 'food', 'stone', 'wood', 'iron'].includes(k) ? goodIcon(k, 26) : icon(ic), t(label), value, sub, bad, () => this.h.openResource(k === 'jobs' ? 'pop' : k));
     const goods = (s.goods ?? []).filter(([, , v]) => v >= 1);
     if (goods.length) {
       const h2 = el('div', 'rpp-sec');
@@ -995,7 +996,7 @@ export class Hud {
       if (it.stone) need.push(['stone', t('Stone'), it.stone, this.lastStone]);
       if (it.wood) need.push(['wood', t('Wood'), it.wood, this.lastWood]);
       if (it.iron) need.push(['iron', t('Iron'), it.iron, this.lastIron]);
-      if (it.bricks) need.push(['', t('Bricks'), it.bricks, this.lastBricks, '▦']);
+      if (it.bricks) need.push(['', t('Bricks'), it.bricks, this.lastBricks, goodIcon('bricks', 22)]);
     }
     if (!it || !need.length) { this.costEl.classList.remove('show'); return; }
     const thumb = this.thumbs.get(it.tool);
@@ -1004,7 +1005,7 @@ export class Hud {
     this.costEl.dataset.key = key;
     const ok = need.every((n) => n[3] >= n[2]);
     this.costEl.innerHTML = `<div class="bc-head">${thumb ? `<i style="background-image:url(${thumb})"></i>` : `<i>${icon(it.icon)}</i>`}<div><b></b><small></small></div></div>
-      <div class="bc-list">${need.map(([ic, , n, have, sym]) => `<div class="bc-row ${have >= n ? 'ok' : 'no'}"><span class="bc-ic">${ic ? icon(ic) : sym}</span><span class="bc-l"></span><b>${n.toLocaleString('en-US')}${it.perTile ? `<small>/${t('tile')}</small>` : ''}</b><small class="bc-have">${t('have {n}', { n: Math.floor(have).toLocaleString('en-US') })}</small></div>`).join('')}</div>`;
+      <div class="bc-list">${need.map(([ic, , n, have, sym]) => `<div class="bc-row ${have >= n ? 'ok' : 'no'}"><span class="bc-ic">${ic ? goodIcon(ic === 'coin' ? 'money' : ic, 22) : sym}</span><span class="bc-l"></span><b>${n.toLocaleString('en-US')}${it.perTile ? `<small>/${t('tile')}</small>` : ''}</b><small class="bc-have">${t('have {n}', { n: Math.floor(have).toLocaleString('en-US') })}</small></div>`).join('')}</div>`;
     (this.costEl.querySelector('.bc-head b') as HTMLElement).textContent = t(it.name);
     (this.costEl.querySelector('.bc-head small') as HTMLElement).textContent = ok ? t('You have everything to build it') : t('Not enough — the red ones are missing');
     this.costEl.querySelectorAll('.bc-l').forEach((e, i) => { e.textContent = need[i][1]; });
@@ -1041,6 +1042,9 @@ export class Hud {
     this.hint.style.visibility = info ? 'hidden' : '';
     if (info) {
       this.pendingText.textContent = info.text;
+      // a building that cannot stand here waits in red until it is dragged to a good place
+      this.pendingEl.classList.toggle('bad', !info.ok);
+      if (this.okBtn) this.okBtn.disabled = !info.ok;
       this.rotBtn.style.display = info.canRotate ? '' : 'none';
     }
   }
