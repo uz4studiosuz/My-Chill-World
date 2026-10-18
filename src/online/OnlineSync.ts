@@ -42,6 +42,8 @@ export class OnlineSync {
   private timer = 0;
   private busy = false;
   private seenChat = 0;
+  /** The other towns' maps and cards, by player (with their version). */
+  private layoutCache = new Map<string, { ver: number; layout: unknown; town: unknown }>();
 
   constructor(readonly worldId: string, private host: SyncHost, debts: OnlineDebt[] = []) { this.debts = debts; }
 
@@ -63,7 +65,16 @@ export class OnlineSync {
   get waiting() { return this.offers.filter((o) => o.to_user === this.me && o.status === 'open' && (o.kind === 'sell' || o.kind === 'invest')).length; }
 
   async refresh(what: 'offers' | 'chat' | 'members' | 'all') {
-    if (what === 'members' || what === 'all') this.members = await Online.members(this.worldId);
+    if (what === 'members' || what === 'all') {
+      this.members = await Online.members(this.worldId);
+      // towns whose map or card changed since we last fetched them
+      const stale = this.members.filter((m) => m.user_id !== this.me && (m.layout_ver ?? 0) > 0 && (m.layout_ver ?? 0) !== this.layoutCache.get(m.user_id)?.ver).map((m) => m.user_id);
+      for (const r of await Online.layouts(this.worldId, stale)) this.layoutCache.set(r.user_id, { ver: r.ver, layout: r.layout, town: r.town });
+      for (const m of this.members) {
+        const c = this.layoutCache.get(m.user_id);
+        if (c) m.summary = { ...m.summary, layout: c.layout as never, town: c.town };
+      }
+    }
     if (what === 'chat' || what === 'all') {
       const before = this.chat[this.chat.length - 1]?.id ?? 0;
       this.chat = await Online.chat(this.worldId);

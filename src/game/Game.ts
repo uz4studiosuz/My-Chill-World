@@ -1080,7 +1080,8 @@ export class Game implements ToolHost {
   }
 
   private onlineT = 25;
-  private layoutTick = 0;
+  private layoutKey = '';
+  private layoutAt = 0;
   private layoutSent?: TownLayout;
   private ghosts?: GhostTowns;
 
@@ -1322,11 +1323,19 @@ export class Game implements ToolHost {
     if (!o) return;
     const c = this.eco.city;
     const people = this.life.populationByCity().get(c.id) ?? 0;
-    this.layoutTick = (this.layoutTick + 1) % 2;
     // the card of my town as my World window shows it (the others see the same figures, charts and comparison)
     const card = this.worldView().find((x) => x.id === c.id);
     const town = card ? { ...card, news: [], dealings: [], player: undefined } : undefined;
-    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people), layout: this.layoutTick === 1 || !this.layoutSent ? this.myLayout() : this.layoutSent, town });
+    // the figures every half minute (small); the map and the card only when they changed — the map at most every 2 minutes, the card every 5
+    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people) });
+    const now = Date.now();
+    const layout = this.myLayout();
+    const key = JSON.stringify(layout);
+    if ((key !== this.layoutKey && now - this.layoutAt > 120_000) || now - this.layoutAt > 300_000 || !this.layoutAt) {
+      this.layoutKey = key;
+      this.layoutAt = now;
+      void Online.pushLayout(o.worldId, Math.floor(now / 1000), layout, town);
+    }
   }
 
   setMenuPaused(p: boolean) {

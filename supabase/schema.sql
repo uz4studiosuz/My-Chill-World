@@ -250,3 +250,36 @@ begin
   delete from public.world_members where world_id = p_world and user_id = auth.uid();
   delete from public.worlds w where w.id = p_world and not w.is_server and not exists (select 1 from public.world_members m where m.world_id = w.id);
 end $$;
+
+-- =====================================================================
+-- More players, less traffic: eight servers with English names, and each town's map and card kept in a table of
+-- its own — sent only when it changed and fetched by the others only when its version moved on.
+-- =====================================================================
+update public.worlds set name = 'Maple Valley' where code = 'SRV1';
+update public.worlds set name = 'Silver Coast' where code = 'SRV2';
+update public.worlds set name = 'Sunny Hills' where code = 'SRV3';
+update public.worlds set name = 'Pine Ridge' where code = 'SRV4';
+insert into public.worlds (code, name, host, seed, max_players, is_server)
+select v.code, v.name, null, v.seed, 8, true
+from (values ('SRV5', 'Golden Fields', 593573), ('SRV6', 'Blue Lagoon', 611953),
+             ('SRV7', 'Cedar Harbor', 733067), ('SRV8', 'Willow Creek', 857929)) as v (code, name, seed)
+where not exists (select 1 from public.worlds w where w.code = v.code);
+
+alter table public.world_members add column if not exists layout_ver int not null default 0;
+
+create table if not exists public.town_layouts (
+  world_id uuid not null references public.worlds (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  ver int not null default 0,
+  layout jsonb not null default '{}'::jsonb,
+  town jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (world_id, user_id)
+);
+alter table public.town_layouts enable row level security;
+drop policy if exists "read layouts" on public.town_layouts;
+create policy "read layouts" on public.town_layouts for select to authenticated using (public.is_member(world_id));
+drop policy if exists "write my layout" on public.town_layouts;
+create policy "write my layout" on public.town_layouts for insert to authenticated with check (user_id = auth.uid() and public.is_member(world_id));
+drop policy if exists "update my layout" on public.town_layouts;
+create policy "update my layout" on public.town_layouts for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());

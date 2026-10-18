@@ -23,6 +23,8 @@ export interface OnlineMember {
   slot: number;
   last_seen: string;
   summary: { day?: number; people?: number; money?: number; happy?: number; level?: number; layout?: { b: [string, number, number, number, number][]; r: number[] }; town?: unknown };
+  /** Version of the town's map and card (they are fetched again only when it moves on). */
+  layout_ver?: number;
 }
 
 export type OfferKind = 'gift' | 'sell' | 'invest' | 'repay';
@@ -140,7 +142,8 @@ export const Online = {
   },
 
   async members(worldId: string): Promise<OnlineMember[]> {
-    const { data } = await db().from('world_members').select('*').eq('world_id', worldId).order('slot');
+    // the light columns only: the towns' maps and cards are fetched separately, and only when they changed
+    const { data } = await db().from('world_members').select('world_id, user_id, city_name, slot, last_seen, summary, layout_ver').eq('world_id', worldId).order('slot');
     return (data ?? []) as OnlineMember[];
   },
 
@@ -185,6 +188,21 @@ export const Online = {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'world_members', filter: `world_id=eq.${worldId}` }, () => changed('members'))
       .subscribe();
     return () => { void db().removeChannel(ch); };
+  },
+
+  /** My town's map and card, sent only when they changed (the version tells the others to fetch them). */
+  async pushLayout(worldId: string, ver: number, layout: unknown, town: unknown) {
+    const s = await this.session();
+    if (!s) return;
+    await db().from('town_layouts').upsert({ world_id: worldId, user_id: s.user.id, ver, layout, town, updated_at: new Date().toISOString() });
+    await db().from('world_members').update({ layout_ver: ver }).eq('world_id', worldId).eq('user_id', s.user.id);
+  },
+
+  /** The maps and cards of these players' towns. */
+  async layouts(worldId: string, users: string[]): Promise<{ user_id: string; ver: number; layout: unknown; town: unknown }[]> {
+    if (!users.length) return [];
+    const { data } = await db().from('town_layouts').select('user_id, ver, layout, town').eq('world_id', worldId).in('user_id', users);
+    return (data ?? []) as { user_id: string; ver: number; layout: unknown; town: unknown }[];
   },
 
   /** My town's figures for the others (and that I am here now). */
