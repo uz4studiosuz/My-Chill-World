@@ -8,9 +8,10 @@ import {
   AUTUMN_TINT, BARE, BLOSSOM, BUSH_DRY, BUSH_GREEN, C, FRESH, LEAF_AUTUMN, LEAF_GREEN, QuadBuilder, SNOWY, SPRING_TINT, TUFT_DRY, TUFT_FLOWER, TUFT_GRASS,
   TUNDRA, side, smoothstep,
 } from './Terrain';
-import { ROUND, WildTile, polarIce, riversOut, worldSample, wrapX } from './Wild';
+import { WildTile, polarIce, riversOut, worldSample, wrapX, wrapZ } from './Wild';
 
-const CHUNK = 64;
+/** 80 tiles: the map is 4 × 4 pieces, one turn round the planet 20 and pole to pole 10. */
+const CHUNK = 80;
 const SEA_BED = WATER_BED - 0.35;
 const SEA = new THREE.Color('#2f7fb3'), DEEP = new THREE.Color('#1d5f8f');
 type Season = { snow: number; autumn: number; bare: number; spring: number };
@@ -84,13 +85,14 @@ export class Faraway {
   }
 
   /** The camera came round the planet: the pieces move with it (one turn is a whole number of pieces). */
-  shift(dxWorld: number) {
-    const dc = Math.round(dxWorld / CHUNK);
+  shift(dxWorld: number, dzWorld = 0) {
+    const dc = Math.round(dxWorld / CHUNK), dr = Math.round(dzWorld / CHUNK);
     const next = new Map<string, Piece>();
     for (const [key, p] of this.pieces) {
       const [x, z] = key.split(',').map(Number);
       p.group.position.x += dxWorld;
-      next.set(`${x + dc},${z}`, p);
+      p.group.position.z += dzWorld;
+      next.set(`${x + dc},${z + dr}`, p);
     }
     this.pieces = next;
   }
@@ -116,8 +118,8 @@ export class Faraway {
         top[v] = map.topY(k);
         continue;
       }
-      const wx = Math.floor(wrapX(tx));
-      const river = wx >= -R.off && tz >= -R.off && wx < N + R.off && tz < N + R.off && R.set.has(R.key(wx, tz));
+      const wx = Math.floor(wrapX(tx)), wz = Math.floor(wrapZ(tz));
+      const river = wx >= -R.off && wz >= -R.off && wx < N + R.off && wz < N + R.off && R.set.has(R.key(wx, wz));
       const w = {} as WildTile, c = new THREE.Color();
       worldSample(seed, tx + 0.5, tz + 0.5, river, c, w);
       ws[v] = w; cols[v] = c;
@@ -126,7 +128,7 @@ export class Faraway {
     }
     const b = new QuadBuilder(), wb = new QuadBuilder();
     const c = new THREE.Color(), tmp = new THREE.Color();
-    const rnd = mulberry32((seed * 73856093) ^ (((x0 / CHUNK) % (ROUND / CHUNK) + ROUND) * 19349663) ^ (z0 * 83492791));
+    const rnd = mulberry32((seed * 73856093) ^ ((Math.floor(wrapX(x0) / CHUNK) + 1000) * 19349663) ^ ((Math.floor(wrapZ(z0) / CHUNK) + 1000) * 83492791));
     const pines: THREE.Matrix4[] = [], leafy: THREE.Matrix4[] = [], rocks: [THREE.Matrix4, THREE.Color][] = [], tufts: [THREE.Matrix4, THREE.Color][] = [];
     const cacti: THREE.Matrix4[] = [], bushes: [THREE.Matrix4, THREE.Color][] = [];
     const green: THREE.Color[] = [], autumn: THREE.Color[] = [];

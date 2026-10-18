@@ -132,6 +132,10 @@ export const T0 = Math.PI / 2 - SPAN / 2;
 /** Behind the planet, opposite the map, the two ends of the world meet (mixed over a band so there is no line). */
 const SEAM = N / 2 + ROUND / 2, BAND = 160;
 /** A tile's x brought into the one turn of the world that holds the map. */
+/** From pole to pole: half a turn. Past one pole the world goes on from the other (both are ice, so it closes unseen). */
+export const ROUND_Z = ROUND / 2;
+export const Z0 = (-T0 / SPAN) * N;
+export const wrapZ = (tz: number) => ((((tz - Z0) % ROUND_Z) + ROUND_Z) % ROUND_Z) + Z0;
 export const wrapX = (tx: number) => ((((tx - (SEAM - ROUND)) % ROUND) + ROUND) % ROUND) + SEAM - ROUND;
 const SNOW = new THREE.Color('#f2f4f6');
 const fa = {} as WildFields, fb = {} as WildFields;
@@ -142,6 +146,7 @@ const fa = {} as WildFields, fb = {} as WildFields;
  */
 export function worldSample(seed: number, tx: number, tz: number, river: boolean, col: THREE.Color, out: WildTile) {
   const x = wrapX(tx);
+  tz = wrapZ(tz);
   wildFields(seed, x, tz, fa);
   const d = SEAM - x;
   if (d < BAND) mixFields(fa, wildFields(seed, x - ROUND, tz, fb), 0.5 * (1 - d / BAND));
@@ -150,11 +155,14 @@ export function worldSample(seed: number, tx: number, tz: number, river: boolean
   if (out.h > 0) col.multiplyScalar(1 + out.h * 0.015);
   const ice = polarIce(tz);
   if (ice > 0) { col.lerp(SNOW, ice); out.cold = Math.max(out.cold, 1); }
+  // the polar ice cap: flat white land, the same at both poles
+  if (ice > 0.5) { out.water = 0; out.h = 0; col.copy(SNOW); }
   return out;
 }
 
 /** Ice towards the poles (0 … 0.95) for a row of the world. */
 export function polarIce(tz: number) {
+  tz = wrapZ(tz);
   const lat = Math.abs(Math.cos(T0 + (tz / N) * SPAN));
   return lat > 0.78 ? Math.min(0.95, (lat - 0.78) * 7) : 0;
 }

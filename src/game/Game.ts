@@ -409,7 +409,7 @@ export class Game implements ToolHost {
     };
     this.cam = new CameraRig(canvas);
     this.cam.onPastMax = () => this.openGlobe();
-    this.cam.onWrap = (dx) => this.wild?.shift(dx);
+    this.cam.onWrap = (dx, dz) => this.wild?.shift(dx, dz);
 
     this.pop.priority = (b) => {
       const o = this.eco.cities.get(b.city)?.jobPriority[b.kind];
