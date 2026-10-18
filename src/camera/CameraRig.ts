@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ROUND, ROUND_Z } from '../world/Wild';
+import { N } from '../world/grid';
 
 const DISTANCE = 80;
 
@@ -20,8 +20,6 @@ export class CameraRig {
   private rect: DOMRect;
   /** Zooming out further at the widest view: past a little more, the world turns into a globe. */
   onPastMax?: () => void;
-  /** The camera went round the planet and came back from the other side (moved by `dx`). */
-  onWrap?: (dx: number, dz: number) => void;
   private over = 0;
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -147,19 +145,9 @@ export class CameraRig {
   }
 
   private clamp() {
-    // the world goes round: past the far side of the planet the camera comes back from the other side;
-    // north and south it stops before the poles
-    if (this.target.x > ROUND / 2 || this.target.x < -ROUND / 2) {
-      const d = this.target.x > 0 ? -ROUND : ROUND;
-      this.target.x += d;
-      if (this.fly) { this.fly.x0 += d; this.fly.x1 += d; }
-      this.onWrap?.(d, 0);
-    }
-    if (this.target.z > ROUND_Z / 2 || this.target.z < -ROUND_Z / 2) {
-      const d = this.target.z > 0 ? -ROUND_Z : ROUND_Z;
-      this.target.z += d;
-      if (this.fly) { this.fly.z0 += d; this.fly.z1 += d; }
-      this.onWrap?.(0, d);
-    }
+    // beyond the map lies a sea of clouds nobody can cross: the camera stays over the land (a little past its edge)
+    const lim = N / 2 + 8;
+    this.target.x = THREE.MathUtils.clamp(this.target.x, -lim, lim);
+    this.target.z = THREE.MathUtils.clamp(this.target.z, -lim, lim);
   }
 }

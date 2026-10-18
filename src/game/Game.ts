@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { Globe } from '../world/Globe';
-import { Faraway } from '../world/Faraway';
-import { RIVER_REACH } from '../world/Wild';
+import { CloudSea } from '../world/CloudSea';
 import { UPGRADABLE, canUpgrade, levelMult, seatsOf, upgradeCost, waterOf } from '../buildings/Upgrades';
 import { believer } from './Leisure';
 import { SKIN, SHIRTS, DRESSES } from '../models/people/_shared';
@@ -188,7 +187,7 @@ export class Game implements ToolHost {
 
   private map: WorldMap;
   private terrain: Terrain;
-  private wild: Faraway;
+  private clouds: CloudSea;
   private net = new RoadNetwork();
   private roadMesh: RoadMesh;
   private footpaths = new Footpaths();
@@ -351,8 +350,8 @@ export class Game implements ToolHost {
     this.map = generateWorld(seed);
     this.terrain = new Terrain(this.map);
     // the land goes on past the map's edges, made like the map, all round the planet
-    this.wild = new Faraway(this.map, this.terrain.pineMat, this.terrain.waterMat, RIVER_REACH);
-    this.scene.add(this.wild.group);
+    this.clouds = new CloudSea(this.map.seed);
+    this.scene.add(this.clouds.group);
     this.roadMesh = new RoadMesh(this.net, this.map);
     this.canals = new Canals(this.map);
     this.buildings = new Buildings(this.map, this.net, {
@@ -409,7 +408,6 @@ export class Game implements ToolHost {
     };
     this.cam = new CameraRig(canvas);
     this.cam.onPastMax = () => this.openGlobe();
-    this.cam.onWrap = (dx, dz) => this.wild?.shift(dx, dz);
 
     this.pop.priority = (b) => {
       const o = this.eco.cities.get(b.city)?.jobPriority[b.kind];
@@ -547,7 +545,6 @@ export class Game implements ToolHost {
     if (!opts.save) this.pop.planDay();
     this.lastDay = this.eco.day;
     this.terrain.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
-    this.wild.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
     this.weather.newDay(seasonOf(monthOf(this.eco.day)));
 
     if (this.demo) {
@@ -902,9 +899,10 @@ export class Game implements ToolHost {
         focus: () => ({ x: worldToTile(this.cam.target.x), z: worldToTile(this.cam.target.z) }),
         timeOfDay: () => this.eco.timeOfDay,
         land: (x, z) => {
+          // outside the map there are only clouds: land at the nearest place of the map
+          x = Math.max(0, Math.min(N - 1, x)); z = Math.max(0, Math.min(N - 1, z));
           const wx = tileToWorld(x), wz = tileToWorld(z);
           this.cam.setState(wx, wz, this.cam.yaw, this.cam.maxView);
-          this.wild.update(this.cam.target.x, this.cam.target.z, this.cam.maxView, 60);
           this.cam.flyTo(wx, wz, 14, 2.4);
         },
       }, () => { this.hud?.setGlobe(false); });
@@ -1049,7 +1047,7 @@ export class Game implements ToolHost {
 
   update(dt: number) {
     this.globe?.update(dt);
-    if (!this.globe?.active) this.wild.update(this.cam.target.x, this.cam.target.z, this.cam.viewHalf);
+    if (!this.globe?.active) this.clouds.update(dt);
     if (!this.demo && this.hud && !this.globe?.active && (this.globeWarm += dt) > 4) this.makeGlobe().prepare(IS_TOUCH ? 2 : 4);
     this.buildings.day = this.eco.day;
     if (this.watch) this.updateWatch();
@@ -1103,7 +1101,6 @@ export class Game implements ToolHost {
     if (this.seasonT <= 0) {
       this.seasonT = 0.4;
       this.terrain.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
-      this.wild.applySeason(seasonBlend(this.eco.day, this.eco.timeOfDay));
     }
     this.updateLighting();
     this.updateMarker(dt);
@@ -2828,6 +2825,9 @@ export class Game implements ToolHost {
     const others = [...this.eco.cities.values()]
       .map((o) => ({ o, h: this.buildings.townHall(o.id) }))
       .filter((x) => x.o.id !== c.id && x.h && x.h.access >= 0 && !this.roadLinked(c.id, x.o.id))
+      // roads come slowly: two neighbour towns only once both have stood a while; your town only once they like you
+      // (a footpath first when relations are fair, a real road when they are good)
+      .filter((x) => this.eco.day - (x.o.founded ?? 0) >= 8 && this.eco.day - (c.founded ?? 0) >= 8 && (x.o.ai || (c.relation ?? 40) >= 45))
       .sort((a, b) => Math.abs(a.h!.x - hall.x) + Math.abs(a.h!.z - hall.z) - (Math.abs(b.h!.x - hall.x) + Math.abs(b.h!.z - hall.z)));
     const target = others[0];
     if (!target) return null;
@@ -2843,7 +2843,8 @@ export class Game implements ToolHost {
     for (const k of fresh) { const r = this.map.height[k] > 0 ? TUNNEL_COST : this.map.water[k] ? BRIDGE_COST : ROAD_COST[2]; money += r.money; stone += r.stone; }
     // not rich enough for a road (or a thrifty mayor): first a cheap footpath, so people can come on foot and by bike
     const thrifty = c.style === 'thrifty' || c.style === 'green';
-    if (c.money < money + stone * TRADE_PRICE.stone * 1.25 + 1500 || (thrifty && !this.footLinked(c.id, target.o.id) && Math.random() < 0.6)) {
+    const onlyPath = !target.o.ai && (c.relation ?? 40) < 65;
+    if (onlyPath || c.money < money + stone * TRADE_PRICE.stone * 1.25 + 1500 || (thrifty && !this.footLinked(c.id, target.o.id) && Math.random() < 0.6)) {
       if (this.footLinked(c.id, target.o.id)) return null;
       const walk = walkPath((k) => (this.net.type[k] || this.footpaths.tiles[k] ? 0.25 : this.map.height[k] > 0 || this.map.water[k] || this.buildings.occ[k] !== -1 || this.railway.tiles[k] ? Infinity : 1), hall.access, target.h!.access, 150000);
       if (!walk) return null;
