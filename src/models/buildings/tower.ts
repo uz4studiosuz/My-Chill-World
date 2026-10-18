@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 
 /**
  * A tall block of flats: `floors` storeys on a plot of `size` tiles, rows of windows and balconies,

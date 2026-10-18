@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, cylX, merge, shape, turn } from '../../utils/voxel';
+import { box, cylX, merge, shape, turn } from '../quality';
 import { PAVE } from './_shared';
 
 /** A pitched roof: two wedges sloping to the front and to the back from a ridge along x. */

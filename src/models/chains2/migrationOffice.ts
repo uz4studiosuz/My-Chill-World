@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 
 /**
  * Migration company: a bright two-storey office with a glass front, a globe on the roof, a flag and a queue rail

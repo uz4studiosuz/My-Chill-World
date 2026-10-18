@@ -126,7 +126,7 @@ export class Menu {
       const srv = list.find((x) => x.id === mine.id);
       const town = await Online.myTown(mine.id);
       const row = el('div', 'world srv-row mine');
-      row.innerHTML = '<div class="world-thumb">🌐</div><div class="world-info"><b></b><small></small></div>';
+      row.innerHTML = `<div class="world-thumb">${icon('globe')}</div><div class="world-info"><b></b><small></small></div>`;
       (row.querySelector('b') as HTMLElement).textContent = mine.name;
       (row.querySelector('small') as HTMLElement).textContent = `${t('Your town')}: ${town?.city ?? '—'} · ${t('{n} of {m} players', { n: srv?.players ?? 0, m: srv?.max_players ?? 8 })}`;
       box.appendChild(row);
@@ -141,7 +141,7 @@ export class Menu {
       for (const v of list) {
         const full = v.players >= v.max_players;
         const row = el('div', `world srv-row${full ? ' full' : ''}`);
-        row.innerHTML = '<div class="world-thumb">🌐</div><div class="world-info"><b></b><small></small><div class="srv-bar"><i></i></div></div>';
+        row.innerHTML = `<div class="world-thumb">${icon('globe')}</div><div class="world-info"><b></b><small></small><div class="srv-bar"><i></i></div></div>`;
         (row.querySelector('b') as HTMLElement).textContent = v.name;
         (row.querySelector('small') as HTMLElement).textContent = full ? t('Full ({n} of {m})', { n: v.players, m: v.max_players }) : t('{n} of {m} players · {f} places free', { n: v.players, m: v.max_players, f: v.max_players - v.players });
         (row.querySelector('.srv-bar i') as HTMLElement).style.width = `${Math.round((v.players / v.max_players) * 100)}%`;
@@ -313,6 +313,7 @@ export class Menu {
     const ver = el('div', 'home-ver');
     ver.textContent = `v${VERSION}`;
     this.side.append(brand, list, foot, ver);
+    this.paintTip(this.home.querySelector('.home-caption') as HTMLDivElement);
     this.home.classList.add('show');
   }
 
@@ -447,7 +448,7 @@ export class Menu {
     info.append(name, meta);
     const play = button('Play', () => this.h.loadWorld(w.id), 'primary small', undefined, 'play');
     const thumb = el('div', 'world-thumb');
-    thumb.textContent = '🏙️';
+    thumb.innerHTML = icon('buildings');
     const exp = button('Export', () => { void exportWorld(w.id).then((f) => this.flash(t('Saved to your downloads: {f}', { f })), (e) => this.flash(String((e as Error).message ?? e))); }, 'small', undefined, 'save');
     exp.title = t('Save this world as a file to open it on another computer or phone');
     const del = button('Delete', () => {
@@ -465,20 +466,30 @@ export class Menu {
   }
 
   private audioRow() {
-    const row = el('div', 'langs');
+    const row = el('div', 'audio-settings');
     const mk = (label: string, on: () => boolean, set: (v: boolean) => void) => {
       const b = el('button', `chipbtn${on() ? ' active' : ''}`);
-      const paint = () => { b.textContent = `${t(label)}: ${on() ? t('On') : t('Off')}`; b.classList.toggle('active', on()); };
+      const paint = () => { b.textContent = `${t(label)}: ${on() ? t('On') : t('Off')}`; b.classList.toggle('active', on()); b.setAttribute('aria-pressed', String(on())); };
       paint();
       b.addEventListener('click', () => { set(!on()); paint(); });
       return b;
     };
     row.append(
       mk('Sound', () => sound.sfxOn, (v) => sound.setSfx(v)),
+      mk('Music', () => sound.musicOn, (v) => sound.setMusic(v)),
       mk('Nature sounds', () => sound.natureOn, (v) => sound.setNature(v)),
       mk('Newspaper', () => Newspaper.enabled, (v) => { Newspaper.enabled = v; }),
       mk('Morning card', () => { try { return localStorage.getItem('mcw_dayreport') !== '0'; } catch { return true; } }, (v) => { try { localStorage.setItem('mcw_dayreport', v ? '1' : '0'); } catch { /* ignore */ } }),
     );
+    for (const [channel, label] of [['sfx', 'Sound'], ['music', 'Music'], ['nature', 'Nature sounds']] as const) {
+      const field = el('label', 'audio-level');
+      const text = el('span', ''); text.textContent = t(label);
+      const slider = el('input', ''); slider.type = 'range'; slider.min = '0'; slider.max = '100';
+      slider.value = String(Math.round(sound.levels[channel] * 100));
+      const value = el('output', ''); value.textContent = slider.value + '%';
+      slider.addEventListener('input', () => { sound.setLevel(channel, Number(slider.value) / 100); value.textContent = slider.value + '%'; });
+      field.append(text, slider, value); row.append(field);
+    }
     return row;
   }
 
@@ -506,7 +517,7 @@ export class Menu {
     this.panel.classList.toggle('main', big);
     if (big) {
       const logo = el('div', 'menu-logo');
-      logo.textContent = '🏡';
+      logo.innerHTML = icon('home');
       this.panel.appendChild(logo);
     }
     const h = el('h1', big ? 'big' : '');

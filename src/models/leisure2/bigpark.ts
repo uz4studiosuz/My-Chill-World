@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { tree } from './_shared';
 
 /** Central park (3×3): lawns, a pond with a bridge, a pavilion, benches and lots of trees. */

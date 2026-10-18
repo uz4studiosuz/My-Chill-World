@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { GOLD, tree } from './_shared';
 
 /** Mosque: courtyard, prayer hall with a blue dome, arched portal and a minaret. */

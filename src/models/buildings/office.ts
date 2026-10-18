@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function officeGeometry(): THREE.BufferGeometry {
   const glass = '#6f9fc8', frame = '#e9edf0', dark = '#2f3d4a';

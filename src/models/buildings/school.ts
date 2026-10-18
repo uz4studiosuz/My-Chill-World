@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { GLASS } from './_shared';
 
 export function schoolGeometry(): THREE.BufferGeometry {

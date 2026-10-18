@@ -577,6 +577,7 @@ export class Hud {
     this.tabSearch = el('input', 'tab-search') as HTMLInputElement;
     this.tabSearch.type = 'search';
     this.tabSearch.placeholder = t('Search buildings…');
+    this.tabSearch.setAttribute('aria-label', t('Search buildings…'));
     this.tabSearch.addEventListener('input', () => { this.searchText = this.tabSearch.value; this.toggleDrawer(this.drawerCat ?? 'buildings', true); });
     this.tabSearch.addEventListener('keydown', (e) => e.stopPropagation());
     const dockFold = el('button', 'dock-fold');
@@ -743,6 +744,7 @@ export class Hud {
   private toolButton(name: IconName, label: string) {
     const btn = el('button', 'tbtn');
     btn.innerHTML = icon(name) + `<span>${label}</span>`;
+    btn.setAttribute('aria-label', label);
     return btn;
   }
 

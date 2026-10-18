@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { GRASS } from './_shared';
 
 /** Flower bed in a stone border. */

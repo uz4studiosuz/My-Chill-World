@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { door, parapet, windows } from '../details';
 
 /** Brickworks: a long kiln with arched firing doors, a tall chimney, a clay pit, a drying shed and pallets of bricks. */

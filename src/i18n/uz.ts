@@ -4027,4 +4027,8 @@ export const UZ: Record<string, string> = {
   "Your town was opened on another device": "Shahringiz boshqa qurilmada ochildi",
   "A town runs on one device at a time, so it stopped here. Nothing from this window is saved over it.": "Shahar bir vaqtda faqat bitta qurilmada yuradi, shuning uchun bu yerda to'xtadi. Bu oynadagi hech narsa uning ustiga saqlanmaydi.",
   "Continue here": "Shu yerda davom etish",
+"Live connection": "Jonli ulanish",
+"Reconnecting · your town is safe": "Qayta ulanmoqda · shaharingiz saqlangan",
+"Offline · reconnecting when available": "Tarmoq yo‘q · ulanish tiklanishi kutilmoqda",
+"Message not sent. Please try again.": "Xabar yuborilmadi. Qayta urinib ko‘ring.",
 };

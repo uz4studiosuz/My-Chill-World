@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function busStopGeometry(): THREE.BufferGeometry {
   const parts = [

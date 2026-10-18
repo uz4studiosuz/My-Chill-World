@@ -41,32 +41,79 @@ export class OnlineSync {
   private stop?: () => void;
   private timer = 0;
   private busy = false;
+  private disposed = false;
+  private started = false;
+  private pending = new Set<'offers' | 'chat' | 'members'>();
+  private refreshTask: Promise<void> | null = null;
+  connection: 'connecting' | 'live' | 'reconnecting' | 'offline' = 'connecting';
+  lastSync = 0;
+  private reconnect = () => { if (!this.disposed) void this.refresh('all'); };
+  private visibility = () => { if (!document.hidden) this.reconnect(); };
+  private offline = () => { this.connection = 'offline'; this.host.changed(); };
   private seenChat = 0;
+  private chatPrimed = false;
+  private accepting = false;
+  private paying = false;
   /** The other towns' maps and cards, by player (with their version). */
   private layoutCache = new Map<string, { ver: number; layout: unknown; town: unknown }>();
 
   constructor(readonly worldId: string, private host: SyncHost, debts: OnlineDebt[] = []) { this.debts = debts; }
 
   async start() {
+    if (this.started || this.disposed) return;
+    this.started = true;
     this.me = (await Online.userId()) ?? '';
+    if (this.disposed) return;
     if (!this.me) { this.host.toast(t('Online: sign in again from the main menu → Online')); return; }
     await this.refresh('all');
     this.seenChat = this.chat[this.chat.length - 1]?.id ?? 0;
-    this.stop = Online.subscribe(this.worldId, (what) => void this.refresh(what));
+    if (this.disposed) return;
+    this.stop = Online.subscribe(this.worldId, (what) => void this.refresh(what), (state) => {
+      if (this.disposed) return;
+      this.connection = navigator.onLine ? state : 'offline'; this.host.changed();
+    });
+    window.addEventListener('online', this.reconnect);
+    window.addEventListener('offline', this.offline);
+    document.addEventListener('visibilitychange', this.visibility);
     // a slow poll as well, in case the live connection drops
-    this.timer = window.setInterval(() => void this.refresh('all'), 15000);
+    this.timer = window.setInterval(() => { if (!document.hidden && navigator.onLine) void this.refresh('all'); }, 15000);
   }
 
-  dispose() { this.stop?.(); clearInterval(this.timer); }
+  dispose() {
+    this.disposed = true; this.pending.clear(); this.stop?.(); clearInterval(this.timer);
+    window.removeEventListener('online', this.reconnect);
+    window.removeEventListener('offline', this.offline);
+    document.removeEventListener('visibilitychange', this.visibility);
+  }
 
   name(userId: string) { return this.members.find((m) => m.user_id === userId)?.city_name ?? '?'; }
   online(m: OnlineMember) { return Date.now() - Date.parse(m.last_seen) < 90_000; }
   /** Deals waiting for my answer. */
   get waiting() { return this.offers.filter((o) => o.to_user === this.me && o.status === 'open' && (o.kind === 'sell' || o.kind === 'invest')).length; }
 
-  async refresh(what: 'offers' | 'chat' | 'members' | 'all') {
+  refresh(what: 'offers' | 'chat' | 'members' | 'all'): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    for (const kind of what === 'all' ? ['members', 'chat', 'offers'] as const : [what]) this.pending.add(kind);
+    if (!this.refreshTask) this.refreshTask = this.drain().finally(() => { this.refreshTask = null; });
+    return this.refreshTask;
+  }
+
+  private async drain() {
+    while (this.pending.size && !this.disposed) {
+      const batch = [...this.pending]; this.pending.clear();
+      for (const kind of batch) {
+        if (this.disposed) return;
+        try { await this.fetch(kind); if (!this.disposed) this.lastSync = Date.now(); }
+        catch { if (!this.disposed) { this.connection = navigator.onLine ? 'reconnecting' : 'offline'; this.host.changed(); } }
+      }
+    }
+  }
+
+  private async fetch(what: 'offers' | 'chat' | 'members' | 'all') {
     if (what === 'members' || what === 'all') {
-      this.members = await Online.members(this.worldId);
+      const members = await Online.members(this.worldId);
+      if (this.disposed) return;
+      this.members = members;
       // towns whose map or card changed since we last fetched them
       const stale = this.members.filter((m) => m.user_id !== this.me && (m.layout_ver ?? 0) > 0 && (m.layout_ver ?? 0) !== this.layoutCache.get(m.user_id)?.ver).map((m) => m.user_id);
       for (const r of await Online.layouts(this.worldId, stale)) this.layoutCache.set(r.user_id, { ver: r.ver, layout: r.layout, town: r.town });
@@ -77,17 +124,22 @@ export class OnlineSync {
     }
     if (what === 'chat' || what === 'all') {
       const before = this.chat[this.chat.length - 1]?.id ?? 0;
-      this.chat = await Online.chat(this.worldId);
+      const messages = await Online.chat(this.worldId);
+      if (this.disposed) return;
+      this.chat = messages;
       const fresh = this.chat.filter((m) => m.id > Math.max(before, this.seenChat) && m.user_id !== this.me);
-      if (fresh.length && before) { this.unread += fresh.length; this.host.ping(`💬 ${fresh[fresh.length - 1].name}: ${fresh[fresh.length - 1].text}`); }
+      if (fresh.length && this.chatPrimed) { this.unread += fresh.length; this.host.ping(`${fresh[fresh.length - 1].name}: ${fresh[fresh.length - 1].text}`); }
+      this.chatPrimed = true;
     }
     if (what === 'offers' || what === 'all') {
       const waitBefore = this.waiting;
-      this.offers = await Online.offers(this.worldId);
+      const offers = await Online.offers(this.worldId);
+      if (this.disposed) return;
+      this.offers = offers;
       await this.settle();
       if (this.waiting > waitBefore) { const o = this.offers.find((x) => x.to_user === this.me && x.status === 'open' && (x.kind === 'sell' || x.kind === 'invest')); if (o) this.host.ping(t('🤝 {city} sent you an offer: open Online → Deals', { city: this.name(o.from_user) })); }
     }
-    this.host.changed();
+    if (!this.disposed) this.host.changed();
   }
 
   /** Apply my half of every deal that moved on. */
@@ -128,7 +180,7 @@ export class OnlineSync {
 
   /** Take something out of the stores to send it (or say what is missing). */
   private take(good: string, n: number, reason: string): string | null {
-    if (!(n > 0)) return t('Enter an amount');
+    if (!Number.isSafeInteger(n) || n <= 0 || !ONLINE_GOODS.includes(good as OnlineGood)) return t('Enter an amount');
     if (this.host.have(good) < n) return t('Not enough {what}: you have {n}', { what: t(GOOD_LABEL[good] ?? good).toLowerCase(), n: Math.floor(this.host.have(good)) });
     this.host.add(good, -n, reason);
     return null;
@@ -144,7 +196,7 @@ export class OnlineSync {
   }
 
   async sell(to: string, good: string, n: number, price: number): Promise<string | null> {
-    if (!(price > 0)) return t('Enter a price');
+    if (!Number.isSafeInteger(price) || price <= 0) return t('Enter a price');
     const e = this.take(good, n, 'Goods offered to players');
     if (e) return e;
     const err = await Online.sendOffer({ world_id: this.worldId, to_user: to, kind: 'sell', good, amount: n, price: Math.round(price), note: '' });
@@ -163,10 +215,17 @@ export class OnlineSync {
   }
 
   async accept(o: Offer): Promise<string | null> {
+    if (this.accepting || o.to_user !== this.me || o.status !== 'open') return t('This offer is no longer open');
+    if (!Number.isSafeInteger(o.amount) || o.amount <= 0 || !Number.isSafeInteger(o.price) || o.price <= 0 || !ONLINE_GOODS.includes(o.good as OnlineGood)) return t('Enter an amount');
+    this.accepting = true;
+    try {
     if (o.kind === 'sell') {
       if (this.host.have('money') < o.price) return t('Not enough money: it costs ${n}', { n: o.price });
-      if (!(await Online.setOffer(o.id, 'open', 'accepted'))) return t('This offer is no longer open');
       this.host.add('money', -o.price, 'Purchases from players');
+      let accepted = false;
+      try { accepted = await Online.setOffer(o.id, 'open', 'accepted'); }
+      finally { if (!accepted) this.host.add('money', o.price, 'Deals with players returned'); }
+      if (!accepted) return t('This offer is no longer open');
       this.host.add(o.good, o.amount, 'Purchases from players');
     } else if (o.kind === 'invest') {
       if (!(await Online.setOffer(o.id, 'open', 'accepted'))) return t('This offer is no longer open');
@@ -176,6 +235,7 @@ export class OnlineSync {
     }
     await this.refresh('offers');
     return null;
+    } finally { this.accepting = false; }
   }
 
   async decline(o: Offer): Promise<string | null> {
@@ -194,6 +254,9 @@ export class OnlineSync {
 
   /** Every morning: a part of each investment is paid back (as much as the treasury allows). */
   async daily() {
+    if (this.paying || this.disposed) return;
+    this.paying = true;
+    try {
     for (const d of this.debts) {
       const n = Math.min(d.left, d.perDay, Math.floor(this.host.have('money')));
       if (n <= 0) continue;
@@ -203,6 +266,7 @@ export class OnlineSync {
       d.left -= n;
     }
     this.debts = this.debts.filter((d) => d.left > 0);
+    } finally { this.paying = false; }
   }
 
   async say(name: string, text: string) {

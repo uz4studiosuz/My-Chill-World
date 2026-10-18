@@ -1,5 +1,5 @@
 // Shared colours and helpers of the nature models.
-import { box } from '../../utils/voxel';
+import { box } from '../quality';
 
 /** Box turned around the vertical axis (for layered fir branches). */
 export const rbox = (w: number, h: number, d: number, x: number, y: number, z: number, color: string, rot: number) => {

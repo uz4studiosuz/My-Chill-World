@@ -236,7 +236,7 @@ export class TradePanel {
       const v = me ? this.host.history(me.id, k) : [];
       const now = v[v.length - 1] ?? 0, p = this.change(v);
       const r = el('button', `xg-item${k === g ? ' on' : ''}`);
-      r.innerHTML = `<span class="xg-pic">${goodIcon(k, 30)}</span><span class="xg-nm"><b></b><small></small></span><span class="xg-pr"><b></b>${spark(v.slice(-14), p >= 0 ? '#6fcf97' : '#f07167')}</span><span class="xg-ch ${p > 0 ? 'up' : p < 0 ? 'down' : ''}"></span>`;
+      r.innerHTML = `<span class="xg-pic">${goodIcon(k, 30)}</span><span class="xg-nm"><b></b><small></small></span><span class="xg-pr"><b></b>${spark(v.slice(-14), p >= 0 ? '#95bd9d' : '#e29382')}</span><span class="xg-ch ${p > 0 ? 'up' : p < 0 ? 'down' : ''}"></span>`;
       (r.querySelector('.xg-nm b') as HTMLElement).textContent = t(GOOD_NAME[k]);
       (r.querySelector('.xg-nm small') as HTMLElement).textContent = t('{n} in stock', { n: Math.floor(city[k]).toLocaleString('en-US') });
       (r.querySelector('.xg-pr b') as HTMLElement).textContent = `$${now.toFixed(1)}`;
@@ -307,7 +307,7 @@ export class TradePanel {
     const lines = all.filter((c) => c.mine || this.scope === 'all');
     if (lines.length > 1) {
       const lg = el('div', 'xg-legend');
-      for (const c of lines) { const s = el('small', ''); s.innerHTML = `<i style="background:${c.mine ? '#f2b33d' : c.tint}"></i>`; s.append(c.mine ? t('Your town') : c.name); lg.appendChild(s); }
+      for (const c of lines) { const s = el('small', ''); s.innerHTML = `<i style="background:${c.mine ? '#95bd9d' : c.tint}"></i>`; s.append(c.mine ? t('Your town') : c.name); lg.appendChild(s); }
       main.appendChild(lg);
     }
 
@@ -493,7 +493,7 @@ export class TradePanel {
     const towns = [...all].sort((a, b) => Number(b.mine) - Number(a.mine));
     for (const c of towns) {
       const th = el('th', '');
-      th.innerHTML = `<i style="background:${c.mine ? '#f2b33d' : c.tint}"></i>`;
+      th.innerHTML = `<i style="background:${c.mine ? '#95bd9d' : c.tint}"></i>`;
       th.append(c.mine ? t('Your town') : c.name);
       head.appendChild(th);
     }
@@ -699,6 +699,6 @@ export class TradePanel {
     requestAnimationFrame(() => { if (this.visible && scroll > 0) body.scrollTop = scroll; });
     const canvas = body.querySelector('.trade-canvas') as HTMLCanvasElement | null;
     const days = this.range === 'all' ? Infinity : this.range === '30d' ? 31 : 8;
-    if (canvas) drawChart(canvas, lines.map((c) => ({ label: c.mine ? t('Your town') : c.name, color: c.mine ? '#f2b33d' : c.tint, values: ((h) => (h.length === 1 ? [h[0], h[0]] : h))(this.host.history(c.id, this.good).slice(-days)) })), (v) => `$${v.toFixed(1)}`);
+    if (canvas) drawChart(canvas, lines.map((c) => ({ label: c.mine ? t('Your town') : c.name, color: c.mine ? '#95bd9d' : c.tint, values: ((h) => (h.length === 1 ? [h[0], h[0]] : h))(this.host.history(c.id, this.good).slice(-days)) })), (v) => `$${v.toFixed(1)}`);
   }
 }

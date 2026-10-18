@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { door, lamp, parapet, roofKit, shopFront, sign } from '../details';
 
 /** A small car (along x): body, cabin with windows, lights and wheels. */

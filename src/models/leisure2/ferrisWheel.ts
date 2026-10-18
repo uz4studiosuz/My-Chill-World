@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, cylX, merge } from '../../utils/voxel';
+import { box, cylX, merge } from '../quality';
 
 /** The ferris wheel (turns around its axle, local z). */
 export function ferrisWheelGeometry(): THREE.BufferGeometry {

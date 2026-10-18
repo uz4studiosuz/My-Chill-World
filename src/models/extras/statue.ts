@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { PAVING, shrub } from './_shared';
 
 /** Statue on a pedestal: a figure with a raised arm. */

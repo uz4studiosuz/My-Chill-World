@@ -1,22 +1,16 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape, rod, paint } from '../quality';
 
 /** A slanted bar between two points (frame tubes), thickness `t`. */
 function tube(a: [number, number, number], b: [number, number, number], t: number, color: string) {
-  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
-  const len = Math.hypot(dx, dy, dz);
-  const g = box(t, t, len, 0, 0, 0, color);
-  const m = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 0), new THREE.Vector3(dx, dy, dz), new THREE.Vector3(0, 1, 0));
-  m.setPosition((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
-  g.applyMatrix4(m);
-  return g;
+  return rod(a,b,t/2,color,t/2,6);
 }
 
 /** One wheel standing upright (rolling along z): a dark tyre, a silver rim, spokes and a hub. */
 function wheel(z: number, r: number): THREE.BufferGeometry[] {
   const parts = [
-    shape('torus', 0.016, r * 2, r * 2, 0, r, z, '#222428', 'x', 18),
-    shape('torus', 0.01, r * 1.6, r * 1.6, 0, r, z, '#b8c0c8', 'x', 18),
+    paint(new THREE.TorusGeometry(r*.91,r*.09,5,20).rotateY(Math.PI/2).translate(0,r,z),'#222428'),
+    paint(new THREE.TorusGeometry(r*.79,.0012,4,20).rotateY(Math.PI/2).translate(0,r,z),'#b8c0c8'),
     shape('cylinder', 0.02, 0.018, 0.018, 0, r, z, '#9aa3ab', 'x', 8),
   ];
   for (let i = 0; i < 4; i++) {

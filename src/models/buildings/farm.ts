@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Field base; the crops are a separate mesh so they can grow. */
 export function farmGeometry(): THREE.BufferGeometry {

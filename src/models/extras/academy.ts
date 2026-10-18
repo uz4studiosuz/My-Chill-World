@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Academy (2×2): columns, a dome and a small sports ground. */
 export function academyGeometry(): THREE.BufferGeometry {

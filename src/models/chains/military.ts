@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Military base (3×3): barracks, parade ground, flag, watchtower, a tank and a fence. */
 export function militaryGeometry(): THREE.BufferGeometry {

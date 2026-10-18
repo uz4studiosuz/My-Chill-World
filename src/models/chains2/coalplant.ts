@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, cylX, merge, shape } from '../../utils/voxel';
+import { box, cylX, merge, shape } from '../quality';
 import { door, parapet, windows } from '../details';
 
 /** A hyperbolic cooling tower: a waisted shell with a rim, stairs up the side and the dark opening at its foot. */

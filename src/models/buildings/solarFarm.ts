@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function solarFarmGeometry(): THREE.BufferGeometry {
   const parts = [box(1.9, 0.02, 1.9, 0, 0.01, 0, '#a9b07a')];

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function windTurbineGeometry(): THREE.BufferGeometry {
   return merge([

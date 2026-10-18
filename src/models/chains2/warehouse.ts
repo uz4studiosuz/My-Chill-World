@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 
 /** Warehouse: a long shed with a curved roof, loading doors, a ramp, crates, sacks and barrels outside. */
 export function warehouseGeometry(): THREE.BufferGeometry {

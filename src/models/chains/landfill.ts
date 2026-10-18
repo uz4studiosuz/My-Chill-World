@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { door, lamp } from '../details';
 
 /** Landfill (2×2): a fenced pit with mounds of rubbish (half covered with earth), a compactor, a weighbridge hut and gulls. */

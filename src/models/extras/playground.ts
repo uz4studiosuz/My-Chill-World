@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { WOOD, METAL } from './_shared';
 
 /** Children's playground: swings, slide, sandbox and a see-saw. */

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape, paint } from '../quality';
 
 /** Gazebo: a wooden pavilion with a pointed roof and a bench inside. */
 export function gazeboGeometry(): THREE.BufferGeometry {
@@ -48,13 +48,23 @@ export function clockTowerGeometry(): THREE.BufferGeometry {
 
 /** Flag pole: a tall white pole with a waving green-white-blue flag. */
 export function flagpoleGeometry(): THREE.BufferGeometry {
+  const fabric=(y:number,h:number,colour:string)=>{
+    const positions:number[]=[],indices:number[]=[];
+    for(let i=0;i<=12;i++){
+      const u=i/12,z=.01+u*.36,x=Math.sin(u*8)*.018*u;
+      positions.push(x,y-h/2,z,x,y+h/2,z);
+      if(i<12){const n=i*2;indices.push(n,n+1,n+2,n+1,n+3,n+2,n,n+2,n+1,n+1,n+2,n+3);}
+    }
+    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.setIndex(indices);
+    const flat=g.toNonIndexed();g.dispose();flat.computeVertexNormals();return paint(flat,colour);
+  };
   return merge([
     box(0.5, 0.04, 0.5, 0, 0.02, 0, '#a7a196'),
     shape('cylinder', 0.03, 1.2, 0.03, 0, 0.62, 0, '#eef0f2', 'y', 8),
     shape('sphere', 0.05, 0.05, 0.05, 0, 1.24, 0, '#f2b33d', 'y', 8),
-    box(0.01, 0.08, 0.36, 0, 1.12, 0.19, '#3f86c4'),
-    box(0.01, 0.08, 0.36, 0, 1.04, 0.19, '#f4f1ea'),
-    box(0.01, 0.08, 0.36, 0, 0.96, 0.19, '#4f9a3e'),
+    fabric(1.12,.08,'#3f86c4'),
+    fabric(1.04,.08,'#f4f1ea'),
+    fabric(.96,.08,'#4f9a3e'),
   ]);
 }
 

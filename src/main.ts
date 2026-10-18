@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { pickSeed } from './world/WorldGen';
 import './style.css';
+import './ui/theme.css';
+import { installAccessibility } from './ui/Accessibility';
 import { IS_TOUCH } from './config';
 import { Game, GameOptions } from './game/Game';
 import { Menu } from './ui/Menu';
@@ -22,6 +24,7 @@ const isViewer = () => /\/viewer(\.html)?\/?$/.test(location.pathname) || locati
 
 async function boot() {
   setLang(getLang());
+  installAccessibility();
   if (isViewer()) {
     const { Viewer } = await import('./viewer/Viewer');
     new Viewer(document.getElementById('app')!);

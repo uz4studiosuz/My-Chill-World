@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function cemeteryGeometry(): THREE.BufferGeometry {
   const wall = '#7d7a75', pillar = '#5f5d59', path = '#bdb7aa';

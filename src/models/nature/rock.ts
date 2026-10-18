@@ -1,3 +1,6 @@
-import { box, merge } from '../../utils/voxel';
-
-export const rockGeometry = () => merge([box(0.42, 0.26, 0.36, 0, 0.13, 0), box(0.26, 0.18, 0.22, 0.16, 0.09, 0.14)]);
+import { merge, organic } from '../quality';
+/** Weathered facets. Tint is supplied by the terrain. */
+export const rockGeometry=()=>{
+  const g=merge([organic(.47,.31,.40,0,.14,0,'#ffffff',31,1),organic(.28,.20,.25,.16,.09,.13,'#ffffff',12)]);
+  g.translate(0,-g.boundingBox!.min.y,0);g.computeBoundingBox();g.computeBoundingSphere();return g;
+};

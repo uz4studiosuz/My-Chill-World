@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, cylX, merge, shape } from '../../utils/voxel';
+import { box, cylX, merge, shape } from '../quality';
 import { door, lamp, windows } from '../details';
 
 /** Coal mine: a braced headframe with its winding wheel, the winding house, a coal heap fed by a conveyor, carts on rails. */

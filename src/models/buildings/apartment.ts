@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function apartmentGeometry(): THREE.BufferGeometry {
   const wall = '#e9e2d3', trim = '#c9c0ad', roof = '#5d6670';

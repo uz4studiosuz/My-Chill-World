@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Rotor of the wind turbine (spins). */
 export function rotorGeometry(): THREE.BufferGeometry {

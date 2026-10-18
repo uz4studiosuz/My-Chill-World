@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Four windmill sails around the hub (rotated as one piece). */
 export function millSailsGeometry(): THREE.BufferGeometry {

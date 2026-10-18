@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 
 /** Concert hall: a curved hall with a glass foyer, a stage roof, posters and lamps on the square in front. */
 export function concertHallGeometry(): THREE.BufferGeometry {

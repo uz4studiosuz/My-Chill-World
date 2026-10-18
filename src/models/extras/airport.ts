@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Airport (3×3): runway with lights, apron, glass terminal and a control tower. */
 export function airportGeometry(): THREE.BufferGeometry {

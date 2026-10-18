@@ -339,7 +339,7 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'autumn', name: 'Autumn Tree', group: 'Nature', desc: 'Leafy tree in autumn colours.', make: () => tree('#e0822f') },
   { id: 'leafy', name: 'Green Tree', group: 'Nature', desc: 'Leafy tree.', make: () => tree('#6faa45') },
   { id: 'rock', name: 'Rock', group: 'Nature', desc: 'Boulders, more common near mountains.', make: () => mesh(rockGeometry(), '#9a9890') },
-  { id: 'mountain', name: 'Mountain', group: 'Nature', desc: 'Stepped voxel mountain with a snowy peak.', make: () => mesh(mountainGeometry()) },
+  { id: 'mountain', name: 'Mountain', group: 'Nature', desc: 'Irregular ridgelines, rocky slopes and a snowy peak.', make: () => mesh(mountainGeometry()) },
 ];
 
 export const catalogEntry = (id: string) => CATALOG.find((e) => e.id === id)!;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { door, parapet, windows } from '../details';
 
 /** Wood power plant: a brick boiler house with arched windows, a tall banded chimney, a transformer yard and a log pile. */

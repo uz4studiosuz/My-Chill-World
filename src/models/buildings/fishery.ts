@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { door, lamp, windows } from '../details';
 
 /** Fishery: a timber boathouse with a blue roof, a jetty on posts, a moored boat, nets drying on poles, crates and barrels. */

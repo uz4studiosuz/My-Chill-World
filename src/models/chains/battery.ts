@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { PAVE } from './_shared';
 
 /** Battery storage (1×1): two ribbed battery containers with cooling fans, a transformer, cables and a fence. */

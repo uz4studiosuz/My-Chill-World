@@ -1,11 +1,10 @@
-import { box, merge } from '../../utils/voxel';
-
-/** White canopy — tinted per instance (green / autumn): a full crown of overlapping clumps. */
-export const canopyGeometry = () => merge([
-  box(0.62, 0.42, 0.62, 0, 0.64, 0),
-  box(0.44, 0.3, 0.44, 0.05, 0.95, -0.04),
-  box(0.32, 0.28, 0.32, -0.24, 0.52, 0.2),
-  box(0.3, 0.26, 0.3, 0.26, 0.56, -0.18),
-  box(0.28, 0.24, 0.28, 0.2, 0.74, 0.24),
-  box(0.22, 0.18, 0.22, -0.18, 0.86, -0.2),
+import { merge, organic } from '../quality';
+/** Asymmetric crown; white remains available for seasonal instance tinting. */
+export const canopyGeometry=()=>merge([
+  organic(.65,.47,.64,0,.66,0,'#ffffff',2,1),
+  organic(.46,.34,.44,.04,.94,-.04,'#ffffff',5),
+  organic(.33,.29,.33,-.23,.54,.18,'#ffffff',8),
+  organic(.32,.29,.32,.25,.57,-.17,'#ffffff',11),
+  organic(.31,.28,.30,.19,.76,.22,'#ffffff',17),
+  organic(.27,.24,.25,-.17,.86,-.20,'#ffffff',22),
 ]);

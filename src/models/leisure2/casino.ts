@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { GOLD } from './_shared';
 
 /** Casino: dark hall with golden trim, a lit sign and a canopy. */

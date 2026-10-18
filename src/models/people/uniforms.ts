@@ -1,6 +1,6 @@
 // Work clothes worn over the person models: jackets, vests, coats and the hats of each trade.
 // Drawn as a second instanced mesh with the same transform as the person, slightly larger so it covers the clothes.
-import { box, merge } from '../../utils/voxel';
+import { box, merge, roundBox, shape } from '../quality';
 import type * as THREE from 'three';
 
 export type Uniform =
@@ -9,14 +9,14 @@ export type Uniform =
 
 /** Jacket over the torso and sleeves (covers both the shirt of the men and the top of the women's dress). */
 const jacket = (c: string, collar?: string) => [
-  box(0.064, 0.068, 0.038, 0, 0.1, 0, c),
-  box(0.018, 0.054, 0.022, -0.039, 0.102, 0, c),
-  box(0.018, 0.054, 0.022, 0.039, 0.102, 0, c),
+  roundBox(0.064, 0.068, 0.038, 0, 0.1, 0, c, .003),
+  roundBox(0.018, 0.054, 0.022, -0.039, 0.102, 0, c, .003),
+  roundBox(0.018, 0.054, 0.022, 0.039, 0.102, 0, c, .003),
   ...(collar ? [box(0.03, 0.01, 0.04, 0, 0.13, 0.001, collar)] : []),
 ];
 /** A long coat down to the knees. */
 const coat = (c: string) => [...jacket(c), box(0.066, 0.05, 0.04, 0, 0.055, 0, c)];
-const helmet = (c: string) => [box(0.046, 0.016, 0.046, 0, 0.178, 0, c), box(0.052, 0.004, 0.052, 0, 0.17, 0, c)];
+const helmet=(c:string)=>[shape('dome',.046,.018,.046,0,.179,0,c,'y',10),box(.052,.004,.052,0,.170,0,c)];
 const cap = (c: string, band?: string) => [
   box(0.046, 0.014, 0.046, 0, 0.18, 0, c),
   box(0.03, 0.004, 0.016, 0, 0.172, 0.027, '#1e2226'),
@@ -43,7 +43,7 @@ export const UNIFORMS: Record<Uniform, () => THREE.BufferGeometry> = {
   cleaner: () => merge([...jacket('#3f8f4f'), ...stripes('#f2d23a'), ...cap('#3f8f4f')]),
   clerk: () => merge([...jacket('#2e3440', '#f2efe2'), box(0.008, 0.03, 0.004, 0, 0.11, 0.02, '#a12b2b')]),
   imam: () => merge([...coat('#f4f2ea'), box(0.046, 0.018, 0.046, 0, 0.18, 0, '#ffffff'), box(0.03, 0.01, 0.03, 0, 0.192, 0, '#ffffff')]),
-  shop: () => merge([box(0.05, 0.07, 0.006, 0, 0.09, 0.02, '#c4553d'), box(0.05, 0.004, 0.04, 0, 0.13, 0, '#c4553d')]),
+  shop:()=>merge([box(.05,.07,.006,0,.09,.02,'#c4553d'),box(.05,.004,.04,0,.13,0,'#c4553d'),box(.024,.019,.002,0,.083,.024,'#a94430'),box(.028,.002,.003,0,.094,.025,'#dfb698')]),
 };
 
 export const UNIFORM_KINDS = Object.keys(UNIFORMS) as Uniform[];

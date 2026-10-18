@@ -1,4 +1,4 @@
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /**
  * A wooden crate of broken stone carried in front with both hands (quarrymen and miners bringing the rock

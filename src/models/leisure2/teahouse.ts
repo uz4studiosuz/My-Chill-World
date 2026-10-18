@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { GOLD, tree } from './_shared';
 
 /** Teahouse (choyxona): blue-tiled hall, a terrace with carved columns and raised tapchans with red carpets. */

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function ranchGeometry(): THREE.BufferGeometry {
   const fence = '#9c7a52';

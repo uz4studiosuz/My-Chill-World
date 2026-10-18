@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { GRASS, shrub } from './_shared';
 
 /** Decorative street lamp (its light is a separate glowing head). */

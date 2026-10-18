@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Flowers and ribbons on a wedding car. */
 export function weddingDecorGeometry(): THREE.BufferGeometry {

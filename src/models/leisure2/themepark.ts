@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { PAVE, GRASS, tree } from './_shared';
 
 /** Amusement park (4×4): entrance gate, roller coaster, stalls, trees. The ferris wheel and carousel are separate meshes. */

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export type OrchardLook = 'spring' | 'summer' | 'autumn' | 'winter';
 

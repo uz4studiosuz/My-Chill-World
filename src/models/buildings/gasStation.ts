@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { bin, door, parapet, shopFront, sign } from '../details';
 
 /** Gas station: a canopy with lights on four posts over two pump islands, a little shop, a price pylon and air. */

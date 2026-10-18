@@ -17,6 +17,7 @@ export class OnlinePanel {
   /** The open "sell / gift" form: for whom. */
   private form = '';
   private last = '';
+  private sending = false;
 
   constructor(parent: HTMLElement, private sync: OnlineSync, private world: string, private code: string, private myName: () => string) {
     this.root = el('div', 'embassy online-panel');
@@ -39,12 +40,18 @@ export class OnlinePanel {
     if (!this.visible) return;
     const s = this.sync;
     if (this.tab === 'chat') s.readChat();
-    const key = JSON.stringify([s.members, s.offers, s.chat.length, this.tab, this.form, this.msg?.text]);
+    const key = JSON.stringify([s.members, s.offers, s.chat, s.connection, this.tab, this.form, this.msg?.text]);
     if (key === this.last) return;
     this.last = key;
     const input = this.root.querySelector('.ol-say') as HTMLInputElement | null;
     const draft = input?.value ?? '';
     const typing = document.activeElement === input;
+    const selection = input ? [input.selectionStart, input.selectionEnd] : null;
+    const scroll = this.root.querySelector('.emb-main');
+    const oldScroll = scroll?.scrollTop ?? 0;
+    const nearBottom = !scroll || scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 64;
+    const formValues = [...this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.ol-form input, .ol-form select')].map(e => e.value);
+    const focusedFormIndex = [...this.root.querySelectorAll('.ol-form input, .ol-form select')].indexOf(document.activeElement!);
     this.root.replaceChildren();
     const head = el('div', 'emb-head');
     head.innerHTML = `<span class="emb-ic">${icon('globe')}</span><div><b></b><small></small></div>`;
@@ -56,7 +63,7 @@ export class OnlinePanel {
     head.appendChild(x);
     const tabs = el('div', 'emb-tabs');
     const others = s.members.filter((m) => m.user_id !== s.me);
-    for (const [id, label, n] of [['players', `👥 ${t('Players')}`, `${others.length}`], ['deals', `🤝 ${t('Deals')}`, s.waiting ? `${s.waiting}` : ''], ['chat', `💬 ${t('Chat')}`, s.unread ? `${s.unread}` : '']] as [Tab, string, string][]) {
+    for (const [id, label, n] of [['players', `${t('Players')}`, `${others.length}`], ['deals', `${t('Deals')}`, s.waiting ? `${s.waiting}` : ''], ['chat', `${t('Chat')}`, s.unread ? `${s.unread}` : '']] as [Tab, string, string][]) {
       const b = el('button', `emb-tab${this.tab === id ? ' on' : ''}`);
       b.innerHTML = '<span></span><em></em>';
       (b.querySelector('span') as HTMLElement).textContent = label;
@@ -64,17 +71,24 @@ export class OnlinePanel {
       b.addEventListener('click', () => { this.tab = id; this.msg = undefined; this.last = ''; this.render(); });
       tabs.appendChild(b);
     }
-    this.root.append(head, tabs);
+    const state = el('div', 'online-status');
+    state.dataset.state = s.connection; state.setAttribute('role', 'status');
+    state.textContent = t({ connecting: 'Connecting…', live: 'Live connection', reconnecting: 'Reconnecting · your town is safe', offline: 'Offline · reconnecting when available' }[s.connection]);
+    this.root.append(head, state, tabs);
     if (this.msg) { const m = el('div', `emb-msg ${this.msg.ok ? 'ok' : 'no'}`); m.textContent = this.msg.text; this.root.appendChild(m); }
     const main = el('div', 'emb-main');
     if (this.tab === 'players') this.players(main, others);
     else if (this.tab === 'deals') this.deals(main);
     else this.chatView(main, draft);
     this.root.appendChild(main);
+    const fields = [...this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.ol-form input, .ol-form select')];
+    fields.forEach((e, i) => { if (formValues[i] !== undefined) e.value = formValues[i]; });
+    if (focusedFormIndex >= 0) fields[focusedFormIndex]?.focus();
+    main.scrollTop = oldScroll;
     if (this.tab === 'chat') {
-      main.scrollTop = main.scrollHeight;
+      if (nearBottom) main.scrollTop = main.scrollHeight;
       const inp = this.root.querySelector('.ol-say') as HTMLInputElement | null;
-      if (inp && typing) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+      if (inp && typing) { inp.focus(); inp.setSelectionRange(selection?.[0] ?? inp.value.length, selection?.[1] ?? inp.value.length); }
     }
   }
 
@@ -108,9 +122,9 @@ export class OnlinePanel {
       }
       const acts = c.querySelector('.emb-acts') as HTMLElement;
       const mk = (label: string, fn: () => void, cls = 'btn-mini') => { const b = el('button', cls); b.textContent = label; b.addEventListener('click', fn); acts.appendChild(b); };
-      mk(`🎁 ${t('Gift')} $500`, async () => this.flash(await s.gift(m.user_id, 'money', 500), t('Sent $500 to {city}', { city: m.city_name })));
-      mk(`💰 ${t('Invest')} $2,000`, async () => this.flash(await s.invest(m.user_id, 2000), t('Offered {city} an investment of $2,000: they pay back $2,400 over 20 days if they take it', { city: m.city_name })));
-      mk(`📦 ${t('Send or sell goods')}`, () => { this.form = this.form === m.user_id ? '' : m.user_id; this.last = ''; this.render(); }, 'btn-mini ghost');
+      mk(`${t('Gift')} $500`, async () => this.flash(await s.gift(m.user_id, 'money', 500), t('Sent $500 to {city}', { city: m.city_name })));
+      mk(`${t('Invest')} $2,000`, async () => this.flash(await s.invest(m.user_id, 2000), t('Offered {city} an investment of $2,000: they pay back $2,400 over 20 days if they take it', { city: m.city_name })));
+      mk(`${t('Send or sell goods')}`, () => { this.form = this.form === m.user_id ? '' : m.user_id; this.last = ''; this.render(); }, 'btn-mini ghost');
       if (this.form === m.user_id) c.appendChild(this.goodsForm(m));
       main.appendChild(c);
     }
@@ -214,18 +228,27 @@ export class OnlinePanel {
     inp.className = 'ol-say';
     inp.maxLength = 300;
     inp.placeholder = t('Write a message…');
+    inp.setAttribute('aria-label', t('Write a message…'));
     inp.value = draft;
     const send = el('button', 'btn-mini');
     send.textContent = t('Send');
+    send.disabled = this.sending; inp.disabled = this.sending;
     const go = async () => {
-      const text = inp.value.trim();
-      if (!text) return;
-      inp.value = '';
-      const e = await s.say(this.myName(), text);
-      if (e) this.flash(e, '');
+      const original = inp.value;
+      const text = original.trim();
+      if (!text || this.sending) return;
+      this.sending = true; send.disabled = true; inp.disabled = true;
+      try {
+        const error = await s.say(this.myName(), text);
+        if (error) { this.flash(error, ''); return; }
+        const current = this.root.querySelector<HTMLInputElement>('.ol-say');
+        if (current && current.value === original) current.value = '';
+      } catch { this.flash(t('Message not sent. Please try again.'), ''); }
+      finally { this.sending = false; this.last = ''; this.render(); }
+      this.root.querySelector<HTMLInputElement>('.ol-say')?.focus();
     };
     send.addEventListener('click', () => void go());
-    inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') void go(); });
+    inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void go(); } });
     bar.append(inp, send);
     const note = el('small', 'ol-chatnote');
     note.textContent = t('Messages are deleted after 24 hours (the last 200 are kept).');

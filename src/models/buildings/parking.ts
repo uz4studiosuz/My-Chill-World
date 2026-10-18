@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function parkingGeometry(): THREE.BufferGeometry {
   const line = '#f2f2ee', curb = '#cdc9bd';

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, cylX, merge, shape } from '../../utils/voxel';
+import { box, cylX, merge, shape } from '../quality';
 import { METAL } from './_shared';
 
 /** Sawmill (2×2): open saw shed, log pile and stacks of planks. */

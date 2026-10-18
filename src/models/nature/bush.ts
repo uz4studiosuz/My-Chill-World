@@ -1,7 +1,7 @@
-import { box, merge } from '../../utils/voxel';
-
-export const bushGeometry = () => merge([
-  box(0.22, 0.12, 0.2, 0, 0.06, 0),
-  box(0.14, 0.08, 0.14, 0.05, 0.15, 0.02),
-  box(0.12, 0.08, 0.12, -0.09, 0.08, -0.06),
+import { merge, organic } from '../quality';
+/** Overlapping leaf clusters, tinted by the terrain. */
+export const bushGeometry=()=>merge([
+  organic(.24,.15,.22,0,.079,0,'#ffffff',3),
+  organic(.16,.12,.16,.05,.146,.02,'#ffffff',9),
+  organic(.14,.12,.14,-.085,.085,-.055,'#ffffff',15),
 ]);

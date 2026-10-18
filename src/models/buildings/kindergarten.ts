@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { door, windows } from '../details';
 
 /** Kindergarten: a warm one-storey house with a stepped pink roof, round windows, a fenced playground and a sandbox. */

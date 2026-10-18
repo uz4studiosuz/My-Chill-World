@@ -1,3 +1,4 @@
+import { goodIcon } from './GoodIcons';
 import { el, icon } from './dom';
 import { t } from '../i18n/i18n';
 
@@ -222,7 +223,7 @@ export class ChainView {
     const c = el('div', `cv-node ${n.type}`);
     c.dataset.id = n.id;
     c.innerHTML = `<span class="cv-emoji"></span><div><b></b><small></small></div><i class="cv-badge"></i>`;
-    (c.querySelector('.cv-emoji') as HTMLElement).textContent = n.emoji;
+    (c.querySelector('.cv-emoji') as HTMLElement).innerHTML = n.type === 'good' ? goodIcon(n.id, 30) : icon('production');
     (c.querySelector('b') as HTMLElement).textContent = t(n.label);
     const p = this.pos(n);
     c.style.left = `${p.x}px`;
@@ -320,7 +321,7 @@ export class ChainView {
     this.detail.replaceChildren();
     const h = el('div', 'cv-d-head');
     h.innerHTML = '<span></span><div><b></b><small></small></div>';
-    (h.querySelector('span') as HTMLElement).textContent = n.emoji;
+    (h.querySelector('span') as HTMLElement).innerHTML = n.type === 'good' ? goodIcon(n.id, 30) : icon('production');
     (h.querySelector('b') as HTMLElement).textContent = t(n.label);
     const status = this.status(n, st);
     (h.querySelector('small') as HTMLElement).textContent = status === 'ok' ? t('working') : status === 'idle' ? (n.type === 'building' ? t('no workers') : t('in stock, nothing made')) : n.type === 'building' ? t('not built') : t('missing');
@@ -334,7 +335,8 @@ export class ChainView {
       d.appendChild(tt);
       for (const it of items) {
         const b = el('button', `cv-chip ${this.status(it, st)}`);
-        b.textContent = `${it.emoji} ${t(it.label)}`;
+        b.textContent = t(it.label);
+        b.insertAdjacentHTML('afterbegin', it.type === 'good' ? goodIcon(it.id, 20) : icon('production'));
         b.addEventListener('click', () => { this.picked = it.id; this.refresh(); });
         d.appendChild(b);
       }

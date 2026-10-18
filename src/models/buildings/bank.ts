@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { door, lamp, planter, windows } from '../details';
 
 /** Bank: a classical stone building — wide steps, a portico of columns, a pediment, tall windows and a bronze door. */

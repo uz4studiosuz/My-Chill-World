@@ -1,3 +1,4 @@
+import { goodIcon } from './GoodIcons';
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -95,7 +96,14 @@ const ICONS = {
 
 
 export type IconName = keyof typeof ICONS;
-export const icon = (name: IconName) => svg(ICONS[name]);
+export const icon = (name: IconName) => {
+  const goods: Record<string, string> = { r_money: 'money', r_stone: 'stone', r_wood: 'wood', r_iron: 'iron', r_food: 'food', r_water: 'water', r_energy: 'energy' };
+  if (goods[name]) return goodIcon(goods[name], 20);
+  if (name === 'r_people') return svg(ICONS.people);
+  if (name === 'r_jobs') return svg(ICONS.jobs);
+  if (name === 'r_happy') return svg('<circle cx="12" cy="12" r="9"/><path d="M8 14c2 3 6 3 8 0M8 9h1M15 9h1"/>');
+  return svg(ICONS[name]);
+};
 
 /**
  * True while the player is pressing on the interface (and a moment after): panels must not be rebuilt then,

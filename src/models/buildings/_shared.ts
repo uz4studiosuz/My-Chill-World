@@ -1,6 +1,6 @@
 // Shared colours and helpers of the buildings models.
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape, organic, rod } from '../quality';
 import { bench, door, parapet, planter, shopFront, sign, windows } from '../details';
 
 // All models face +z (front door towards the road). Footprint: size 1 → ±0.5, size 2 → ±1.
@@ -13,10 +13,10 @@ export const GRAVE_OFFSETS: [number, number][] = [
   [-0.62, 0.4],  [-0.35, 0.4],  [0.35, 0.4],  [0.62, 0.4],
   [-0.62, 0.7],  [-0.35, 0.7],  [0.35, 0.7],  [0.62, 0.7],
 ];
-export const tree = (x: number, z: number, s = 1): THREE.BufferGeometry[] => [
-  box(0.06 * s, 0.22 * s, 0.06 * s, x, 0.11 * s, z, '#6b4a2e'),
-  box(0.3 * s, 0.26 * s, 0.3 * s, x, 0.33 * s, z, '#4f8a3a'),
-  box(0.2 * s, 0.2 * s, 0.2 * s, x, 0.55 * s, z, '#6faa45'),
+export const tree=(x:number,z:number,s=1):THREE.BufferGeometry[]=>[
+  rod([x,0,z],[x,.36*s,z],.032*s,'#6b4a2e',.015*s,7),
+  organic(.33*s,.31*s,.33*s,x,.34*s,z,'#4f8a3a',4),
+  organic(.24*s,.26*s,.24*s,x+.025*s,.52*s,z-.014*s,'#6faa45',8),
 ];
 /**
  * A corner shop: two storeys, a striped awning over the shop window with goods on a stand outside,

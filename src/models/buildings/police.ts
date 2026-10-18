@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { door, lamp, parapet, roofKit, sign, windows } from '../details';
 
 /** Police station: a two-storey block with a blue band, a lit entrance, a radio mast, the flag and a patrol car. */

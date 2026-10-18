@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { METAL } from './_shared';
 
 /** Stretcher with a patient (carried by a paramedic). */

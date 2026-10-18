@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, cylX, merge, shape } from '../../utils/voxel';
+import { box, cylX, merge, shape } from '../quality';
 import { PAVE } from './_shared';
 
 /** Coffee & ice-cream cart under a red-and-white umbrella. */

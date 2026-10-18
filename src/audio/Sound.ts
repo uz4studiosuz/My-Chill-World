@@ -30,6 +30,18 @@ class SoundEngine {
   private ear = { x: 0, z: 0, view: 12 };
   /** Loudness of the sound being played (distance falloff). */
   private vol = 1;
+  private output: DynamicsCompressorNode | null = null;
+  private paused = false;
+  levels = { sfx: 0.8, music: 0.45, nature: 0.75 };
+
+  setLevel(channel: keyof SoundEngine['levels'], value: number) {
+    if (!Number.isFinite(value)) return;
+    this.levels[channel] = Math.max(0, Math.min(1, value));
+    this.setSfx(this.sfxOn); this.setMusic(this.musicOn); this.setNature(this.natureOn);
+  }
+  private ramp(g: GainNode | null, value: number) {
+    if (g && this.ctx) g.gain.setTargetAtTime(value, this.ctx.currentTime, 0.08);
+  }
 
   constructor() {
     try {
@@ -37,51 +49,62 @@ class SoundEngine {
       if (typeof s.sfx === 'boolean') this.sfxOn = s.sfx;
       if (typeof s.music === 'boolean') this.musicOn = s.music;
       if (typeof s.nature === 'boolean') this.natureOn = s.nature;
+      for (const key of ['sfx', 'music', 'nature'] as const) {
+        const v = s.levels?.[key];
+        if (typeof v === 'number' && Number.isFinite(v)) this.levels[key] = Math.max(0, Math.min(1, v));
+      }
     } catch { /* storage blocked */ }
   }
 
   /** Browsers only allow audio after a user gesture. */
   unlock() {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
+      if (!this.paused && this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
       return;
     }
     const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
+    this.output = this.ctx.createDynamicsCompressor();
+    this.output.threshold.value = -14;
+    this.output.knee.value = 12;
+    this.output.ratio.value = 4;
+    this.output.attack.value = 0.008;
+    this.output.release.value = 0.25;
+    this.output.connect(this.ctx.destination);
     this.sfxGain = this.ctx.createGain();
-    this.sfxGain.gain.value = this.sfxOn ? SFX_LEVEL : 0;
+    this.sfxGain.gain.value = this.sfxOn ? SFX_LEVEL * this.levels.sfx : 0;
     // a gentle low-pass takes the edge off every effect
     const soft = this.ctx.createBiquadFilter();
     soft.type = 'lowpass';
     soft.frequency.value = 3200;
-    this.sfxGain.connect(soft).connect(this.ctx.destination);
+    this.sfxGain.connect(soft).connect(this.output);
     this.musicGain = this.ctx.createGain();
-    this.musicGain.gain.value = this.musicOn ? 0.12 : 0;
-    this.musicGain.connect(this.ctx.destination);
+    this.musicGain.gain.value = this.musicOn ? 0.12 * this.levels.music : 0;
+    this.musicGain.connect(this.output);
     const len = this.ctx.sampleRate;
     this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    void this.scheduleMusic; // music is switched off for now — nature sounds only
+    this.scheduleMusic();
     this.startNature();
   }
 
   setSfx(on: boolean) {
     this.sfxOn = on;
-    if (this.sfxGain) this.sfxGain.gain.value = on ? SFX_LEVEL : 0;
+    this.ramp(this.sfxGain, on ? SFX_LEVEL * this.levels.sfx : 0);
     this.store();
   }
 
   setMusic(on: boolean) {
     this.musicOn = on;
-    if (this.musicGain) this.musicGain.gain.value = on ? 0.12 : 0;
+    this.ramp(this.musicGain, on ? 0.12 * this.levels.music : 0);
     this.store();
   }
 
   setNature(on: boolean) {
     this.natureOn = on;
-    if (this.natureGain && this.ctx) this.natureGain.gain.setTargetAtTime(on ? NATURE_LEVEL : 0, this.ctx.currentTime, 0.3);
+    if (this.natureGain && this.ctx) this.natureGain.gain.setTargetAtTime(on ? NATURE_LEVEL * this.levels.nature : 0, this.ctx.currentTime, 0.3);
     this.store();
   }
 
@@ -104,8 +127,8 @@ class SoundEngine {
   private startNature() {
     const ctx = this.ctx!;
     this.natureGain = ctx.createGain();
-    this.natureGain.gain.value = this.natureOn ? NATURE_LEVEL : 0;
-    this.natureGain.connect(ctx.destination);
+    this.natureGain.gain.value = this.natureOn ? NATURE_LEVEL * this.levels.nature : 0;
+    this.natureGain.connect(this.output!);
     const layer = (type: BiquadFilterType, freq: number, q: number, lfoHz: number, depth: number) => {
       const src = ctx.createBufferSource();
       src.buffer = this.noise;
@@ -167,19 +190,21 @@ class SoundEngine {
     g.gain.exponentialRampToValueAtTime(vol, t0 + dur * 0.3);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     o.connect(g).connect(this.natureGain!);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
     o.start(t0);
     o.stop(t0 + dur + 0.02);
   }
 
   /** Mute everything (ads, hidden tab). */
   suspend(on: boolean) {
+    this.paused = on;
     if (!this.ctx) return;
-    if (on) void this.ctx.suspend();
-    else void this.ctx.resume();
+    if (on) void this.ctx.suspend().catch(() => {});
+    else void this.ctx.resume().catch(() => {});
   }
 
   private store() {
-    try { localStorage.setItem(KEY, JSON.stringify({ sfx: this.sfxOn, music: this.musicOn, nature: this.natureOn })); } catch { /* ignore */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ sfx: this.sfxOn, music: this.musicOn, nature: this.natureOn, levels: this.levels })); } catch { /* ignore */ }
   }
 
   /** Set the listening point (the middle of the view) and how far out the player sees. */
@@ -241,6 +266,7 @@ class SoundEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     if (o.type === 'square' || o.type === 'sawtooth') o.type = 'triangle';
     o.connect(g).connect(this.sfxGain!);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
     o.start(t0);
     o.stop(t0 + dur + 0.05);
   }
@@ -256,6 +282,7 @@ class SoundEngine {
     g.gain.setValueAtTime(Math.max(0.0002, vol * this.vol), t0);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(f).connect(g).connect(this.sfxGain!);
+    src.onended = () => { src.disconnect(); f.disconnect(); g.disconnect(); };
     src.start(t0);
     src.stop(t0 + dur);
   }
@@ -294,6 +321,7 @@ class SoundEngine {
     g.gain.linearRampToValueAtTime(vol, t0 + dur * 0.3);
     g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
     o.connect(g).connect(this.musicGain!);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
     o.start(t0);
     o.stop(t0 + dur + 0.05);
   }

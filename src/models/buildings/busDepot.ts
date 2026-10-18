@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { door, lamp, parapet, roofKit, sign, windows } from '../details';
 
 /** One parked city bus (along z): body, a window band, a destination board, doors and wheels. */

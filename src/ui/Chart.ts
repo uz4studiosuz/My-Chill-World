@@ -1,3 +1,4 @@
+import { t } from '../i18n/i18n';
 export interface Series { label: string; color: string; values: number[] }
 
 /** Small line chart on a 2D canvas (DPR aware, sized from CSS). */
@@ -14,11 +15,14 @@ export function drawChart(canvas: HTMLCanvasElement, series: Series[], format: (
   const pad = { l: 44, r: 10, t: 10, b: 18 };
   const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
   const all = series.flatMap((s) => s.values);
+  const theme = getComputedStyle(canvas);
+  const muted = theme.getPropertyValue('--muted').trim() || '#a2afa1';
+  const line = theme.getPropertyValue('--line').trim() || '#3a463c';
   ctx.font = '11px system-ui, sans-serif';
   if (all.length < 2) {
-    ctx.fillStyle = 'rgba(230,236,242,0.55)';
+    ctx.fillStyle = muted;
     ctx.textAlign = 'center';
-    ctx.fillText('Collecting data…', w / 2, h / 2);
+    ctx.fillText(t('Collecting data…'), w / 2, h / 2);
     return;
   }
   let min = Math.min(...all), max = Math.max(...all);
@@ -30,8 +34,8 @@ export function drawChart(canvas: HTMLCanvasElement, series: Series[], format: (
   max += span * 0.08;
 
   // grid + labels
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillStyle = 'rgba(230,236,242,0.55)';
+  ctx.strokeStyle = line;
+  ctx.fillStyle = muted;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   for (let i = 0; i <= 3; i++) {
@@ -49,16 +53,14 @@ export function drawChart(canvas: HTMLCanvasElement, series: Series[], format: (
     if (n < 2) continue;
     const px = (i: number) => pad.l + (pw * i) / (n - 1);
     const py = (v: number) => pad.t + ph - ((v - min) / (max - min)) * ph;
-    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ph);
-    grad.addColorStop(0, s.color + '55');
-    grad.addColorStop(1, s.color + '00');
+    const fill = s.color + '12';
     ctx.beginPath();
     ctx.moveTo(px(0), py(s.values[0]));
     for (let i = 1; i < n; i++) ctx.lineTo(px(i), py(s.values[i]));
     ctx.lineTo(px(n - 1), pad.t + ph);
     ctx.lineTo(px(0), pad.t + ph);
     ctx.closePath();
-    ctx.fillStyle = grad;
+    ctx.fillStyle = fill;
     ctx.fill();
     ctx.beginPath();
     ctx.moveTo(px(0), py(s.values[0]));

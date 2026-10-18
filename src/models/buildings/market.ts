@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 import { bench, lamp, planter } from '../details';
 
 /** One market stall: a counter with goods, crates, a striped canopy on four poles and a little price board. */

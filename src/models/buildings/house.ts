@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge, gableRoof } from '../quality';
 import { WALLS, ROOFS, GLASS } from './_shared';
+import { door, windows } from '../details';
 
 export function houseGeometry(variant: number, floors = 1): THREE.BufferGeometry {
   const wall = WALLS[variant % 4], roof = ROOFS[(variant >> 2) % 4];
@@ -15,15 +16,13 @@ export function houseGeometry(variant: number, floors = 1): THREE.BufferGeometry
     box(0.22, 0.02, 0.32, 0.2, 0.01, 0.34, '#bdb7aa'),
     box(0.1, 0.015, 0.3, -0.12, 0.008, 0.35, '#cfc8b6'),
     box(0.62, 0.42 + up, 0.52, 0, (0.42 + up) / 2, -0.06, wall),
-    box(0.72, 0.1, 0.62, 0, 0.47 + up, -0.06, roof),
-    box(0.56, 0.1, 0.46, 0, 0.57 + up, -0.06, roof),
-    box(0.36, 0.08, 0.28, 0, 0.66 + up, -0.06, roof),
+    box(.70,.023,.60,0,.422+up,-.06,'#514c45'),
+    ...gableRoof(.72,.62,.432+up,.26,0,-.06,roof,wall),
     box(0.08, 0.18, 0.08, 0.18, 0.68 + up, -0.14, '#8a7d70'),
-    box(0.12, 0.2, 0.02, 0, 0.1, 0.205, '#6b4a2e'),
-    box(0.12, 0.1, 0.02, -0.19, 0.26, 0.205, GLASS),
-    box(0.12, 0.1, 0.02, 0.19, 0.26, 0.205, GLASS),
-    box(0.02, 0.1, 0.12, 0.315, 0.26, -0.06, GLASS),
-    box(0.02, 0.1, 0.12, -0.315, 0.26, -0.06, GLASS),
+    ...door(0,.211,.12,.20,'#6b4a2e',{canopy:roof,lamp:true}),
+    ...windows('front',0,-.06,.31,.26,.26,2,{w:.12,h:.10,from:-.19,to:.19}),
+    ...windows('left',0,-.06,.31,.26,.26,1,{w:.12,h:.10}),
+    ...windows('right',0,-.06,.31,.26,.26,1,{w:.12,h:.10}),
     // window sills, shutters, step, porch lamp, chimney cap, mailbox and a little front garden
     box(0.15, 0.015, 0.03, -0.19, 0.205, 0.215, '#f4f1ea'), box(0.15, 0.015, 0.03, 0.19, 0.205, 0.215, '#f4f1ea'),
     box(0.025, 0.1, 0.01, -0.27, 0.26, 0.208, roof), box(0.025, 0.1, 0.01, -0.11, 0.26, 0.208, roof),

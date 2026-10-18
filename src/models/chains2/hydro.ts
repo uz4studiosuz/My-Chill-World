@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { METAL } from './_shared';
 
 /** Hydro dam: a concrete wall with sluices and a turbine house. */

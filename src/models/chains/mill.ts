@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge, shape } from '../../utils/voxel';
+import { box, merge, shape } from '../quality';
 
 /** Flour mill (2×2): a stone windmill (sails turn separately) and grain silos. */
 export function millGeometry(): THREE.BufferGeometry {

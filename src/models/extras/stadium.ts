@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { PAVING, METAL } from './_shared';
 
 /** Football stadium (3×3): pitch, goals, stands, floodlights and a scoreboard. */

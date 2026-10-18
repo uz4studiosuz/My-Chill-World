@@ -47,7 +47,7 @@ export class InputController {
     canvas.addEventListener('pointerdown', this.onDown, opts);
     canvas.addEventListener('pointermove', this.onMove, opts);
     canvas.addEventListener('pointerup', this.onUp, opts);
-    canvas.addEventListener('pointercancel', this.onUp, opts);
+    canvas.addEventListener('pointercancel', () => { this.tool.cancel(); this.pointers.clear(); this.mode = 'none'; }, opts);
     canvas.addEventListener('pointerleave', () => { if (this.mode === 'none') this.tool.hover(null); }, opts);
     canvas.addEventListener('wheel', this.onWheel, { passive: false, signal });
     window.addEventListener('keydown', this.onKeyDown, opts);
@@ -152,7 +152,7 @@ export class InputController {
   };
 
   private onKeyDown = (e: KeyboardEvent) => {
-    if (!this.enabled || e.target instanceof HTMLInputElement) return;
+    if (!this.enabled || (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, button, [contenteditable="true"]'))) return;
     if (BLOCKED_KEYS.has(e.key)) e.preventDefault();
     this.keys.add(e.code);
 

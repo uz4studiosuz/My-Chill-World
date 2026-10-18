@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 import { PAVING, shrub } from './_shared';
 
 /** Fountain: basin and pedestal (the water jet is animated separately). */

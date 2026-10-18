@@ -1078,7 +1078,7 @@ export class Game implements ToolHost {
       this.saveT += dt;
       if (this.saveT > AUTOSAVE_SECONDS) this.save();
       // online: tell the other players how the town is doing (every half minute)
-      if (this.meta.online) { this.onlineT += dt; if (this.onlineT > 30) { this.onlineT = 0; this.pushOnline(); } }
+      if (this.meta.online) { this.onlineT += dt; if (this.onlineT > 15) { this.onlineT = 0; this.pushOnline(); } }
     }
   }
 
@@ -1088,7 +1088,7 @@ export class Game implements ToolHost {
     if (this.input) this.input.enabled = !p && !this.menuPaused;
   }
 
-  private onlineT = 25;
+  private onlineT = 12;
   private layoutKey = '';
   private layoutAt = 0;
   private layoutSent?: TownLayout;
@@ -1335,15 +1335,15 @@ export class Game implements ToolHost {
     // the card of my town as my World window shows it (the others see the same figures, charts and comparison)
     const card = this.worldView().find((x) => x.id === c.id);
     const town = card ? { ...card, news: [], dealings: [], player: undefined } : undefined;
-    // the figures every half minute (small); the map and the card only when they changed — the map at most every 2 minutes, the card every 5
-    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people), device: this.device, deviceAt: this.deviceAt }).then((mine) => { if (!mine) this.openedElsewhere(); });
+    // the figures every 15 seconds; changed layouts at most every 15 seconds, unchanged cards every 5 minutes
+    void Online.pushSummary(o.worldId, { day: this.eco.day, people, money: Math.round(c.money), happy: Math.round(c.happiness), level: townLevel(people), device: this.device, deviceAt: this.deviceAt }).then((mine) => { if (!mine) this.openedElsewhere(); }).catch(() => { /* keep local play; retry next heartbeat */ });
     const now = Date.now();
     const layout = this.myLayout();
     const key = JSON.stringify(layout);
-    if ((key !== this.layoutKey && now - this.layoutAt > 120_000) || now - this.layoutAt > 300_000 || !this.layoutAt) {
+    if ((key !== this.layoutKey && now - this.layoutAt > 15_000) || now - this.layoutAt > 300_000 || !this.layoutAt) {
       this.layoutKey = key;
       this.layoutAt = now;
-      void Online.pushLayout(o.worldId, Math.floor(now / 1000), layout, town);
+      void Online.pushLayout(o.worldId, Math.floor(now / 1000), layout, town).catch(() => { this.layoutAt = 0; });
     }
   }
 
@@ -1393,7 +1393,7 @@ export class Game implements ToolHost {
         void Online.stillMine(o.worldId, this.device, this.deviceAt).then((mine) => {
           if (!mine) { this.openedElsewhere(); return; }
           return Online.pushSave(o.worldId, data.meta.updated, json).then((err) => { if (err) console.warn('[cloud save]', err); });
-        });
+        }).catch(() => { this.cloudAt = 0; });
       }
       if (manual) this.hud?.toast(t('Game saved'));
     } catch (e) {

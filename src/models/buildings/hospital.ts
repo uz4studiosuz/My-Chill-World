@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function hospitalGeometry(): THREE.BufferGeometry {
   const wall = '#f2f4f6', trim = '#cfd6dc', red = '#d9443b', glass = '#a8d0e6';

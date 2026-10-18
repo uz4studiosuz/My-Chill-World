@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Navruz: a flower mound with a sumalak cauldron. */
 export function navruzGeometry(): THREE.BufferGeometry {

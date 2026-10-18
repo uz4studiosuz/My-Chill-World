@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, cylX, merge, shape } from '../../utils/voxel';
+import { box, cylX, merge, shape } from '../quality';
 import { PAVE, METAL } from './_shared';
 import { door, lamp, parapet, windows } from '../details';
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 /** Two-colour beacon on an emergency vehicle's roof (tinted per frame). */
 export function beaconGeometry(): THREE.BufferGeometry {

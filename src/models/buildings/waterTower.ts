@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, merge } from '../../utils/voxel';
+import { box, merge } from '../quality';
 
 export function waterTowerGeometry(): THREE.BufferGeometry {
   const steel = '#8c9aa6', tank = '#5fa8d3';

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { box, cylX, merge, shape } from '../../utils/voxel';
+import { box, cylX, merge, shape } from '../quality';
 import { parapet, roofKit, windows } from '../details';
 
 /** Steel mill: the rolling hall, a riveted blast furnace with its stoves and downcomer, the chimney, glowing ladles and stacked beams. */

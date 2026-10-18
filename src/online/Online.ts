@@ -159,7 +159,8 @@ export const Online = {
 
   async members(worldId: string): Promise<OnlineMember[]> {
     // the light columns only: the towns' maps and cards are fetched separately, and only when they changed
-    const { data } = await db().from('world_members').select('world_id, user_id, city_name, slot, last_seen, summary, layout_ver').eq('world_id', worldId).order('slot');
+    const { data, error } = await db().from('world_members').select('world_id, user_id, city_name, slot, last_seen, summary, layout_ver').eq('world_id', worldId).order('slot');
+    if (error) throw new Error(why(error));
     return (data ?? []) as OnlineMember[];
   },
 
@@ -167,7 +168,8 @@ export const Online = {
 
   /** Deals I sent or got in this world (newest first). */
   async offers(worldId: string): Promise<Offer[]> {
-    const { data } = await db().from('offers').select('*').eq('world_id', worldId).order('id', { ascending: false }).limit(120);
+    const { data, error } = await db().from('offers').select('*').eq('world_id', worldId).order('id', { ascending: false }).limit(120);
+    if (error) throw new Error(why(error));
     return (data ?? []) as Offer[];
   },
 
@@ -185,7 +187,8 @@ export const Online = {
   },
 
   async chat(worldId: string): Promise<ChatMessage[]> {
-    const { data } = await db().from('chat').select('*').eq('world_id', worldId).order('id', { ascending: false }).limit(100);
+    const { data, error } = await db().from('chat').select('*').eq('world_id', worldId).order('id', { ascending: false }).limit(100);
+    if (error) throw new Error(why(error));
     return ((data ?? []) as ChatMessage[]).reverse();
   },
 
@@ -197,12 +200,12 @@ export const Online = {
   },
 
   /** Live news of a world: deals, chat and the towns' figures (the callback says which changed). */
-  subscribe(worldId: string, changed: (what: 'offers' | 'chat' | 'members') => void): () => void {
+  subscribe(worldId: string, changed: (what: 'offers' | 'chat' | 'members') => void, status?: (state: 'live' | 'reconnecting') => void): () => void {
     const ch: RealtimeChannel = db().channel(`world-${worldId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'offers', filter: `world_id=eq.${worldId}` }, () => changed('offers'))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat', filter: `world_id=eq.${worldId}` }, () => changed('chat'))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'world_members', filter: `world_id=eq.${worldId}` }, () => changed('members'))
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'world_members', filter: `world_id=eq.${worldId}` }, () => changed('members'))
+      .subscribe((state) => { status?.(state === 'SUBSCRIBED' ? 'live' : 'reconnecting'); if (state === 'SUBSCRIBED') { changed('members'); changed('offers'); changed('chat'); } });
     return () => { void db().removeChannel(ch); };
   },
 
@@ -210,7 +213,8 @@ export const Online = {
   async pushLayout(worldId: string, ver: number, layout: unknown, town: unknown) {
     const s = await this.session();
     if (!s) return;
-    await db().from('town_layouts').upsert({ world_id: worldId, user_id: s.user.id, ver, layout, town, updated_at: new Date().toISOString() });
+    const { error } = await db().from('town_layouts').upsert({ world_id: worldId, user_id: s.user.id, ver, layout, town, updated_at: new Date().toISOString() });
+    if (error) throw new Error(why(error));
     await db().from('world_members').update({ layout_ver: ver }).eq('world_id', worldId).eq('user_id', s.user.id);
   },
 
@@ -246,11 +250,12 @@ export const Online = {
    */
   async pushSummary(worldId: string, summary: TownSummary): Promise<boolean> {
     const s = await this.session();
-    if (!s) return true;
+    if (!s) throw new Error('not signed in');
     let q = db().from('world_members').update({ summary, last_seen: new Date().toISOString() }).eq('world_id', worldId).eq('user_id', s.user.id);
     if (summary.device) q = q.or(holder(summary.device, summary.deviceAt ?? 0));
     const { data, error } = await q.select('user_id');
-    return !!error || !!data?.length;
+    if (error) throw new Error(why(error));
+    return !!data?.length;
   },
 
   /** Does this device still hold my town (no other device opened it since)? */
@@ -258,7 +263,8 @@ export const Online = {
     const s = await this.session();
     if (!s) return true;
     const { data, error } = await db().from('world_members').update({ last_seen: new Date().toISOString() }).eq('world_id', worldId).eq('user_id', s.user.id).or(holder(device, at)).select('user_id');
-    return !!error || !!data?.length;
+    if (error) throw new Error(why(error));
+    return !!data?.length;
   },
 };
 
