@@ -310,6 +310,8 @@ export class Game implements ToolHost {
   private speed = 1;
   private lastSpeed = 1;
   private menuPaused = false;
+  /** Offline: the player left the game window, so the town waits. */
+  private awayPaused = false;
   private adPaused = false;
   private time = 0;
   private hudT = 0;
@@ -573,6 +575,11 @@ export class Game implements ToolHost {
     const signal = this.abort.signal;
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(false, true); }, { signal });
     window.addEventListener('pagehide', () => this.save(false, true), { signal });
+    // an offline town waits while you are away from the game (another window or tab): it does not run on alone
+    const away = (on: boolean) => { this.awayPaused = on && !this.meta.online; };
+    window.addEventListener('blur', () => away(true), { signal });
+    window.addEventListener('focus', () => away(false), { signal });
+    document.addEventListener('visibilitychange', () => away(document.hidden), { signal });
   }
 
   /** (Re)build the HUD — also used after switching language. */
@@ -1018,7 +1025,7 @@ export class Game implements ToolHost {
     if (this.lapse) { this.updateLapse(dt); return; }
     // fast speeds are split into small steps so cars, walkers and the economy stay stable
     if (this.meta.online && !this.demo) this.syncClock();
-    const total = this.menuPaused || this.adPaused ? 0 : dt * Math.max(this.speed, this.meta.online ? 1 : 0) * this.syncScale;
+    const total = this.menuPaused || this.adPaused || this.awayPaused ? 0 : dt * Math.max(this.speed, this.meta.online ? 1 : 0) * this.syncScale;
     const stepLen = this.speed >= 100 ? 0.4 : this.speed >= 20 ? 0.3 : 0.2;
     const steps = total > 0 ? Math.min(40, Math.ceil(total / stepLen)) : 1;
     const sdt = total / steps;

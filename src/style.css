@@ -1501,10 +1501,12 @@ button.chip:hover { background: var(--raised); }
 
 /* a person's ID card */
 .passport { --pp: #2f6b4f; margin: 10px 0 4px; border-radius: 14px; overflow: hidden; color: #1f2a33;
-  background: var(--raised);
+  /* a light card like a real ID (dark text on it stays readable whatever the theme) */
+  background: linear-gradient(135deg, #f7f3e8 0%, #eef2ef 55%, #e6eef2 100%);
   box-shadow: 0 6px 18px rgba(0,0,0,.35), inset 0 0 0 1px rgba(0,0,0,.08); position: relative; }
-.passport::before { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .18;
-  background: var(--raised); }
+.passport::before { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background: repeating-linear-gradient(45deg, rgba(47,107,79,.05) 0 2px, transparent 2px 9px), radial-gradient(circle at 80% 30%, rgba(47,107,79,.08), transparent 60%); }
+.passport .pp-f b { color: #1f2a33; }
 .pp-top { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; background: var(--pp); color: #fff;
   font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 800; position: relative; }
 .pp-top b { font-family: var(--font-display); letter-spacing: .04em; font-size: 12.5px; }
@@ -2864,13 +2866,14 @@ body .emb-tab em { letter-spacing: 0; background: var(--bad); color: #fff; }
 .ol-new { display: flex; align-items: center; gap: 8px; margin: 6px 0; font: 800 10.5px var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--bad); }
 .ol-new::before, .ol-new::after { content: ''; flex: 1; height: 1px; background: var(--bad); opacity: .5; }
 
-/* the small round map in the corner */
-.minimap { position: absolute; right: calc(var(--side-w, 0px) + 14px); bottom: calc(var(--dock-h, 0px) + 54px); z-index: 4; pointer-events: auto; display: flex; align-items: flex-end; gap: 4px; }
-.mm-disc { position: relative; width: 156px; height: 156px; border-radius: 50%; overflow: hidden; background: radial-gradient(circle, #e6ecf1 0%, #c9d6df 100%); border: 2px solid rgba(255,255,255,.75); box-shadow: 0 4px 16px rgba(0,0,0,.35); cursor: crosshair; touch-action: none; }
-.mm-disc canvas { position: absolute; left: 14.645%; top: 14.645%; width: 70.71%; height: 70.71%; image-rendering: pixelated; transform-origin: 50% 50%; }
-.mm-n { position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #d9443b; color: #fff; font: 800 9px/16px var(--font-ui); text-align: center; font-style: normal; pointer-events: none; }
-.mm-toggle { order: -1; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--base); color: var(--text); font: 800 14px var(--font-ui); cursor: pointer; }
+/* the small map in the corner: the whole land, north up, the part on screen framed */
+.minimap { position: absolute; right: calc(var(--side-w, 0px) + 14px); bottom: calc(var(--dock-h, 0px) + 54px); z-index: 4; pointer-events: auto; }
+.mm-disc { position: relative; width: 168px; height: 168px; padding: 5px; border-radius: 14px; background: var(--base); border: 1px solid var(--line); box-shadow: 0 6px 18px rgba(0,0,0,.35); cursor: crosshair; touch-action: none; }
+.mm-disc canvas { display: block; width: 100%; height: 100%; border-radius: 10px; image-rendering: pixelated; }
+.mm-n { position: absolute; top: 9px; left: 50%; transform: translateX(-50%); padding: 0 5px; border-radius: 6px; background: rgba(20,24,30,.7); color: #fff; font: 800 9.5px/15px var(--font-ui); font-style: normal; pointer-events: none; }
+.mm-toggle { position: absolute; top: -10px; left: -10px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); background: var(--raised); color: var(--text); font: 800 13px/1 var(--font-ui); cursor: pointer; z-index: 1; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
 .minimap.closed .mm-disc { display: none; }
+.minimap.closed .mm-toggle { position: static; width: 36px; height: 36px; border-radius: 10px; font-size: 17px; }
 .hud.globe-mode .minimap, body.photo-mode .minimap, body.pov-mode .minimap, body.lapse-mode .minimap { display: none; }
 body:has(.inspector.show, .stats.show, .trade-panel.show, .embassy.show) .minimap .mm-disc { opacity: .25; pointer-events: none; }
-@media (max-width: 760px) { .minimap { right: 8px; } .mm-disc { width: 104px; height: 104px; } }
+@media (max-width: 760px) { .minimap { right: 8px; } .mm-disc { width: 112px; height: 112px; padding: 3px; border-radius: 11px; } }

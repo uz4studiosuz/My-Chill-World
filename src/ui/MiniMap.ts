@@ -32,7 +32,7 @@ export class MiniMap {
   constructor(parent: HTMLElement, private host: MiniMapHost) {
     this.el = document.createElement('div');
     this.el.className = 'minimap';
-    this.el.innerHTML = '<div class="mm-disc"><canvas width="320" height="320"></canvas><i class="mm-n">N</i></div><button class="mm-toggle"></button>';
+    this.el.innerHTML = '<div class="mm-disc"><canvas width="640" height="640"></canvas><i class="mm-n">N</i></div><button class="mm-toggle"></button>';
     this.canvas = this.el.querySelector('canvas')!;
     this.base.width = this.base.height = N;
     const disc = this.el.querySelector('.mm-disc') as HTMLElement;
@@ -48,15 +48,11 @@ export class MiniMap {
     setOpen(this.open);
     toggle.addEventListener('click', () => setOpen(!this.open));
     const at = (e: PointerEvent, glide: boolean) => {
-      const r = disc.getBoundingClientRect();
-      const { yaw } = this.host.camera();
-      // undo the turn of the disc, then from the disc to tiles
-      const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
-      const c = Math.cos(-yaw), s = Math.sin(-yaw);
-      const px = dx * c - dy * s, py = dx * s + dy * c;
-      // the whole map fits in the disc when turned (its diagonal is the disc's width)
-      const k = N / (r.width * Math.SQRT1_2);
-      this.host.go(px * k, py * k, glide);
+      const r = this.canvas.getBoundingClientRect();
+      // north up: the card is the map, corner to corner
+      const k = N / r.width;
+      const x = Math.max(-N / 2, Math.min(N / 2, (e.clientX - r.left) * k - N / 2)), z = Math.max(-N / 2, Math.min(N / 2, (e.clientY - r.top) * k - N / 2));
+      this.host.go(x, z, glide);
     };
     disc.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.drag = true; disc.setPointerCapture(e.pointerId); at(e, true); });
     disc.addEventListener('pointermove', (e) => { if (this.drag) at(e, false); });
@@ -72,23 +68,30 @@ export class MiniMap {
     const now = performance.now();
     if (now - this.baseAt > 2500) { this.baseAt = now; this.paintBase(); }
     const cam = this.host.camera();
-    this.canvas.style.transform = `rotate(${cam.yaw}rad)`;
-    (this.el.querySelector('.mm-n') as HTMLElement).style.transform = `rotate(${cam.yaw}rad) translateY(-${this.canvas.clientWidth * 0.6}px) rotate(${-cam.yaw}rad)`;
     const g = this.canvas.getContext('2d')!;
     const S = this.canvas.width, k = S / N;
     g.imageSmoothingEnabled = false;
     g.drawImage(this.base, 0, 0, S, S);
     // the part of the land on screen (a rectangle on the screen, so turned back by the camera's turn)
     const w = cam.view * 2 * cam.aspect, h = (cam.view * 2) / Math.sin((50 * Math.PI) / 180);
+    const cx = (cam.x + N / 2) * k, cz = (cam.z + N / 2) * k;
     g.save();
-    g.translate((cam.x + N / 2) * k, (cam.z + N / 2) * k);
+    g.translate(cx, cz);
     g.rotate(-cam.yaw);
-    g.lineWidth = 2.5;
-    g.strokeStyle = 'rgba(255,255,255,.95)';
-    g.fillStyle = 'rgba(255,255,255,.12)';
+    g.fillStyle = 'rgba(255,255,255,.16)';
     g.fillRect((-w / 2) * k, (-h / 2) * k, w * k, h * k);
+    g.lineWidth = 5;
+    g.strokeStyle = 'rgba(20,24,30,.55)';
     g.strokeRect((-w / 2) * k, (-h / 2) * k, w * k, h * k);
+    g.lineWidth = 2.5;
+    g.strokeStyle = '#ffffff';
+    g.strokeRect((-w / 2) * k, (-h / 2) * k, w * k, h * k);
+    // which way the camera looks
+    g.fillStyle = '#f2a93b';
+    g.beginPath(); g.moveTo(0, (-h / 2) * k - 2); g.lineTo(-8, (-h / 2) * k + 10); g.lineTo(8, (-h / 2) * k + 10); g.closePath(); g.fill();
     g.restore();
+    g.fillStyle = '#ffffff';
+    g.beginPath(); g.arc(cx, cz, 4, 0, Math.PI * 2); g.fill();
   }
 
   private paintBase() {
@@ -106,7 +109,11 @@ export class MiniMap {
       else if (map.arid[i] > 0.52) { r = 184; gg = 176; b = 106; }
       else if (map.cold[i] > 0.5) { r = 150; gg = 168; b = 150; }
       else { r = 140; gg = 177; b = 86; }
-      d[i * 4] = r; d[i * 4 + 1] = gg; d[i * 4 + 2] = b; d[i * 4 + 3] = 255;
+      // a little relief: slopes facing the light are brighter, the others darker
+      const x = i % N, z = (i / N) | 0;
+      const up = x > 0 && z > 0 ? map.height[i - N - 1] : map.height[i];
+      const lit = map.water[i] ? 0 : (map.height[i] - up) * 10;
+      d[i * 4] = Math.max(0, Math.min(255, r + lit)); d[i * 4 + 1] = Math.max(0, Math.min(255, gg + lit)); d[i * 4 + 2] = Math.max(0, Math.min(255, b + lit)); d[i * 4 + 3] = 255;
     }
     g.putImageData(img, 0, 0);
     for (const bl of this.host.buildings()) { g.fillStyle = bl.color; g.fillRect(bl.x, bl.z, bl.size, bl.size); }
