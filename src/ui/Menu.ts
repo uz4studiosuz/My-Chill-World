@@ -86,8 +86,11 @@ export class Menu {
     this.home.classList.remove('show');
   }
 
+  /** The worlds kept on this device, without the online towns (those open from Online, on their server). */
+  private offline() { return SaveStore.list().filter((w) => !w.online); }
+
   showMain() {
-    const worlds = SaveStore.list();
+    const worlds = this.offline();
     const w = worlds[0];
     this.renderHome([
       w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${dateLabel(w.day)} · ${t('{n} people', { n: w.population })}`, true, 'play') : null,
@@ -130,11 +133,22 @@ export class Menu {
       (row.querySelector('b') as HTMLElement).textContent = mine.name;
       (row.querySelector('small') as HTMLElement).textContent = `${t('Your town')}: ${town?.city ?? '—'} · ${t('{n} of {m} players', { n: srv?.players ?? 0, m: srv?.max_players ?? 8 })}`;
       box.appendChild(row);
+      const rename = el('button', 'btn-mini ghost');
+      rename.textContent = t('Rename');
+      rename.addEventListener('click', async () => {
+        const name = prompt(t('A new name for your town'), town?.city ?? '')?.trim();
+        if (!name || name.length < 2) return;
+        const err = await Online.renameTown(mine.id, name);
+        void this.showOnline(err ? t(err) : t('Your town is now called {name}', { name }));
+      });
+      row.appendChild(rename);
       items.push(box, homeItem('Play', () => this.h.playOnline?.(mine, town?.city ?? t('My town'), town?.slot ?? 0), t('Your server — you play only here'), true, 'play'));
     } else if (typeof list !== 'string') {
       // choose a server: once and for all
       items.push(this.note(t('Choose your server. You can choose only once: afterwards you always play on it. Only people play there — no AI towns.')));
-      const city = input('Your town name', t('My town'), 30);
+      const city = input('Your town name', '', 30);
+      city.placeholder = t("Type your town's name");
+      city.required = true;
       const form = el('div', 'home-form');
       form.appendChild(city.parentElement!);
       items.push(form);
@@ -149,8 +163,17 @@ export class Menu {
         go.textContent = t('Choose');
         go.disabled = full;
         go.addEventListener('click', async () => {
+          // every town needs a name of its own (else everyone is "My town")
+          const name = city.value.trim();
+          if (name.length < 2 || [t('My town'), 'My town'].includes(name)) {
+            city.classList.add('bad');
+            city.focus();
+            this.flash(t('Type a name for your town first (at least 2 letters)'));
+            return;
+          }
+          city.classList.remove('bad');
           if (!confirm(t('Play on {name}? You can choose a server only once — later you cannot move to another one.', { name: v.name }))) return;
-          const w = await Online.joinServer(v.id, city.value);
+          const w = await Online.joinServer(v.id, name);
           if (typeof w === 'string') { void this.showOnline(t(w)); return; }
           void this.showOnline(t('Welcome to {name}! Press Play to start your town.', { name: w.name }));
         });
@@ -370,7 +393,7 @@ export class Menu {
   }
 
   showLoad() {
-    const worlds = SaveStore.list();
+    const worlds = this.offline();
     if (!worlds.length) return this.showMain();
     const list = el('div', 'worlds');
     for (const w of worlds) list.appendChild(this.worldRow(w));
@@ -379,7 +402,7 @@ export class Menu {
 
   /** Local records: every saved world ranked by its city score. */
   showRecords() {
-    const worlds = SaveStore.list().sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const worlds = this.offline().sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     const list = el('div', 'worlds');
     worlds.forEach((w, i) => {
       const row = el('div', 'world');
@@ -461,7 +484,9 @@ export class Menu {
         del.classList.add('danger');
       }
     }, 'small');
-    row.append(thumb, info, play, exp, del);
+    const acts = el('div', 'world-acts');
+    acts.append(play, exp, del);
+    row.append(thumb, info, acts);
     return row;
   }
 

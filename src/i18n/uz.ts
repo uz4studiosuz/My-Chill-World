@@ -4031,4 +4031,8 @@ export const UZ: Record<string, string> = {
 "Reconnecting · your town is safe": "Qayta ulanmoqda · shaharingiz saqlangan",
 "Offline · reconnecting when available": "Tarmoq yo‘q · ulanish tiklanishi kutilmoqda",
 "Message not sent. Please try again.": "Xabar yuborilmadi. Qayta urinib ko‘ring.",
+  "Type your town's name": "Shahringiz nomini yozing",
+  "Type a name for your town first (at least 2 letters)": "Avval shahringizga nom yozing (kamida 2 harf)",
+  "A new name for your town": "Shahringiz uchun yangi nom",
+  "Your town is now called {name}": "Shahringiz endi {name} deb ataladi",
 };

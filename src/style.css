@@ -2854,3 +2854,10 @@ body .emb-tab em { letter-spacing: 0; background: var(--bad); color: #fff; }
 .el-card b { font: 600 18px var(--font-display); }
 .el-card p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
 .el-card .btn-mini { margin: 4px auto 0; padding: 10px 18px; font-size: 14px; }
+
+/* saved worlds: name and figures on top, the buttons on a line of their own */
+.home-menu .world:has(.world-acts), .world:has(.world-acts) { flex-wrap: wrap; align-items: center; }
+.world-acts { flex: 1 0 100%; display: flex; gap: 6px; }
+.world-acts > * { flex: 1 1 0; min-width: 0; justify-content: center; }
+.world-info b { white-space: normal; overflow-wrap: anywhere; }
+.field input.bad { border-color: var(--bad) !important; box-shadow: 0 0 0 2px rgba(240,113,103,.25); }

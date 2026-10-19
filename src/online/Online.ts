@@ -152,6 +152,14 @@ export const Online = {
     return error ? why(error) : (data as OnlineWorld);
   },
 
+  /** Give my town in a world a new name (the others see it too). */
+  async renameTown(worldId: string, name: string): Promise<string | null> {
+    const s = await this.session();
+    if (!s) return 'not signed in';
+    const { error } = await db().from('world_members').update({ city_name: name.trim().slice(0, 30) }).eq('world_id', worldId).eq('user_id', s.user.id);
+    return error ? why(error) : null;
+  },
+
   async leaveWorld(id: string): Promise<string | null> {
     const { error } = await db().rpc('leave_world', { p_world: id });
     return error ? why(error) : null;
