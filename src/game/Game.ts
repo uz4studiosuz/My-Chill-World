@@ -3867,7 +3867,7 @@ export class Game implements ToolHost {
     return {
       key: `b${b.id}`, badge: '🏢', badgeColor: KIND_BADGE[b.kind][1], title: t(BUILDINGS[b.kind].name),
       subtitle: t('{a} of {b} flats taken', { a: families.length, b: units }),
-      tags: b.built < 1 ? [{ text: t('Under construction'), tone: 'info' }] : [],
+      tags: b.built < 1 ? [{ text: t('Under construction'), tone: 'info' }] : b.raise !== undefined ? [{ text: t('A floor is being added · {n}%', { n: Math.floor(b.raise * 100) }), tone: 'info' }] : [],
       bars: [{ label: t('Flats'), value: families.length / units, color: '#6fb6ff', text: `${families.length}/${units}` }],
       rows: [
         [t('City'), this.cityOf(b).name],
@@ -6076,6 +6076,8 @@ export class Game implements ToolHost {
     // water and waste water
     const dry = own.filter((b) => b.built >= 1 && BUILDINGS[b.kind].units && (this.life.homeWater.get(b.id) ?? 1) === 0).length;
     if (dry) say('{n} homes have no water pipe: lay water pipes from a water tower to them', { n: dry });
+    const hungry = this.life.homesFarFromShops(city.id);
+    if (hungry && pop > 0) say('{n} homes have no food shop within reach: build a grocery or a market near them', { n: hungry });
     const unwired = own.filter((b) => b.built >= 1 && BUILDINGS[b.kind].energy > 0 && !this.life.onCable(b)).length;
     if (unwired) say('{n} buildings have no power cable: lay a cable from a power plant along their street', { n: unwired });
     else if (city.water < 0.99) say('Not enough water: build a water tower');
@@ -7518,6 +7520,7 @@ export class Game implements ToolHost {
       const dir = b.rot === undefined ? 0 : Math.max(0, SIDES.findIndex((sd) => Math.abs(Math.atan2(Math.sin(sd.rot - b.rot!), Math.cos(sd.rot - b.rot!))) < 0.01));
       const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.built, level: b.level, owner: b.owner, preferredDir: dir });
       if (b.wageF !== undefined) nb.wageF = b.wageF;
+      if (b.raise !== undefined) nb.raise = b.raise;
       if (b.forSale) nb.forSale = b.forSale;
       if (b.investor !== undefined) nb.investor = b.investor;
       if (b.route) nb.route = b.route;
@@ -7599,7 +7602,7 @@ export class Game implements ToolHost {
         id: b.id, kind: b.kind, city: b.city, x: b.x, z: b.z, cropT: b.cropT,
         stored: Math.round(b.stored + (b.kind === 'quarry' ? b.trucks * QUARRY.truckLoad * 0.5 : 0)),
         graves: b.graves, cattleCount: b.cattleCount, crop: b.cropKind, cropManual: b.cropManual || undefined,
-        built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, parent: b.parent, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
+        built: b.built < 1 ? Math.round(b.built * 1000) / 1000 : undefined, raise: b.raise !== undefined ? Math.round(b.raise * 1000) / 1000 : undefined, parent: b.parent, level: b.level > 1 ? b.level : undefined, owner: b.owner >= 0 ? b.owner : undefined,
         rot: Math.round(b.rot * 1000) / 1000, wageF: b.wageF, forSale: b.forSale, investor: b.investor, shares: b.shares, abroad: b.abroad, abroadSum: b.abroadSum, paid: b.paid, investShare: b.investShare, route: b.route, strike: b.strike, born: b.born, total: b.total, books: b.books, sold: b.sold, sales: b.sales ? Math.round(b.sales) : undefined,
       })),
       population: this.pop.serialize(),

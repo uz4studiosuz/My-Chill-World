@@ -176,7 +176,8 @@ export interface DayReport {
   propertyTax: number;
   births: number;
   deaths: DeathReport[];
-  weddings: [string, string][];
+  /** Who married: the names, the new home and the two families they came from. */
+  weddings: [string, string, number?, number?, number?][];
   leftTown: number;
   carsBought: number;
   /** Bikes bought, and old bikes sold back to the factory (when the family bought a car). */
@@ -744,7 +745,7 @@ export class Population {
           const groom = c.sex === 'm' ? c : partner;
           const grandpa = groom.dad !== undefined ? (this.citizens.get(groom.dad) ?? this.archive.get(groom.dad)) : undefined;
           if (grandpa && /(ov|ev|yev|ova|eva)$/i.test(nf.surname)) nf.surname = grandpa.name + (/[aeiouy]$/i.test(grandpa.name) ? 'yev' : 'ov');
-          r.weddings.push([c.name, partner.name]);
+          r.weddings.push([c.name, partner.name, nf.home, f.id, pf.id]);
           this.note(c, 'Married {name} at the Wedding Hall', { name: `${partner.name} ${pf.surname}`.trim() });
           this.note(partner, 'Married {name} at the Wedding Hall', { name: `${c.name} ${f.surname}` });
           const bride = c.sex === 'f' ? c : partner;

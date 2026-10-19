@@ -4071,4 +4071,11 @@ export const UZ: Record<string, string> = {
   "Riding back in the van": "Furgonda qaytyapti",
   "Driving the builders to a site": "Quruvchilarni maydonga olib ketyapti",
   "Changed jobs: now at the {place}, nearer home": "Ish almashtirdi: endi {place}da, uyiga yaqinroq",
+  "Moving in": "Ko'chib kelmoqda",
+  "Removal men": "Ko'chirish xizmati",
+  "On a day trip": "Sayohatda",
+  "The {family} family is adding a floor to their house": "{family} oilasi uyiga qavat qo'shmoqda",
+  "{n} homes are getting a new floor: their families have everything they need": "{n} ta uyga yangi qavat qo'shilmoqda: oilalarning hamma narsasi yetarli",
+  "A floor is being added · {n}%": "Qavat qo'shilmoqda · {n}%",
+  "{n} homes have no food shop within reach: build a grocery or a market near them": "{n} ta uyning yaqinida oziq-ovqat do'koni yo'q: yaqiniga oziq-ovqat do'koni yoki bozor quring",
 };

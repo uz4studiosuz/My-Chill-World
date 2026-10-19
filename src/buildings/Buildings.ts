@@ -66,6 +66,8 @@ export interface Building {
   fire: number;
   /** Construction progress 0 → 1 (only finished buildings work). */
   built: number;
+  /** A floor being added (0..1): builders work on it like a site, the family keeps living there. */
+  raise?: number;
   /** Cemetery level: each level holds one more row of graves. */
   level: number;
   /** Family that owns this business (-1 = owned by the city). */
@@ -77,6 +79,8 @@ export interface Building {
   trash?: number;
   /** Goods made since the last delivery truck left (chains, for show). */
   cargoAcc?: number;
+  /** Goods made here and waiting for a truck, by cargo (they count for the town when they arrive). */
+  pend?: Record<string, number>;
   /** Game time until which bricks / steel speed up this construction site. */
   boost?: Record<string, number>;
   /** Game time until which planks speed up this construction site. */

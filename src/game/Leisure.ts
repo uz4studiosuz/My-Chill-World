@@ -569,27 +569,42 @@ export class Leisure {
   // ---------- weddings ----------
 
   /** A decorated white car leads the procession from the Wedding Hall, relatives follow. */
-  wedding(cityId: number, a: string, b: string) {
-    const { buildings, traffic, effects } = this.c;
+  /**
+   * After the wedding the couple is driven to their new home in a decorated car, the relatives follow in their own
+   * cars (only families that have one, and only if it is at home), and then each car drives back to its own home.
+   */
+  wedding(cityId: number, a: string, b: string, homeId?: number, families: (number | undefined)[] = []) {
+    const { buildings, traffic, effects, pop } = this.c;
     const hall = buildings.list.find((x) => x.kind === 'weddinghall' && x.city === cityId && x.built >= 1 && x.access >= 0);
     if (!hall) return;
-    const homes = buildings.list.filter((h) => BUILDINGS[h.kind].units && h.city === cityId && h.access >= 0 && h.access !== hall.access);
-    if (!homes.length) return;
-    const home = pick(homes);
-    if (!traffic.canRoute(hall.access, home.access)) return;
     effects.hearts(hall.mesh.position.x, hall.mesh.position.z);
     sound.play('wedding', hall.mesh.position);
-    const colors = ['#f2f2ee', '#3a3f48', '#c4553d', '#3a6fd1'];
-    for (let i = 0; i < 4; i++) {
+    const home = homeId !== undefined ? buildings.get(homeId) : undefined;
+    if (!home || home.access < 0 || !traffic.canRoute(hall.access, home.access)) return;
+    // the cars of the two families (the first one is decorated and carries the couple)
+    const cars = families.map((id) => (id !== undefined ? pop.families.get(id) : undefined))
+      .filter((f) => !!f && !!f.car && f.car.at === 'home' && (buildings.get(f.home)?.access ?? -1) >= 0)
+      .map((f) => ({ f: f!, own: buildings.get(f!.home)! }));
+    if (!cars.length) { effects.hearts(home.mesh.position.x, home.mesh.position.z); return; }
+    cars.forEach(({ f, own }, i) => {
+      f.car!.at = 'moving';
+      const done = () => { f.car!.at = 'home'; };
       this.later(i * 1.1, () => {
-        traffic.spawn({
-          kind: 'car', from: hall.access, to: home.access, color: new THREE.Color(colors[i]), fromPos: buildings.door(hall), toPos: buildings.door(home),
-          wedding: i === 0, purpose: i === 0 ? 'Wedding car' : 'Wedding procession', driverName: i === 0 ? `${a} & ${b}` : 'Relatives',
+        const ok = traffic.spawn({
+          kind: 'car', from: hall.access, to: home.access, color: new THREE.Color(f.car!.color), fromPos: buildings.door(hall), toPos: buildings.door(home),
+          wedding: i === 0, purpose: i === 0 ? 'Wedding car' : 'Wedding procession', driverName: i === 0 ? `${a} & ${b}` : `${f.surname}`,
           fromName: 'Wedding Hall', destName: 'New home',
-          onArrive: () => { if (i === 0) effects.hearts(home.mesh.position.x, home.mesh.position.z); },
+          onArrive: () => {
+            if (i === 0) effects.hearts(home.mesh.position.x, home.mesh.position.z);
+            // and back to their own home
+            traffic.spawn({ kind: 'car', from: home.access, to: own.access, color: new THREE.Color(f.car!.color), fromPos: buildings.door(home), toPos: buildings.slot(own, 0),
+              purpose: 'Driving home', driverName: `${f.surname}`, fromName: 'New home', destName: t(BUILDINGS[own.kind].name), homeBuildingId: own.id, onArrive: done, onFail: done }) || done();
+          },
+          onFail: done,
         });
+        if (!ok) done();
       });
-    }
+    });
   }
 
   // ---------- ambulance ----------
