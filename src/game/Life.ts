@@ -250,6 +250,10 @@ export class Life {
     this.waterT -= dt;
     if (this.waterT <= 0) { this.waterT = 2; this.updateWater(); }
     this.updateBusWaiters(dt);
+    // the job market never sleeps: every working hour pay creeps towards what the market asks, and people move
+    // to better-paid jobs as places open — not all at once at dawn
+    this.marketT -= dt;
+    if (this.marketT <= 0) { this.marketT = DAY_SECONDS / 24; this.jobMarket(); }
     if (this.presentT <= 0) { this.presentT = 0.5; this.people = this.populationByCity(); this.mouths = this.appetiteByCity(); this.countPresent(); this.checkRain(); this.dispatchBuilders(); }
     this.produce(dt);
     this.schedule();
@@ -973,7 +977,7 @@ export class Life {
         }
       }
       this.banking(city, say);
-      this.adjustWages(city);
+      this.adjustWages(city, 0, true);
       this.chooseCrops(city.id);
       this.entrepreneurs(city.id, say);
       this.airQuality(city, say);
@@ -984,7 +988,6 @@ export class Life {
       this.pensions(city, belongs);
       this.sewage(city, own, belongs);
       this.flu(city, own, belongs, say);
-      this.switchJobs(city, own, say);
       this.leisure.daily(city, own, say);
       this.updateHappiness(city, own, r, belongs, say);
       this.smartCity(city, belongs, say);
@@ -1311,9 +1314,9 @@ export class Life {
    * Automatic wages: where workers are missing the town hall pays a little more (up to +60%), where everyone is
    * employed and people are looking for work it pays a little less (down to −20%).
    */
-  private adjustWages(city: City) {
+  private adjustWages(city: City, step = 0.15, faithOnly = false) {
     const { buildings, pop } = this.c;
-    for (const c of pop.citizens.values()) if (c.job >= 0 && buildings.get(c.job)?.kind === 'mosque') c.faith = true;
+    if (faithOnly) { for (const c of pop.citizens.values()) if (c.job >= 0 && buildings.get(c.job)?.kind === 'mosque') c.faith = true; return; }
     if (!city.wageAuto) return;
     const byKind = new Map<string, { jobs: number; workers: number }>();
     for (const b of buildings.list) {
@@ -1342,7 +1345,7 @@ export class Life {
       if (city.money > 15000) target += 0.12;
       else if (city.money < 600 && BUILDINGS[kind as BuildingKind]?.publicJob) target -= 0.2;
       target = Math.max(0.7, Math.min(3, target));
-      const next = Math.round((w + (target - w) * 0.15) * 100) / 100;
+      const next = Math.round((w + (target - w) * step) * 1000) / 1000;
       if (Math.abs(next - 1) < 0.01) delete city.wages[kind];
       else city.wages[kind] = next;
     }
@@ -1958,8 +1961,91 @@ export class Life {
 
   /** The economy: 1 normal, below 1 in a crisis, above 1 in a boom (set by the game). Sales, prices and mood follow it. */
   econFactor = 1;
-  /** Builders' vans on the way, by site: who rides along (each gets out when the van arrives). */
-  private vans = new Map<number, (() => void)[]>();
+  /** Each construction yard's one van: is it out, who waits for a ride to which site, who was taken where (to fetch back). */
+  private yardVans = new Map<number, { busy: boolean; day: number; driver?: number; queue: Map<number, { id: number; go: () => void }[]>; out: Map<number, number[]> }>();
+  /** Is this worker at the yard's door (walking back in)? */
+  private byYard(c: Citizen, yard: Building) {
+    if (!c.walker || c.walker.leaving) return false;
+    const d = this.c.buildings.door(yard);
+    return Math.hypot(c.walker.x - d.x, c.walker.z - d.z) < 2.5;
+  }
+
+  private vanOf(yard: Building) {
+    let v = this.yardVans.get(yard.id);
+    if (!v) this.yardVans.set(yard.id, (v = { busy: false, day: this.c.eco.day, queue: new Map(), out: new Map() }));
+    // a new day: yesterday's rounds are over
+    if (v.day !== this.c.eco.day) { v.day = this.c.eco.day; v.out.clear(); }
+    return v;
+  }
+  /** The yard's van driver: one of its workers at work there (always the same one while they are in). */
+  private driverOf(yard: Building) {
+    const van = this.vanOf(yard);
+    const at = (c: Citizen | undefined) => !!c && c.job === yard.id && c.state === 'away' && c.at === yard.id;
+    const cur = van.driver !== undefined ? this.c.pop.citizens.get(van.driver) : undefined;
+    if (at(cur)) return cur;
+    // a new driver: a worker in the yard who is not out on a site
+    let best: Citizen | undefined;
+    for (const c of this.c.pop.citizens.values()) if (at(c) && (!c.walker || this.byYard(c, yard)) && (!this.busyBuilders.has(c.id) || /order|At work/.test(c.activity)) && (!best || c.id < best.id)) best = c;
+    van.driver = best?.id;
+    if (best) {
+      if (best.walker) { this.c.walkers.dismiss(best.walker); best.walker = undefined; }
+      this.busyBuilders.add(best.id); best.activity = 'Waiting at the van';
+    }
+    return best;
+  }
+
+  /**
+   * The van's day: the driver takes each waiting crew to its site and drives the van back to the yard; an hour before
+   * work ends he fetches the builders from the sites and brings them back, and from the yard they go home.
+   */
+  private vanTick(yard: Building) {
+    const van = this.vanOf(yard), driver = this.driverOf(yard);
+    const { traffic, buildings, walkers, eco } = this.c;
+    if (van.busy || !driver || yard.removed || yard.access < 0) return;
+    if (!van.queue.size && !van.out.size) driver.activity = 'Waiting at the van';
+    const trip = (from: Building, to: Building, purpose: string, riders: number[], done: () => void) => traffic.spawn({
+      kind: 'van', from: from.access, to: to.access, fromPos: buildings.door(from), toPos: buildings.door(to), color: new THREE.Color('#f2b33d'),
+      purpose, driverId: driver.id, driverName: this.fullName(driver), fromName: t(BUILDINGS[from.kind].name), destName: t(BUILDINGS[to.kind].name),
+      passengers: riders, onArrive: done, onFail: done,
+    });
+    const back = (from: Building, riders: number[], done: () => void) => {
+      driver.activity = riders.length ? 'Bringing the builders back' : 'Driving the van back to the yard';
+      if (!trip(from, yard, riders.length ? 'Builders going back' : 'Returning to the yard', riders, done)) done();
+    };
+    // the evening round: fetch the builders who came by van, about an hour before work ends
+    if (eco.timeOfDay >= driver.returnAt - 0.045 && van.out.size) {
+      const [siteId, ids] = [...van.out.entries()][0];
+      van.out.delete(siteId);
+      const site = buildings.get(siteId);
+      const riders = ids.map((id) => this.c.pop.citizens.get(id)).filter((x): x is Citizen => !!x && x.state === 'away' && x.at === yard.id);
+      if (!site || !riders.length || site.access < 0) { this.vanTick(yard); return; }
+      van.busy = true;
+      driver.activity = 'Fetching the builders';
+      const home = () => { van.busy = false; driver.activity = 'Waiting at the van'; for (const r of riders) { if (r.walker) { walkers.dismiss(r.walker); r.walker = undefined; } r.activity = 'At work'; this.busyBuilders.delete(r.id); } this.vanTick(yard); };
+      if (!trip(yard, site, 'Fetching the builders', [], () => {
+        // they climb in: off the site, into the van
+        for (const r of riders) { this.crews.get(site.id)?.delete(r.id); if (r.walker) { walkers.dismiss(r.walker); r.walker = undefined; } r.activity = 'Riding back in the van'; }
+        back(site, riders.map((r) => r.id), home);
+      })) home();
+      return;
+    }
+    // a crew waiting for a ride: off they go
+    const next = [...van.queue.entries()][0];
+    if (!next) return;
+    const [siteId, riders] = next;
+    van.queue.delete(siteId);
+    const site = buildings.get(siteId);
+    if (!site || site.removed || site.access < 0) { for (const r of riders) r.go(); return; }
+    van.busy = true;
+    driver.activity = 'Driving the builders to a site';
+    for (const r of riders) { const c = this.c.pop.citizens.get(r.id); if (c) c.activity = "Riding in the builders' van"; }
+    const arrived = () => {
+      for (const r of riders) r.go();
+      van.out.set(site.id, [...(van.out.get(site.id) ?? []), ...riders.map((r) => r.id)]);
+      back(site, [], () => { van.busy = false; driver.activity = 'Waiting at the van'; this.vanTick(yard); });
+    };
+    if (!trip(yard, site, 'Builders on the way', riders.map((r) => r.id), arrived)) { van.busy = false; for (const r of riders) r.go(); }
+  }
   /** Per town: the share of learned working-age people (0..1). */
   knowledge = new Map<number, number>();
   /** Learned towns earn more: businesses take up to +20% when half the working people have studied. */
@@ -2477,6 +2563,23 @@ export class Life {
     }
   }
 
+  private marketT = DAY_SECONDS / 24;
+
+  /** One hour of the job market in every town: wages move a little, a few people change jobs (in working hours). */
+  private jobMarket() {
+    const tod = this.c.eco.timeOfDay;
+    if (tod < 0.3 || tod > 0.75) return;
+    const { buildings } = this.c;
+    for (const city of this.c.eco.cities.values()) {
+      // a daily move of 15% spread over the working hours (about 11 of them)
+      this.adjustWages(city, 0.015);
+      const own = buildings.list.filter((b) => b.city === city.id && b.built >= 1);
+      this.switchJobs(city, own, (m) => this.cityEvent(city.id, m));
+    }
+    // and the jobless take the places that opened, now rather than tomorrow
+    this.c.pop.assign(buildings);
+  }
+
   /** Skilled workers move to better-paid jobs when one is free (a job interview, in short). */
   private switchJobs(city: City, own: Building[], say: (msg: string) => void) {
     const { pop, buildings } = this.c;
@@ -2484,7 +2587,7 @@ export class Life {
     const open = own.filter((b) => BUILDINGS[b.kind].jobs > b.workers).sort((a, b) => BUILDINGS[b.kind].salary * pop.wageFactor(b) - BUILDINGS[a.kind].salary * pop.wageFactor(a));
     if (!open.length) return;
     for (const c of pop.citizens.values()) {
-      if (moved + came >= 4 || c.job < 0 || Math.random() > 0.15) continue;
+      if (moved + came >= 2 || c.job < 0 || Math.random() > 0.05) continue;
       const cur = buildings.get(c.job);
       if (!cur) continue;
       // workers of a neighbour town (joined by road) come over when this town pays clearly more
@@ -2492,14 +2595,23 @@ export class Life {
       const here = cur.city === city.id;
       if (here ? c.skill < 1 : !home || home.city === city.id || !pop.commute(home.city, city.id)) continue;
       const pay = (b: Building) => BUILDINGS[b.kind].salary * this.c.pop.wageFactor(b);
-      const best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && pay(b) >= pay(cur) * 1.25 && b.id !== cur.id && pop.fits(c, b)
+      let best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && pay(b) >= pay(cur) * 1.25 && b.id !== cur.id && pop.fits(c, b)
         && (here || ((!DEGREE_JOBS[b.kind] || c.skill >= 1) && Math.abs(b.x - home!.x) + Math.abs(b.z - home!.z) <= 90)));
+      // or nearly the same pay much nearer home (a long way to work is tiring)
+      let nearer = false;
+      if (!best && here && home) {
+        const far = (b: Building) => Math.abs(b.x - home.x) + Math.abs(b.z - home.z);
+        if (far(cur) > 30) {
+          best = open.find((b) => BUILDINGS[b.kind].jobs > b.workers && b.id !== cur.id && pay(b) >= pay(cur) * 0.95 && far(b) * 2 < far(cur) && pop.fits(c, b));
+          nearer = !!best;
+        }
+      }
       // nobody leaves an essential job (water, food, power, builders…) for a less essential one
       if (!best || this.c.pop.priority(best) > this.c.pop.priority(cur) || (this.c.pop.priority(cur) <= 2 && cur.workers <= 1)) continue;
       cur.workers--;
       best.workers++;
       c.job = best.id;
-      if (here) { this.c.pop.note(c, 'Changed jobs: now at the {place} for better pay', { place: BUILDINGS[best.kind].name }); moved++; }
+      if (here) { this.c.pop.note(c, nearer ? 'Changed jobs: now at the {place}, nearer home' : 'Changed jobs: now at the {place} for better pay', { place: BUILDINGS[best.kind].name }); moved++; }
       else {
         this.c.pop.note(c, 'Now works in {city} at the {place} — the pay is better there', { city: city.name, place: BUILDINGS[best.kind].name });
         this.cityEvent(cur.city, t('A worker left for better pay in {city}', { city: city.name }));
@@ -4168,6 +4280,7 @@ export class Life {
 
   private dispatchBuilders() {
     const { pop, buildings } = this.c;
+    for (const y of buildings.list) if (y.kind === 'construction' && y.built >= 1 && !y.removed) this.vanTick(y);
     for (const c of pop.citizens.values()) {
       if (c.job < 0 || c.state !== 'away' || c.at !== c.job) continue;
       // a builder waiting for an order (even walking back to the yard) is free for a new site
@@ -4219,6 +4332,7 @@ export class Life {
     const atWork = () => this.alive(c) && c.state === 'away' && c.at === yard.id && !yard.removed && eco.timeOfDay < c.returnAt;
     const leave = (site?: Building) => { if (site) this.crews.get(site.id)?.delete(c.id); };
     if (!atWork()) { this.busyBuilders.delete(c.id); return; }
+    if (this.driverOf(yard)?.id === c.id) { this.busyBuilders.add(c.id); this.vanTick(yard); return; }
     const sites = buildings.list.filter((b) => b.built < 1 && b.city === yard.city && !b.removed);
     // a road being laid takes builders too: whichever needs hands more
     const road = this.roadSite?.(yard.city) ?? null;
@@ -4259,26 +4373,17 @@ export class Life {
     };
     // a far site: the builders ride there in the company's yellow van
     const { traffic } = this.c;
-    if (!c.walker && dist(site, yard) > 8 && yard.access >= 0 && site.access >= 0 && traffic.canRoute(yard.access, site.access)) {
-      // the crew rides together: one van per site; the others get in with the driver
-      const going = this.vans.get(site.id);
-      if (going) {
-        c.activity = "Riding in the builders' van";
-        going.push(() => { if (arrive()) work(); });
-        return;
-      }
-      c.activity = 'Driving to a construction site';
-      const crew: (() => void)[] = [() => { if (arrive()) work(); }];
-      this.vans.set(site.id, crew);
-      const done = () => { this.vans.delete(site.id); for (const f of crew) f(); };
-      const ok = traffic.spawn({
-        kind: 'car', from: yard.access, to: site.access, fromPos: buildings.door(yard), toPos: buildings.door(site), color: new THREE.Color('#f2b33d'),
-        purpose: 'Builders on the way', driverId: c.id, driverName: this.fullName(c), fromName: BUILDINGS.construction.name, destName: BUILDINGS[site.kind].name,
-        onArrive: done,
-        onFail: done,
-      });
-      if (ok) return;
-      this.vans.delete(site.id);
+    const driver = this.driverOf(yard);
+    // back at the yard (or nearly): goes in and waits for the van
+    if (c.walker && this.byYard(c, yard) && driver && driver.id !== c.id && dist(site, yard) > 8) { walkers.dismiss(c.walker); c.walker = undefined; }
+    if (!c.walker && driver && driver.id !== c.id && dist(site, yard) > 8 && yard.access >= 0 && site.access >= 0 && traffic.canRoute(yard.access, site.access)) {
+      // the company's one van takes the crew: wait at the yard until the driver goes
+      c.activity = 'Waiting for the van';
+      const van = this.vanOf(yard);
+      if (!van.queue.has(site.id)) van.queue.set(site.id, []);
+      van.queue.get(site.id)!.push({ id: c.id, go: () => { if (arrive()) work(); } });
+      this.vanTick(yard);
+      return;
     }
     c.activity = 'Walking to a construction site';
     const fromTile = c.walker && !c.walker.leaving ? tileAt(from) : buildings.frontTile(yard);

@@ -2348,6 +2348,9 @@ export class Game implements ToolHost {
       if (d.needsRoad && b.access < 0) return 'road';
       if ((b.depleted ?? 0) > 0) return b.kind === 'woodcutter' ? 'notrees' : 'norock';
       if (b.strike !== undefined) return 'strike';
+      // not joined to the networks at all (shown before any shortage)
+      if (d.energy > 0 && !this.cityOf(b).ai && !this.life.onCable(b)) return 'nocable';
+      if (d.units && !this.cityOf(b).ai && (this.life.homeWater.get(b.id) ?? 1) === 0) return 'nopipe';
       if (d.energy && !b.powered) return 'power';
       if (d.units) {
         if (b.trash !== undefined && b.trash >= TRASH.full) return 'trash';
@@ -3624,9 +3627,10 @@ export class Game implements ToolHost {
       });
     }
 
-    const badge = isTruck ? '🚚' : isBus ? '🚌' : '🚗';
-    const badgeColor = isTruck ? '#4a7fb5' : isBus ? '#d9a92a' : '#3a6fd1';
-    const title = isBus ? (v.trip.routeName ?? t('Bus')) : driver ? `${driver.name} ${f?.surname ?? ''}`.trim() : (v.trip.purpose ?? t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : 'Bus'));
+    const isVan = v.trip.kind === 'van';
+    const badge = isTruck ? '🚚' : isBus ? '🚌' : isVan ? '🚐' : '🚗';
+    const badgeColor = isTruck ? '#4a7fb5' : isBus ? '#d9a92a' : isVan ? '#e0a020' : '#3a6fd1';
+    const title = isBus ? (v.trip.routeName ?? t('Bus')) : driver ? `${driver.name} ${f?.surname ?? ''}`.trim() : (v.trip.purpose ?? t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : isVan ? 'Van' : 'Bus'));
     const speedKmh = Math.max(1, Math.round(v.speed * 20));
 
     return {
@@ -3635,7 +3639,7 @@ export class Game implements ToolHost {
       badge,
       badgeColor,
       title,
-      subtitle: `${t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : 'Bus')} · ${speedKmh} ${t('km/h')}`,
+      subtitle: `${t(v.trip.kind === 'car' ? 'Car' : isTruck ? 'Truck' : isVan ? 'Van' : 'Bus')} · ${speedKmh} ${t('km/h')}`,
       tags,
       rows,
       actions,

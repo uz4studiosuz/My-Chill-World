@@ -3,12 +3,14 @@ import type { Building } from '../buildings/Buildings';
 import { BUILDINGS } from '../buildings/BuildingTypes';
 
 /** A problem shown above a building. */
-export type Problem = 'power' | 'water' | 'food' | 'workers' | 'road' | 'cold' | 'trash' | 'sick' | 'notrees' | 'norock' | 'strike';
+export type Problem = 'power' | 'water' | 'food' | 'workers' | 'road' | 'cold' | 'trash' | 'sick' | 'notrees' | 'norock' | 'strike' | 'nocable' | 'nopipe';
 
 const ICON: Record<Problem, [string, string]> = {
   power: ['⚡', '#f2b33d'], water: ['💧', '#4fa3d1'], food: ['🍞', '#e8a13a'], workers: ['👷', '#6fb6ff'],
   road: ['🚧', '#f07167'], cold: ['❄️', '#9fd3ff'], trash: ['🗑️', '#8e96a1'], sick: ['🤒', '#f07167'],
   notrees: ['🌲', '#f07167'], norock: ['⛰️', '#f07167'], strike: ['✊', '#f07167'],
+  // not joined at all: no power cable along its street, no water pipe to the home
+  nocable: ['🔌', '#f07167'], nopipe: ['🚱', '#f07167'],
 };
 
 /**
