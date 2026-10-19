@@ -179,6 +179,7 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'police', name: 'Police Station', group: 'Buildings', desc: 'Officers keep fights and crime down.', make: () => mesh(buildingGeometry('police')) },
   { id: 'park', name: 'Park', group: 'Buildings', desc: 'Green space with a pond and benches.', make: () => mesh(buildingGeometry('park')) },
   { id: 'hospital', name: 'Hospital', group: 'Buildings', desc: 'Doctors and nurses heal the sick.', make: () => mesh(buildingGeometry('hospital')) },
+  { id: 'college', name: 'College', group: 'Buildings', desc: 'After school: two years learning a trade, then better jobs and pay.', make: () => mesh(buildingGeometry('university')) },
   { id: 'university', name: 'University', group: 'Buildings', desc: 'Four years of study for a degree and a better wage.', make: () => mesh(buildingGeometry('university')) },
   { id: 'market', name: 'Market', group: 'Buildings', desc: 'Bazaar stalls for food, clothes and goods.', make: () => mesh(buildingGeometry('market')) },
   { id: 'carmarket', name: 'Car Market', group: 'Buildings', desc: 'New cars for families who have saved up.', make: () => mesh(buildingGeometry('carmarket')) },

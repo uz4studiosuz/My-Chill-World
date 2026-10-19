@@ -18,8 +18,10 @@ export class OnlinePanel {
   private form = '';
   private last = '';
   private sending = false;
+  /** Messages after this one came while the chat was closed. */
+  private newFrom = Infinity;
 
-  constructor(parent: HTMLElement, private sync: OnlineSync, private world: string, private code: string, private myName: () => string) {
+  constructor(parent: HTMLElement, private sync: OnlineSync, private world: string, _code: string, private myName: () => string) {
     this.root = el('div', 'embassy online-panel');
     parent.appendChild(this.root);
   }
@@ -39,7 +41,8 @@ export class OnlinePanel {
   render() {
     if (!this.visible) return;
     const s = this.sync;
-    if (this.tab === 'chat') s.readChat();
+    // where the unread messages start (a line shows it), then they count as read
+    if (this.tab === 'chat') { if (s.unread) this.newFrom = s.seenChatId; s.readChat(); }
     const key = JSON.stringify([s.members, s.offers, s.chat, s.connection, this.tab, this.form, this.msg?.text]);
     if (key === this.last) return;
     this.last = key;
@@ -56,7 +59,8 @@ export class OnlinePanel {
     const head = el('div', 'emb-head');
     head.innerHTML = `<span class="emb-ic">${icon('globe')}</span><div><b></b><small></small></div>`;
     (head.querySelector('b') as HTMLElement).textContent = `${t('Online world')} · ${this.world}`;
-    (head.querySelector('small') as HTMLElement).textContent = t('Code {code} · the same time for everyone · towns of players who are away run on autopilot', { code: this.code });
+    const here = s.members.filter((m) => s.online(m)).length;
+    (head.querySelector('small') as HTMLElement).textContent = t('{n} of {m} playing now · the same time for everyone · towns of players who are away run on autopilot', { n: here, m: s.members.length });
     const x = el('button', 'info-x');
     x.innerHTML = icon('close');
     x.addEventListener('click', () => this.hide());
@@ -100,7 +104,7 @@ export class OnlinePanel {
       const e = el('div', 'emb-empty');
       e.innerHTML = '<b></b><p></p>';
       (e.querySelector('b') as HTMLElement).textContent = t('Nobody else is here yet');
-      (e.querySelector('p') as HTMLElement).textContent = t('Send your friends the code {code}: they open Online in the main menu → Join with a code.', { code: this.code });
+      (e.querySelector('p') as HTMLElement).textContent = t('Ask your friends to choose {server} in Online on the main menu: their towns appear here and on your map.', { server: this.world });
       main.appendChild(e);
       return;
     }
@@ -215,7 +219,14 @@ export class OnlinePanel {
     const s = this.sync;
     const list = el('div', 'ol-chat');
     if (!s.chat.length) { const e = el('div', 'rp-note'); e.textContent = t('No messages yet. Say hello!'); list.appendChild(e); }
+    let line = false;
     for (const m of s.chat) {
+      if (!line && m.id > this.newFrom && m.user_id !== s.me) {
+        line = true;
+        const sep = el('div', 'ol-new');
+        sep.textContent = t('New messages');
+        list.appendChild(sep);
+      }
       const r = el('div', `ol-msg${m.user_id === s.me ? ' me' : ''}`);
       r.innerHTML = '<b></b><span></span><small></small>';
       (r.querySelector('b') as HTMLElement).textContent = m.name;

@@ -825,6 +825,17 @@ export class Life {
       };
       const own = buildings.list.filter((b) => b.city === city.id && b.built >= 1);
       const hasHall = own.some((b) => b.kind === 'weddinghall');
+      // knowledge: how learned the working-age people are (a degree counts full, a college diploma half)
+      {
+        let adults = 0, learned = 0;
+        for (const c of pop.citizens.values()) {
+          const f = pop.families.get(c.family);
+          if (c.age < 18 || c.age >= 65 || !f || !belongs(f)) continue;
+          adults++;
+          learned += c.skill === 2 ? 1 : c.college ? 0.5 : 0;
+        }
+        this.knowledge.set(city.id, adults ? learned / adults : 0);
+      }
       const heal = own.reduce((a, b) => a + BUILDINGS[b.kind].heal * levelMult(b) * (BUILDINGS[b.kind].jobs ? Math.min(1, b.workers / BUILDINGS[b.kind].jobs) : 1), 0) * ((city.budget?.health ?? 100) / 100);
       const meal = this.meals.get(city.id) ?? { eaten: 1, short: 0 };
       const fed = meal.eaten + meal.short > 0 ? meal.eaten / (meal.eaten + meal.short) : 1;
@@ -873,7 +884,7 @@ export class Life {
         } else if (b.kind === 'carmarket') {
           turnover = b.workers > 0 ? r.carSales / Math.max(1, working('carmarket').length) : 0;
         } else if (d.revenue) {
-          turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5) * this.econFactor;
+          turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5) * this.econFactor * this.knowledgeBonus(city.id);
         }
         const items = b.sold;
         b.sold = undefined;
@@ -1947,6 +1958,10 @@ export class Life {
 
   /** The economy: 1 normal, below 1 in a crisis, above 1 in a boom (set by the game). Sales, prices and mood follow it. */
   econFactor = 1;
+  /** Per town: the share of learned working-age people (0..1). */
+  knowledge = new Map<number, number>();
+  /** Learned towns earn more: businesses take up to +20% when half the working people have studied. */
+  knowledgeBonus(city: number) { return 1 + Math.min(0.2, (this.knowledge.get(city) ?? 0) * 0.4); }
 
   /** Snow on the roads (set for a day by a snowstorm): traffic drives slower. */
   snowstorm = 0;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CloudSea } from '../world/CloudSea';
+import { MiniMap } from '../ui/MiniMap';
 import { UPGRADABLE, canUpgrade, levelMult, seatsOf, upgradeCost, waterOf } from '../buildings/Upgrades';
 import { believer } from './Leisure';
 import { SKIN, SHIRTS, DRESSES } from '../models/people/_shared';
@@ -15,7 +16,7 @@ import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building, rotToDir, SIDES } from '../buildings/Buildings';
 import { box, merge, shape } from '../utils/voxel';
-import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST, CABLE_COST, extraCost, defaultJobReq, sellable, TOWN_LEVELS, townLevel, UNLOCK_LEVEL } from '../buildings/BuildingTypes';
+import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST, CABLE_COST, extraCost, defaultJobReq, sellable, TOWN_LEVELS, townLevel, UNLOCK_POP } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel, calendarYear } from '../sim/Calendar';
@@ -128,7 +129,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
   parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
   woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
-  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], busstop: ['🚏', '#3a6fd1'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'],
+  cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], busstop: ['🚏', '#3a6fd1'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'], college: ['📘', '#3a6fd1'],
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
   pharmacy: ['💊', '#2e8b57'], dairy: ['🧀', '#3a6fd1'], supermarket: ['🛒', '#d9443b'], brickworks: ['🧱', '#a65e43'], steelmill: ['🏭', '#5d6670'], sewage: ['🚰', '#5f8fa0'], coalmine: ['⛏️', '#26292e'], coalplant: ['🏭', '#9aa3ab'], hydro: ['🌊', '#4fa3d1'],
@@ -139,7 +140,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
 };
 
 const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
-  townhall: ['Civil servant'], office: ['Clerk', 'Manager'], school: ['School staff', 'Teacher'], university: ['University staff', 'Professor'],
+  townhall: ['Civil servant'], office: ['Clerk', 'Manager'], school: ['School staff', 'Teacher'], university: ['University staff', 'Professor'], college: ['College staff', 'Lecturer'],
   warehouse: ['Storekeeper'], bikefactory: ['Bicycle maker', 'Engineer'], migration: ['Migration officer', 'Office manager'], concerthall: ['Stage hand', 'Conductor'], casino: ['Croupier', 'Casino manager'], mosque: ['Muezzin', 'Imam'], themepark: ['Ride operator', 'Park manager'], bigpark: ['Gardener'], gym: ['Fitness coach'], teahouse: ['Waiter', 'Cook'], barber: ['Barber', 'Stylist'],
   hospital: ['Nurse', 'Doctor'], market: ['Seller'], carmarket: ['Car salesman'], bank: ['Cashier', 'Banker'], gasstation: ['Pump attendant'],
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
@@ -187,6 +188,7 @@ export class Game implements ToolHost {
   private map: WorldMap;
   private terrain: Terrain;
   private clouds: CloudSea;
+  private minimap?: MiniMap;
   private net = new RoadNetwork();
   private roadMesh: RoadMesh;
   private footpaths = new Footpaths();
@@ -557,7 +559,7 @@ export class Game implements ToolHost {
       setTool: (tl) => this.setTool(tl),
       undo: () => this.undo(),
       tap: (tile, p) => this.tap(tile, p),
-      togglePause: () => this.setSpeed(this.speed === 0 ? this.lastSpeed : 0),
+      togglePause: () => { if (!this.meta.online) this.setSpeed(this.speed === 0 ? this.lastSpeed : 0); },
       look: (dx, dy) => { if (!this.pov) return false; this.povTurn(dx, dy); return true; },
     }, this.abort.signal);
     window.addEventListener('keydown', (e) => {
@@ -648,10 +650,21 @@ export class Game implements ToolHost {
       this.select({ type: 'building', id: b.id });
     });
     this.guide = new Guide(this.hud.root);
+    // the small round map in the corner
+    this.minimap?.dispose();
+    this.minimap = new MiniMap(this.hud.root, {
+      map: this.map, roads: this.net.type, trees: this.terrain.trees,
+      buildings: () => this.buildings.list.filter((b) => !b.removed).map((b) => {
+        const c = this.eco.cities.get(b.city);
+        return { x: b.x, z: b.z, size: BUILDINGS[b.kind].size, color: !c || !c.ai ? '#f2a93b' : c.tint ?? '#c9c2b4' };
+      }),
+      camera: () => ({ x: this.cam.target.x, z: this.cam.target.z, view: this.cam.viewHalf, yaw: this.cam.yaw, aspect: this.cam.aspect }),
+      go: (x, z, glide) => { if (glide) this.cam.flyTo(x, z, this.cam.viewHalf, 0.5); else this.cam.setState(x, z, this.cam.yaw, this.cam.viewHalf); },
+    });
     this.hud.lockOf = (tool) => {
-      const need = UNLOCK_LEVEL[tool as BuildingKind];
-      if (this.creative || need === undefined || townLevel(this.life.populationByCity().get(this.eco.active) ?? 0) >= need) return null;
-      return `${t(TOWN_LEVELS[need].name)} · ${TOWN_LEVELS[need].pop}`;
+      const need = UNLOCK_POP[tool as BuildingKind];
+      if (this.creative || need === undefined || (this.life.populationByCity().get(this.eco.active) ?? 0) >= need) return null;
+      return t('{n} people', { n: need });
     };
     this.hud.openPersonById = (id) => this.focusPerson(id);
     this.hud.countOf = (tool) => this.buildings.list.filter((b) => b.kind === tool && b.city === this.eco.city.id && !b.removed).length;
@@ -997,6 +1010,7 @@ export class Game implements ToolHost {
 
   update(dt: number) {
     this.clouds.update(dt);
+    this.minimap?.update();
     this.buildings.day = this.eco.day;
     if (this.watch) this.updateWatch();
     // a loaded world: fields out of season are wrapped up straight away
@@ -1789,9 +1803,9 @@ export class Game implements ToolHost {
     const acc = BUILDINGS[kind].needsRoad ? this.buildings.findAccess(kind, tl.x, tl.z).access : -1;
     if (acc >= 0 && !host) { const town = this.foreignTown(acc % N, (acc / N) | 0); if (town) return { ok: false, reason: t("These streets belong to {city} — build along your own roads", { city: town.name }) }; }
     // some buildings open only when the town has grown
-    const need = UNLOCK_LEVEL[kind as BuildingKind];
-    if (need !== undefined && !this.moving && !this.creative && townLevel(this.life.populationByCity().get(this.eco.active) ?? 0) < need) {
-      return { ok: false, reason: t('Opens when your town becomes a {level} ({n} people)', { level: t(TOWN_LEVELS[need].name), n: TOWN_LEVELS[need].pop }) };
+    const need = UNLOCK_POP[kind as BuildingKind];
+    if (need !== undefined && !this.moving && !this.creative && (this.life.populationByCity().get(this.eco.active) ?? 0) < need) {
+      return { ok: false, reason: t('Opens when your town has {n} people', { n: need }) };
     }
     if (kind === 'embassy' && this.buildings.list.some((b) => b.kind === 'embassy' && b.city === this.eco.active && !b.removed)) return { ok: false, reason: t('Your town already has an Embassy — one is enough') };
     if (host && !this.hasEmbassy()) return { ok: false, reason: t('Build an Embassy first: it handles the deals with the neighbour towns') };
@@ -2612,19 +2626,32 @@ export class Game implements ToolHost {
   }
 
   /** A town that grew into the next level: news, a reward and new buildings to build. */
+  /** For each of my towns, the most people it has had (new buildings are announced when it grows past their mark). */
+  private opened = new Map<number, number>();
+
   private levelUp() {
     const pops = this.life.populationByCity();
     for (const city of this.eco.cities.values()) {
       if (city.ai) continue;
+      // buildings that open as the town grows
+      const pop = pops.get(city.id) ?? 0, was = this.opened.get(city.id);
+      if (was === undefined) this.opened.set(city.id, pop);
+      else if (pop > was) {
+        this.opened.set(city.id, pop);
+        const fresh = (Object.entries(UNLOCK_POP) as [BuildingKind, number][]).filter(([, n]) => n > was && n <= pop).map(([k]) => t(BUILDINGS[k].name));
+        if (fresh.length && !this.creative) {
+          this.life.events.unshift(t('{city} has {n} people: new buildings to build — {list}', { city: city.name, n: pop, list: fresh.join(', ') }));
+          this.hud?.toast(t('New buildings: {list}', { list: fresh.join(', ') }));
+        }
+      }
       const l = townLevel(pops.get(city.id) ?? 0);
       if (city.level === undefined) { city.level = l; continue; }
       if (l <= city.level) continue;
       city.level = l;
       const reward = l * 2000;
       this.eco.add(city, 'money', reward, 'Goal rewards');
-      const opened = Object.entries(UNLOCK_LEVEL).filter(([, v]) => v === l).map(([k]) => t(BUILDINGS[k as BuildingKind].name));
       sound.play('achieve');
-      this.life.events.unshift(t('{city} is now a {level}! +${n} from the region. New buildings: {list}', { city: city.name, level: t(TOWN_LEVELS[l].name), n: reward, list: opened.join(', ') }));
+      this.life.events.unshift(t('{city} is now a {level}! +${n} from the region.', { city: city.name, level: t(TOWN_LEVELS[l].name), n: reward }));
       this.hud?.toast(t('{city} is now a {level}!', { city: city.name, level: t(TOWN_LEVELS[l].name) }));
     }
   }
@@ -3382,7 +3409,7 @@ export class Game implements ToolHost {
     const b = c.job >= 0 ? this.buildings.get(c.job) : undefined;
     if (c.age < 3) return t('Baby');
     if (b) return t('Works at {place}', { place: t(BUILDINGS[b.kind].name) });
-    if (c.school >= 0) return this.buildings.get(c.school)?.kind === 'university' ? t('Student') : t('Pupil');
+    if (c.school >= 0) return ['university', 'college'].includes(this.buildings.get(c.school)?.kind ?? '') ? t('Student') : t('Pupil');
     if (c.age < 6) return t('Small child');
     if (c.age < 18) return t('Child (no school place)');
     if (c.age >= 65) return t('Retired');
@@ -3612,7 +3639,7 @@ export class Game implements ToolHost {
     const b = c.job >= 0 ? this.buildings.get(c.job) : undefined;
     const p = b && PROFESSIONS[b.kind];
     if (p) return t(c.skill === 2 && p[1] ? p[1] : p[0]);
-    if (c.school >= 0) return this.buildings.get(c.school)?.kind === 'university' ? t('Student') : t('Pupil');
+    if (c.school >= 0) return ['university', 'college'].includes(this.buildings.get(c.school)?.kind ?? '') ? t('Student') : t('Pupil');
     if (c.age >= 18 && c.skill === 2) return t('Graduate');
     if (c.age >= 18 && c.skill === 1) return t('Tradesman');
     return '—';
@@ -5241,6 +5268,20 @@ export class Game implements ToolHost {
         }) : [[t('No schools yet — build a school and a kindergarten'), '—', 'bad']] },
         { title: t('Education of adults'), bars: [[t('No trade'), skill[0], '#aab4be', `${skill[0]}`], [t('Learnt a trade'), skill[1], '#6fb6ff', `${skill[1]}`], [t('University degree'), skill[2], '#7be08f', `${skill[2]}`]],
           note: t('Children go to the nearest school with a free place; school leavers with good marks study 4 years at a university and earn more. Academies make learning 30% faster.') },
+        // the path of learning: school → college → university, and what the town gains from it
+        { title: t('The path of learning'), rows: (() => {
+          const at = (k: string) => people.filter((c) => c.school >= 0 && this.buildings.get(c.school)?.kind === k).length;
+          const k = this.life.knowledge.get(city.id) ?? 0;
+          const bonus = Math.round((this.life.knowledgeBonus(city.id) - 1) * 100);
+          return [
+            [`🏫 ${t('At school')}`, n(at('school'))],
+            [`📘 ${t('At college')}`, n(at('college')), at('college') ? 'good' : undefined],
+            [`🎓 ${t('At university')}`, n(at('university')), at('university') ? 'good' : undefined],
+            [`📜 ${t('College diplomas')}`, n(people.filter((c) => c.college).length)],
+            [`🧠 ${t('Knowledge of the town')}`, `${Math.round(k * 100)}%`, k >= 0.25 ? 'good' : undefined],
+            [`💼 ${t('Businesses earn more thanks to it')}`, `+${bonus}%`, bonus > 0 ? 'good' : undefined],
+          ] as [string, string, ('good' | 'bad' | undefined)?][];
+        })(), note: t("After school, young people study two years at a college (a trade, a better wage, and an easier way into university) or go straight to university with top marks. The more of the working people have studied, the more the town's businesses earn (up to +20%).") },
         { title: t('Every job and what it asks ({n})', { n: jobKinds.length }), wide: true, rows: jobKinds.map((k) => {
           const req = city.jobReq[k] ?? defaultJobReq(k);
           const list = own.filter((b) => b.kind === k && b.built >= 1);
@@ -5380,7 +5421,7 @@ export class Game implements ToolHost {
     const own = this.buildings.list.filter((b) => b.city === city.id && !b.removed);
     const lvl = townLevel(people);
     // what a businessman could build to earn: shops, businesses, places people pay to visit, workshops with takings
-    const options = (Object.keys(BUILDINGS) as BuildingKind[]).filter((k) => sellable(k) && !BUILDINGS[k].units && BUILDINGS[k].buildable && (UNLOCK_LEVEL[k] ?? 0) <= lvl && ITEMS.some((i) => i.tool === k));
+    const options = (Object.keys(BUILDINGS) as BuildingKind[]).filter((k) => sellable(k) && !BUILDINGS[k].units && BUILDINGS[k].buildable && (UNLOCK_POP[k] ?? 0) <= TOWN_LEVELS[lvl].pop && ITEMS.some((i) => i.tool === k));
     const lacking = options.filter((k) => !own.some((b) => b.kind === k));
     const pool = lacking.length ? lacking : options;
     // a real family of the town that can pay for the land and the building

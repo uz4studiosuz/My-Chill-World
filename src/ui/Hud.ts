@@ -62,6 +62,7 @@ export const ITEMS: ToolItem[] = [
   b('cemetery', 'buildings', '16 graves', 'Resting place for deceased citizens. Families buy graves. Can be upgraded.', 'cemetery'),
   b('kindergarten', 'services', '24 children', 'Children aged 3–5 play and learn here — a head start for school.', 'heart'),
   b('school', 'services', '40 pupils', 'Children aged 6–17 study here. Educated adults earn 50% more.', 'school'),
+  b('college', 'services', '50 students', 'After school, young people learn a trade here for two years: they come out with a diploma, earn more and are ready for university.', 'school'),
   b('university', 'services', '30 students', 'Young adults with a school diploma study for 4 years and become specialists with a degree.', 'school'),
   b('firestation', 'services', 'Firefighters', 'Fire trucks drive to burning buildings nearby and put the fire out.', 'energy'),
   b('busdepot', 'services', 'Public transport', 'People without a car ride the bus on longer trips. Makes the city happier.', 'car'),
@@ -167,7 +168,7 @@ export const CATS: { id: Category; label: string; icon: IconName }[] = [
 const PRIORITY: Record<string, string[]> = {
   roads: ['road', 'pipe', 'cable', 'litroad', 'path', 'roundabout', 'rail', 'tunnel', 'canal', 'path_stone', 'path_brick', 'path_gravel', 'path_wood', 'zone_res', 'zone_com', 'zone_ind', 'zone_none'],
   buildings: ['zoo', 'house', 'watertower', 'apartment', 'park', 'parking', 'cemetery', 'garage', 'embassy', 'bigpark', 'tower15', 'tower30', 'tower50'],
-  services: ['eldercare', 'school', 'kindergarten', 'hospital', 'police', 'firestation', 'sewage', 'landfill', 'weddinghall', 'busstop', 'busdepot', 'pharmacy', 'mosque', 'university', 'recycling', 'metro', 'cctv', 'levee', 'academy', 'stadium', 'concerthall', 'migration', 'military'],
+  services: ['eldercare', 'school', 'college', 'kindergarten', 'hospital', 'police', 'firestation', 'sewage', 'landfill', 'weddinghall', 'busstop', 'busdepot', 'pharmacy', 'mosque', 'university', 'recycling', 'metro', 'cctv', 'levee', 'academy', 'stadium', 'concerthall', 'migration', 'military'],
   business: ['construction', 'grocery', 'market', 'bakery', 'supermarket', 'clothes', 'dairyshop', 'kiosk', 'restaurant', 'gasstation', 'bank', 'office', 'hotel', 'carmarket', 'teahouse', 'barber', 'gym', 'cinema', 'casino', 'themepark'],
   production: ['farm', 'woodcutter', 'forestry', 'quarry', 'powerplant', 'orchard', 'ranch', 'greenhouse', 'poultry', 'apiary', 'windturbine', 'solarfarm', 'battery', 'fishery', 'warehouse', 'mill', 'sawmill', 'brickworks', 'dairy', 'ironmine', 'factory', 'coalmine', 'coalplant', 'steelmill', 'bikefactory', 'carfactory', 'hydro', 'trainstation', 'airport'],
 };
@@ -515,6 +516,8 @@ export class Hud {
     mob.append(this.playBtn, this.stepBtn, home('sbtn home-btn'), mUndo);
     window.addEventListener('keydown', (e) => { if (e.code === 'KeyH' && !(e.target instanceof HTMLInputElement) && !e.ctrlKey && !e.metaKey) h.goHome(); });
     corner.append(speeds, mob, rot, ver);
+    // online the world's clock runs for everyone at one speed: no pause or speed buttons
+    if (h.openOnline) { speeds.remove(); this.playBtn.remove(); this.stepBtn.remove(); }
     if (h.openOnline) {
       const ob = el('button', 'sbtn online-btn');
       ob.innerHTML = `${icon('globe')}<span>${t('Online')}</span>`;

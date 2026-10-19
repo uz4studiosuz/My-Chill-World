@@ -8,7 +8,7 @@ import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY, CROPS, Cr
 import {
   cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
-  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, kindergartenGeometry, hotelGeometry, windTurbineGeometry, rotorGeometry, solarFarmGeometry, trainStationGeometry, apartmentGeometry, cemeteryExtGeometry, GRAVE_OFFSETS, ironMineGeometry, fisheryGeometry, fireStationGeometry, busDepotGeometry, busStopGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, marketGeometry,
+  cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, kindergartenGeometry, hotelGeometry, windTurbineGeometry, rotorGeometry, solarFarmGeometry, trainStationGeometry, apartmentGeometry, cemeteryExtGeometry, GRAVE_OFFSETS, ironMineGeometry, fisheryGeometry, fireStationGeometry, busDepotGeometry, busStopGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, collegeGeometry, marketGeometry,
   carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
 } from '../models/buildings';
 import { cowGeometry } from '../models/animals';
@@ -203,6 +203,7 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
     case 'clothes': return clothesGeometry();
     case 'hospital': return hospitalGeometry();
     case 'university': return universityGeometry();
+    case 'college': return collegeGeometry();
     case 'market': return marketGeometry();
     case 'carmarket': return carMarketGeometry();
     case 'bank': return bankGeometry();

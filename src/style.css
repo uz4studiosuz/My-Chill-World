@@ -2861,3 +2861,16 @@ body .emb-tab em { letter-spacing: 0; background: var(--bad); color: #fff; }
 .world-acts > * { flex: 1 1 0; min-width: 0; justify-content: center; }
 .world-info b { white-space: normal; overflow-wrap: anywhere; }
 .field input.bad { border-color: var(--bad) !important; box-shadow: 0 0 0 2px rgba(240,113,103,.25); }
+.ol-new { display: flex; align-items: center; gap: 8px; margin: 6px 0; font: 800 10.5px var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--bad); }
+.ol-new::before, .ol-new::after { content: ''; flex: 1; height: 1px; background: var(--bad); opacity: .5; }
+
+/* the small round map in the corner */
+.minimap { position: absolute; right: calc(var(--side-w, 0px) + 14px); bottom: calc(var(--dock-h, 0px) + 54px); z-index: 4; pointer-events: auto; display: flex; align-items: flex-end; gap: 4px; }
+.mm-disc { position: relative; width: 156px; height: 156px; border-radius: 50%; overflow: hidden; background: radial-gradient(circle, #e6ecf1 0%, #c9d6df 100%); border: 2px solid rgba(255,255,255,.75); box-shadow: 0 4px 16px rgba(0,0,0,.35); cursor: crosshair; touch-action: none; }
+.mm-disc canvas { position: absolute; left: 14.645%; top: 14.645%; width: 70.71%; height: 70.71%; image-rendering: pixelated; transform-origin: 50% 50%; }
+.mm-n { position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #d9443b; color: #fff; font: 800 9px/16px var(--font-ui); text-align: center; font-style: normal; pointer-events: none; }
+.mm-toggle { order: -1; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--base); color: var(--text); font: 800 14px var(--font-ui); cursor: pointer; }
+.minimap.closed .mm-disc { display: none; }
+.hud.globe-mode .minimap, body.photo-mode .minimap, body.pov-mode .minimap, body.lapse-mode .minimap { display: none; }
+body:has(.inspector.show, .stats.show, .trade-panel.show, .embassy.show) .minimap .mm-disc { opacity: .25; pointer-events: none; }
+@media (max-width: 760px) { .minimap { right: 8px; } .mm-disc { width: 104px; height: 104px; } }

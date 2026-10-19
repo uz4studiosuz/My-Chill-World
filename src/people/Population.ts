@@ -26,6 +26,8 @@ export interface Citizen {
   edu: number;
   /** 0 = unskilled, 1 = learnt a trade, 2 = university degree. */
   skill: 0 | 1 | 2;
+  /** Has a college diploma. */
+  college?: boolean;
   /** 100 = full, 0 = starving. */
   hunger: number;
   /** 100 = healthy, 0 = dead. */
@@ -358,7 +360,9 @@ export class Population {
     for (const c of this.citizens.values()) before.set(c.id, [c.job, c.school]);
     const pupil = (c: Citizen) => c.age >= 6 && c.age < ADULT_AGE;
     const toddler = (c: Citizen) => c.age >= 3 && c.age < 6;
-    const student = (c: Citizen) => c.age >= ADULT_AGE && c.age < UNI_END && c.edu >= 0.9 && c.skill < 2;
+    const student = (c: Citizen) => c.age >= ADULT_AGE && c.age < UNI_END && c.edu >= (c.college ? 0.75 : 0.9) && c.skill < 2;
+    // after school, those not ready for university (or with none near) learn a trade at a college until 20
+    const collegian = (c: Citizen) => c.age >= ADULT_AGE && c.age < 20 && c.skill === 0 && c.edu >= 0.4;
     for (const c of this.citizens.values()) {
       const hb = homeOf(c);
       // a job in another town is kept while the way there is open (and the workplace still stands)
@@ -368,7 +372,7 @@ export class Population {
       if (c.school >= 0 && hb && buildings.get(c.school)?.city !== hb.city) c.school = -1;
       if (c.school >= 0) {
         const kind = buildings.get(c.school)?.kind;
-        const ok = seats.has(c.school) && seats.get(c.school)! > 0 && ((kind === 'school' && pupil(c)) || (kind === 'kindergarten' && toddler(c)) || (kind === 'university' && student(c)));
+        const ok = seats.has(c.school) && seats.get(c.school)! > 0 && ((kind === 'school' && pupil(c)) || (kind === 'kindergarten' && toddler(c)) || (kind === 'university' && student(c)) || (kind === 'college' && collegian(c)));
         if (!ok) c.school = -1;
         else seats.set(c.school, seats.get(c.school)! - 1);
       }
@@ -393,8 +397,9 @@ export class Population {
       return best;
     };
     for (const c of this.citizens.values()) {
-      if (c.school < 0 && (pupil(c) || toddler(c) || student(c))) {
-        const id = nearest(seats, homeOf(c), toddler(c) ? 'kindergarten' : pupil(c) ? 'school' : 'university');
+      if (c.school < 0 && (pupil(c) || toddler(c) || student(c) || collegian(c))) {
+        let id = pupil(c) || toddler(c) || student(c) ? nearest(seats, homeOf(c), toddler(c) ? 'kindergarten' : pupil(c) ? 'school' : 'university') : -1;
+        if (id < 0 && collegian(c)) id = nearest(seats, homeOf(c), 'college');
         if (id >= 0) { c.school = id; seats.set(id, seats.get(id)! - 1); }
       }
       if (c.job < 0 && this.canWork(c)) {
@@ -458,7 +463,7 @@ export class Population {
       }
       if (c.school !== school && c.school >= 0) {
         const k = buildings.get(c.school)?.kind;
-        this.note(c, k === 'kindergarten' ? 'Started kindergarten' : k === 'university' ? 'Entered university' : 'Started school');
+        this.note(c, k === 'kindergarten' ? 'Started kindergarten' : k === 'university' ? 'Entered university' : k === 'college' ? 'Entered college' : 'Started school');
       }
     }
   }
@@ -627,6 +632,8 @@ export class Population {
       const sb = c.school >= 0 ? buildings.get(c.school) : undefined;
       if (c.age >= ADULT_AGE && sb?.kind === 'school') { c.school = -1; this.note(c, 'Finished school'); }
       if (sb?.kind === 'university' && c.age >= UNI_END) { c.skill = 2; c.school = -1; this.note(c, 'Graduated from university with a degree'); }
+      // college: a diploma at 20 (a trade, a better wage, and a step towards university)
+      if (sb?.kind === 'college' && c.age >= 20) { c.skill = 1; c.edu = Math.min(1, c.edu + 0.15); c.school = -1; c.college = true; this.note(c, 'Graduated from college with a diploma'); }
       if (c.age >= RETIRE_AGE && c.age - PER_YEAR < RETIRE_AGE) this.note(c, 'Retired');
       if (c.age >= 20 && c.skill === 0 && c.school < 0) c.skill = 1;
       if (c.role === 'parent' && c.age >= 70) c.role = 'elder';
@@ -782,7 +789,7 @@ export class Population {
       earn: f.earn, earnY: f.earnY, bills: f.bills, mortgage: f.mortgage, friends: f.friends, feud: f.feud,
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
-        edu: c.edu, skill: c.skill, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
+        edu: c.edu, skill: c.skill, college: c.college, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
         story: c.story, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, trade: c.trade, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));

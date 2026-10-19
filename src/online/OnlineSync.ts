@@ -66,7 +66,14 @@ export class OnlineSync {
     if (this.disposed) return;
     if (!this.me) { this.host.toast(t('Online: sign in again from the main menu → Online')); return; }
     await this.refresh('all');
-    this.seenChat = this.chat[this.chat.length - 1]?.id ?? 0;
+    // the messages that came while I was away count as unread (the last one I read is kept on this device)
+    let seen = NaN;
+    try { seen = Number(localStorage.getItem(`mcw_seen_${this.worldId}`)); } catch { /* private mode */ }
+    if (Number.isFinite(seen) && seen > 0) {
+      this.seenChat = seen;
+      this.unread = this.chat.filter((m) => m.id > seen && m.user_id !== this.me).length;
+    } else this.seenChat = this.chat[this.chat.length - 1]?.id ?? 0;
+    this.host.changed();
     if (this.disposed) return;
     this.stop = Online.subscribe(this.worldId, (what) => void this.refresh(what), (state) => {
       if (this.disposed) return;
@@ -275,7 +282,14 @@ export class OnlineSync {
     return e;
   }
 
-  readChat() { this.unread = 0; this.seenChat = this.chat[this.chat.length - 1]?.id ?? this.seenChat; }
+  /** The last chat message read (for the "new messages" line). */
+  get seenChatId() { return this.seenChat; }
+
+  readChat() {
+    this.unread = 0;
+    this.seenChat = this.chat[this.chat.length - 1]?.id ?? this.seenChat;
+    try { localStorage.setItem(`mcw_seen_${this.worldId}`, `${this.seenChat}`); } catch { /* private mode */ }
+  }
 }
 
 export const GOOD_LABEL: Record<string, string> = { money: 'Money', food: 'Food', wood: 'Wood', stone: 'Stone', iron: 'Iron', bricks: 'Bricks', planks: 'Planks', coal: 'Coal' };
