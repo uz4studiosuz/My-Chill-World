@@ -2642,7 +2642,13 @@ export class Game implements ToolHost {
   private levelUp() {
     const pops = this.life.populationByCity();
     for (const city of this.eco.cities.values()) {
-      if (city.ai) continue;
+      // the neighbour towns get the same grant from the region when they grow (not only the player)
+      if (city.ai) {
+        const l = townLevel(pops.get(city.id) ?? 0);
+        if (city.level === undefined) city.level = l;
+        else if (l > city.level) { city.level = l; this.eco.add(city, 'money', l * 2000, 'Goal rewards'); }
+        continue;
+      }
       // buildings that open as the town grows
       const pop = pops.get(city.id) ?? 0, was = this.opened.get(city.id);
       if (was === undefined) this.opened.set(city.id, pop);
@@ -5825,9 +5831,11 @@ export class Game implements ToolHost {
         const ratio = c[g] / target(g);
         const mid = this.midPrice(c, g, people);
         const room = Math.floor(this.eco.capacity(c, g) - c[g]);
-        if (ratio < 2 && room >= 10) buys.push({ g, price: mid * (1 + rel / 400), room, ratio });
+        // a town never buys a good dearer than it sells it (else buying and selling back would make money from nothing)
+        const sell = mid * 1.1 * (1 - rel / 500);
+        if (ratio < 2 && room >= 10) buys.push({ g, price: Math.min(mid * (1 + rel / 400), sell * 0.95), room, ratio });
         const have = Math.floor(c[g] - target(g) * 1.2);
-        if (have >= 10) sells.push({ g, price: mid * 1.1 * (1 - rel / 500), have });
+        if (have >= 10) sells.push({ g, price: sell, have });
       }
       const wants = buys.filter((w) => w.ratio < 1).sort((a, b) => a.ratio - b.ratio).slice(0, 3);
       const offers = sells.slice().sort((a, b) => b.have - a.have).slice(0, 3);

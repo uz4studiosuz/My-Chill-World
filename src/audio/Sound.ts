@@ -10,7 +10,6 @@ const KEY = 'mcw_audio';
 /** Master levels: calm and a little quiet. */
 const SFX_LEVEL = 0.32;
 const NATURE_LEVEL = 0.6;
-const SCALE = [0, 2, 4, 7, 9, 12, 14, 16];
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
@@ -291,39 +290,145 @@ class SoundEngine {
     this.tone(140, 0.12, 'sine', vol, 60);
   }
 
-  /** Soft generative music: a pad note and a few plucks every couple of seconds. */
+  /**
+   * Calm background music, composed as it plays: warm chords (a pad), a soft bass and a little music-box tune that
+   * comes back with small changes, at a slow 72 beats a minute, in a room's reverb. The chords move through a few
+   * gentle progressions; now and then the tune rests so it never tires the ear.
+   */
   private scheduleMusic() {
     const ctx = this.ctx!;
-    const step = () => {
-      if (this.ctx && this.musicOn && ctx.state === 'running') {
-        const root = 196; // G3
-        const t0 = ctx.currentTime;
-        const pad = SCALE[Math.floor(Math.random() * 4)];
-        this.musicNote(root * Math.pow(2, pad / 12) / 2, t0, 3.6, 0.5, 'sine');
-        for (let i = 0; i < 3; i++) {
-          if (Math.random() < 0.35) continue;
-          const n = SCALE[Math.floor(Math.random() * SCALE.length)];
-          this.musicNote(root * Math.pow(2, n / 12), t0 + i * 0.8 + Math.random() * 0.2, 1.2, 0.35, 'triangle');
+    // the room: a soft reverb made from fading noise, and a warm low-pass over everything
+    const room = ctx.createConvolver();
+    const len = Math.floor(ctx.sampleRate * 3.2);
+    const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+    room.buffer = ir;
+    const warm = ctx.createBiquadFilter();
+    warm.type = 'lowpass'; warm.frequency.value = 2600; warm.Q.value = 0.3;
+    const dry = ctx.createGain(), wet = ctx.createGain();
+    dry.gain.value = 0.75; wet.gain.value = 0.45;
+    this.musicBus = ctx.createGain();
+    this.musicBus.connect(warm);
+    warm.connect(dry).connect(this.musicGain!);
+    warm.connect(room).connect(wet).connect(this.musicGain!);
+
+    const BEAT = 60 / 72, BAR = BEAT * 4;
+    const midi = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
+    // progressions in C major / A minor (chord tones as MIDI notes around the middle)
+    const PROGS: number[][][] = [
+      [[48, 55, 59, 64], [45, 52, 55, 60], [41, 48, 52, 57], [43, 50, 55, 59]], // Cmaj7 · Am7 · Fmaj7 · G
+      [[41, 48, 52, 57], [40, 47, 50, 55], [38, 45, 48, 53], [48, 55, 59, 64]], // Fmaj7 · Em7 · Dm7 · Cmaj7
+      [[45, 52, 55, 59], [41, 48, 52, 57], [48, 55, 60, 64], [43, 50, 55, 62]], // Am9 · Fmaj7 · C · G
+    ];
+    const PENTA = [0, 2, 4, 7, 9];
+    let prog = PROGS[0], chordI = 0, barInChord = 0, section = 0;
+    let motif: (number | null)[] = [];
+    const newMotif = () => {
+      // eight eighth-notes: steps on the pentatonic scale, with rests so it breathes
+      motif = [];
+      let deg = Math.floor(Math.random() * 5);
+      for (let i = 0; i < 8; i++) {
+        if (i > 0 && Math.random() < 0.35) { motif.push(null); continue; }
+        deg = Math.max(0, Math.min(9, deg + [-2, -1, 1, 1, 2][Math.floor(Math.random() * 5)]));
+        motif.push(deg);
+      }
+    };
+    newMotif();
+    let next = ctx.currentTime + 0.5;
+    const bar = (t0: number) => {
+      const chord = prog[chordI];
+      // the pad: the whole chord, slowly swelling over the two bars it lasts
+      if (barInChord === 0) for (const n of chord.slice(1)) this.padNote(midi(n), t0, BAR * 2 + 0.6, 0.11);
+      // the bass: the root on the first beat, again softly on the third
+      this.bassNote(midi(chord[0]), t0, BAR * 0.9, 0.22);
+      if (Math.random() < 0.6) this.bassNote(midi(chord[0]), t0 + BEAT * 2, BAR * 0.45, 0.12);
+      // the tune: the section's motif over the chord (rests every fourth bar)
+      if (section % 4 !== 3) {
+        const base = 72 + (chord[0] % 12 === 9 ? -3 : 0);
+        motif.forEach((deg, i) => {
+          if (deg === null) return;
+          // a little variation each time it comes back
+          const d = Math.random() < 0.15 ? deg + (Math.random() < 0.5 ? 1 : -1) : deg;
+          const oct = Math.floor(d / 5), m = base + oct * 12 + PENTA[((d % 5) + 5) % 5];
+          this.bellNote(midi(m), t0 + i * BEAT * 0.5 + (Math.random() - 0.5) * 0.02, 1.6, 0.09 + Math.random() * 0.03);
+        });
+      }
+      // move on: two bars a chord, four chords a phrase; a new motif and sometimes a new progression each phrase
+      barInChord++;
+      if (barInChord >= 2) {
+        barInChord = 0; chordI++;
+        if (chordI >= prog.length) {
+          chordI = 0; section++;
+          if (section % 2 === 0) newMotif();
+          if (section % 4 === 0) prog = PROGS[Math.floor(Math.random() * PROGS.length)];
         }
       }
-      this.musicTimer = window.setTimeout(step, 2800);
+    };
+    const tick = () => {
+      if (this.ctx && this.musicOn && ctx.state === 'running') {
+        // schedule a little ahead so the notes are always on time
+        if (next < ctx.currentTime) next = ctx.currentTime + 0.1;
+        while (next < ctx.currentTime + 1.5) { bar(next); next += BAR; }
+      } else next = ctx.currentTime + 0.5;
+      this.musicTimer = window.setTimeout(tick, 400);
     };
     clearTimeout(this.musicTimer);
-    step();
+    tick();
   }
 
-  private musicNote(freq: number, t0: number, dur: number, vol: number, type: OscillatorType) {
+  private musicBus: GainNode | null = null;
+
+  /** A soft pad voice: two slightly detuned sines and a quiet triangle, swelling in and out. */
+  private padNote(freq: number, t0: number, dur: number, vol: number) {
+    const ctx = this.ctx!;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + dur * 0.35);
+    g.gain.linearRampToValueAtTime(vol * 0.8, t0 + dur * 0.7);
+    g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+    g.connect(this.musicBus!);
+    const voices: [OscillatorType, number, number][] = [['sine', -4, 0.5], ['sine', 4, 0.5], ['triangle', 0, 0.18]];
+    for (const [type, cents, level] of voices) {
+      const o = ctx.createOscillator(), vg = ctx.createGain();
+      o.type = type; o.frequency.value = freq; o.detune.value = cents;
+      vg.gain.value = level;
+      o.connect(vg).connect(g);
+      o.onended = () => { o.disconnect(); vg.disconnect(); };
+      o.start(t0); o.stop(t0 + dur + 0.05);
+    }
+    window.setTimeout(() => g.disconnect(), (t0 - ctx.currentTime + dur + 0.5) * 1000);
+  }
+
+  /** A round, soft bass note. */
+  private bassNote(freq: number, t0: number, dur: number, vol: number) {
     const ctx = this.ctx!;
     const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = type;
-    o.frequency.value = freq;
+    o.type = 'sine'; o.frequency.value = freq;
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.linearRampToValueAtTime(vol, t0 + dur * 0.3);
-    g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
-    o.connect(g).connect(this.musicGain!);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(this.musicBus!);
     o.onended = () => { o.disconnect(); g.disconnect(); };
-    o.start(t0);
-    o.stop(t0 + dur + 0.05);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+
+  /** A music-box note: a sine with a faint octave above, quick to sound and slow to fade. */
+  private bellNote(freq: number, t0: number, dur: number, vol: number) {
+    const ctx = this.ctx!;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    g.connect(this.musicBus!);
+    for (const [mul, level] of [[1, 1], [2, 0.18], [3, 0.05]] as const) {
+      const o = ctx.createOscillator(), vg = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = freq * mul;
+      vg.gain.value = level;
+      o.connect(vg).connect(g);
+      o.onended = () => { o.disconnect(); vg.disconnect(); };
+      o.start(t0); o.stop(t0 + dur + 0.05);
+    }
+    window.setTimeout(() => g.disconnect(), (t0 - ctx.currentTime + dur + 0.5) * 1000);
   }
 }
 

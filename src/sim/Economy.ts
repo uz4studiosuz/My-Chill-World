@@ -236,8 +236,12 @@ export class Economy {
   /** How much of a good a town can keep (town hall + warehouses); set by the game. */
   capacity: (city: City, res: Res) => number = () => Infinity;
 
+  /** Money paid for building (houses, roads…): the town's construction company gets its share (set by the game). */
+  buildPaid?: (city: City, money: number) => void;
+
   add(city: City, res: Res, amount: number, reason: string) {
     if (!amount) return;
+    if (res === 'money' && amount < 0 && (reason === 'Construction' || reason === 'Roads')) this.buildPaid?.(city, -amount);
     if (amount > 0 && res !== 'money') {
       // no room in the stores: what does not fit spoils
       const room = Math.max(0, this.capacity(city, res) - city[res]);

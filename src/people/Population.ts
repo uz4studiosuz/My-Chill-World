@@ -178,6 +178,8 @@ export interface DayReport {
   deaths: DeathReport[];
   /** Who married: the names, the new home and the two families they came from. */
   weddings: [string, string, number?, number?, number?][];
+  /** Wages paid tonight per workplace (who pays them is settled by the game). */
+  wagesBy: Map<number, number>;
   leftTown: number;
   carsBought: number;
   /** Bikes bought, and old bikes sold back to the factory (when the family bought a car). */
@@ -539,7 +541,7 @@ export class Population {
 
   /** End-of-day settlement: wages, meals, health, ageing, births, deaths, weddings, moving out. */
   daily(buildings: Buildings, belongs: (f: Family) => boolean, food: number, water: number, freeHomes: () => Building[], hasHall: boolean, opts: DailyOptions = { heal: 0, shops: { market: false, grocery: false, clothes: false }, carStock: 0, safety: 0, taxRate: 0.25 }): DayReport {
-    const r: DayReport = { rent: new Map(), spent: { market: 0, grocery: 0, clothes: 0 }, utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], leftTown: 0, carsBought: 0, bikesBought: 0, bikesSold: 0 };
+    const r: DayReport = { rent: new Map(), spent: { market: 0, grocery: 0, clothes: 0 }, utilities: 0, shopping: 0, carSales: 0, incidents: [], incomeTax: 0, publicWages: 0, foodEaten: 0, foodSales: 0, propertyTax: 0, births: 0, deaths: [], weddings: [], wagesBy: new Map(), leftTown: 0, carsBought: 0, bikesBought: 0, bikesSold: 0 };
     let foodLeft = food;
     const die = (c: Citizen, cause: DeathCause) => {
       const f = this.families.get(c.family);
@@ -558,6 +560,7 @@ export class Population {
         const b = buildings.get(c.job);
         const gross = this.wage(c, b);
         if (b && BUILDINGS[b.kind].publicJob) r.publicWages += gross;
+        else if (b) r.wagesBy.set(b.id, (r.wagesBy.get(b.id) ?? 0) + gross);
         r.incomeTax += gross * opts.taxRate;
         earned += gross * (1 - opts.taxRate);
       }
@@ -566,8 +569,8 @@ export class Population {
         if (foodLeft >= 1) {
           foodLeft--;
           r.foodEaten++;
-          r.foodSales += FOOD_PRICE * (opts.foodPrice ?? 1);
-          earned -= FOOD_PRICE * (opts.foodPrice ?? 1);
+          // the food was paid for in the shop when it was bought (only what is eaten without a shop is paid here)
+          if (opts.foodPrice !== 0) { r.foodSales += FOOD_PRICE * (opts.foodPrice ?? 1); earned -= FOOD_PRICE * (opts.foodPrice ?? 1); }
           c.hunger = 100;
           c.energy = Math.min(100, (c.energy ?? 80) + 10);
         }

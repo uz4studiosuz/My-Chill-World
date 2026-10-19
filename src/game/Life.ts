@@ -10,7 +10,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, OWNER_SHARE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE, DIG_PER_LEVEL, UTILITY } from '../buildings/BuildingTypes';
+import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE, DIG_PER_LEVEL, UTILITY } from '../buildings/BuildingTypes';
 import type { BuildingKind, CropKind } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
@@ -98,6 +98,10 @@ const FOOD_RATE = { adult: 1.4, child: 0.9, baby: 0.4 };
 /** Winter heating: wood each home burns per day and the price the town hall sells it for. */
 const HEATING = { woodPerHome: 1.2, price: 3 };
 /** Activities of workers who are out driving a service vehicle (they stay on duty until back). */
+/** Workplaces whose staff are paid by firms from outside the town (the offices rent their floors here). */
+const OUTSIDE_PAID = new Set<string>(['office']);
+/** Of what is paid for building, the share that is the builders' work (the rest is materials). */
+const BUILD_LABOUR = 0.35;
 const DRIVING = new Set(['Driving the bus', 'On patrol', 'Driving a truck', 'Driving the fire truck', 'Driving the ambulance', 'Drilling on the parade ground', 'Collecting garbage']);
 export type WeatherMood = 'clear' | 'fog' | 'blizzard' | 'heat';
 const CARGO_PURPOSE: Record<CargoKind, string> = {
@@ -244,6 +248,8 @@ export class Life {
   private sprays: { b: Building; x: number; z: number; t: number; done: () => void }[] = [];
 
   constructor(private c: LifeContext) {
+    // building money: the builders' share becomes the construction company's takings
+    this.c.eco.buildPaid = (city, m) => this.buildPaid.set(city.id, (this.buildPaid.get(city.id) ?? 0) + m);
     this.leisure = new Leisure(c, this);
     c.walkers.uniformOf = (w) => (w.citizen !== undefined ? this.uniformFor(w.citizen) : undefined);
     const { map, net, footpaths, canals, buildings, traffic } = c;
@@ -363,8 +369,29 @@ export class Life {
     // the business pays its staff out of its takings (shown in its accounts)
     b.wagesToday = (b.wagesToday ?? 0) + gross;
     if (BUILDINGS[b.kind].publicJob) this.cash(b.city, -gross, 'publicWages');
+    else this.chargeWages(b, gross);
     this.cash(b.city, tax, 'incomeTax');
   }
+
+  /**
+   * Who pays a wage (the money has to come from somewhere): the owner family pays its staff out of its own purse
+   * (the takings come back to it in the evening); a workplace of the town (a farm, a mine, a mill, a town shop…)
+   * is paid by the town hall, which gets its goods or takings; office firms are paid from outside the town.
+   */
+  private chargeWages(b: Building, gross: number) {
+    if (gross <= 0 || OUTSIDE_PAID.has(b.kind)) return;
+    const owner = b.owner >= 0 ? this.c.pop.families.get(b.owner) : undefined;
+    if (owner) {
+      owner.money -= gross;
+      const e = (owner.earn ??= {});
+      e['Wages paid to staff'] = (e['Wages paid to staff'] ?? 0) - gross;
+    } else this.cash(b.city, -gross, 'publicWages');
+  }
+
+  /** Building money paid today in each town (a share of it is the construction company's takings). */
+  private buildPaid = new Map<number, number>();
+  /** Food bought in the shops today, per town (money). */
+  private foodPaid = new Map<number, number>();
 
   /** Send someone who is at home to a leisure place until `until` (time of day). */
   planOuting(c: Citizen, dest: Building, until: number) {
@@ -887,8 +914,10 @@ export class Life {
         safety: Math.min(0.95, this.policeCover(city.id) * 0.75 + (own.some((b) => b.kind === 'military' && b.workers > 0) ? MILITARY.safety : 0)),
         eduBoost: (own.some((b) => b.kind === 'academy' && b.workers > 0) ? 0.3 : 0) + (city.laws?.includes('meals') ? 0.2 : 0) + ((city.budget?.edu ?? 100) - 100) / 100,
         waterAt: (home) => this.homeWater.get(home) ?? city.water,
-        foodPrice: city.priceFactor,
+        // food is paid for in the shop when it is bought, not again at dinner
+        foodPrice: 0,
       });
+      for (const [bid, gross] of r.wagesBy) { const wb = buildings.get(bid); if (wb) this.chargeWages(wb, gross); }
       city.foodYesterday = { made: Math.round(city.foodMade), eaten: r.foodEaten };
       city.foodMade = 0;
       let rentToCity = 0;
@@ -919,12 +948,24 @@ export class Life {
           const owner = b.owner >= 0 ? pop.families.get(b.owner) : undefined;
           tillSales = taxed;
           tillTax = taxed * city.taxRate * 0.8;
-          if (owner && taxed) { tillProfit = taxed * (1 - city.taxRate * 0.8) * OWNER_SHARE; this.earn(owner, tillProfit, 'Business profit'); }
+          // the net takings: the owner's (who paid the staff), or the town's for a town shop
+          if (owner && taxed) { tillProfit = taxed * (1 - city.taxRate * 0.8); this.earn(owner, tillProfit, 'Business profit'); }
+          else if (taxed) business += taxed * (1 - city.taxRate * 0.8);
           turnover -= taxed;
         } else if (b.kind === 'carmarket') {
           turnover = b.workers > 0 ? r.carSales / Math.max(1, working('carmarket').length) : 0;
+        } else if (b.kind === 'construction') {
+          // the builders' share of what the town paid for building today (the rest bought the materials)
+          const yards = working('construction').length || 1;
+          turnover = b.workers > 0 ? ((this.buildPaid.get(city.id) ?? 0) * BUILD_LABOUR) / yards : 0;
+        } else if (b.kind === 'bank') {
+          // the bank's fee from the loan interest (settled with the town in the banking)
+          turnover = 0;
         } else if (d.revenue) {
-          turnover = d.revenue * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5) * this.econFactor * this.knowledgeBonus(city.id);
+          // offices, garages and factories sell to the town and the region: more people, more customers
+          const people = this.people.get(city.id) ?? 0;
+          const demand = b.kind === 'factory' || b.kind === 'carfactory' ? 1 : Math.max(0.3, Math.min(1.4, people / 200));
+          turnover = d.revenue * demand * (d.jobs ? Math.min(1, b.workers / d.jobs) : 1) * (b.powered ? 1 : 0.5) * this.econFactor * this.knowledgeBonus(city.id);
         }
         const items = b.sold;
         b.sold = undefined;
@@ -952,15 +993,25 @@ export class Life {
           b.wageF = Math.round(nf * 100) / 100;
         }
         if (owner) {
-          const p = turnover * (1 - city.taxRate * 0.8) * OWNER_SHARE;
+          // the owner keeps the net takings (the staff were paid out of their purse during the day)
+          const p = turnover * (1 - city.taxRate * 0.8);
           this.earn(owner, p, 'Business profit');
-          profit += p;
-        } else if (b.owner >= 0) b.owner = -1;
+          profit += p - wages;
+        } else {
+          if (b.owner >= 0) b.owner = -1;
+          // a business of the town: its takings go to the town hall (which paid its staff)
+          business += turnover * (1 - city.taxRate * 0.8);
+        }
         // yesterday's accounts: the takings paid the staff, the tax and the owner's profit
         b.books = { revenue: Math.round(turnover + tillSales + wages), wages: Math.round(wages), tax: Math.round(turnover * city.taxRate * 0.8 + tillTax), profit: Math.round(profit), items };
         keep(b.books.revenue);
       }
-      const net = Math.round(r.incomeTax + r.foodSales + r.propertyTax + rentToCity + r.utilities + business - r.publicWages - upkeep);
+      // the construction company has had its share of today's building money
+      this.buildPaid.delete(city.id);
+      const foodToday = this.foodPaid.get(city.id) ?? 0;
+      this.foodPaid.delete(city.id);
+      r.foodSales += foodToday;
+      const net = Math.round(r.incomeTax + r.foodSales - foodToday + r.propertyTax + rentToCity + r.utilities + business - r.publicWages - upkeep);
       city.money += net;
       // the evening settlement, item by item, in the books
       const book = (amount: number, reason: string) => eco.note(city, 'money', amount, reason);
@@ -974,7 +1025,7 @@ export class Life {
       city.balance = {
         incomeTax: Math.round(r.incomeTax + lv.incomeTax), foodSales: r.foodSales, propertyTax: r.propertyTax + rentToCity,
         businessTax: Math.round(business + lv.businessTax), utilities: Math.round(r.utilities), publicWages: Math.round(r.publicWages + lv.publicWages),
-        upkeep, net: Math.round(net + liveNet), fares: Math.round(lv.fares), services: Math.round(lv.services),
+        upkeep, net: Math.round(net + foodToday + liveNet), fares: Math.round(lv.fares), services: Math.round(lv.services),
       };
       city.deaths = r.deaths.length;
 
@@ -1405,6 +1456,7 @@ export class Life {
     const { pop, buildings } = this.c;
     const banks = buildings.list.filter((b) => b.kind === 'bank' && b.city === city.id && b.built >= 1 && b.workers > 0);
     const st: { deposits: number; loans: number; paid: number; earned: number; borrowers: number; savers: number; lent?: number } = { deposits: 0, loans: 0, paid: 0, earned: 0, borrowers: 0, savers: 0 };
+    const savers: [Family, number][] = [];
     for (const f of pop.families.values()) {
       if (buildings.get(f.home)?.city !== city.id) continue;
       if (f.loan && f.loan > 0) {
@@ -1432,23 +1484,29 @@ export class Life {
       }
       if (banks.length && f.money > 300) {
         const dep = (f.money - 300) * BANKING.saveShare;
-        const i = dep * BANKING.deposit;
-        this.earn(f, i, 'Bank interest');
-        st.paid += i;
+        savers.push([f, dep]);
         st.deposits += dep;
         st.savers++;
       }
     }
     this.bankStats.set(city.id, st);
     if (!banks.length) return;
-    // the bank also invests the deposits; what is left after the interest it pays is profit, taxed now
-    // the interest on loans already went to the town; the bank earns on the deposits it invests
-    const profit = st.deposits * 0.002 - st.paid;
-    if (profit > 0) {
-      this.cash(city.id, profit * city.taxRate * 0.8, 'businessTax');
+    // the savers' interest comes out of what the borrowers paid (the loans were the town's money, so the town
+    // pays it out of the interest it got); the bank keeps a fee; nothing comes from nowhere
+    const pool = st.earned * 0.6;
+    const rate = st.deposits > 0 ? Math.min(BANKING.deposit, pool / st.deposits) : 0;
+    for (const [f, dep] of savers) { const i = dep * rate; this.earn(f, i, 'Bank interest'); st.paid += i; }
+    if (st.paid) this.c.eco.add(city, 'money', -st.paid, 'Interest paid to savers');
+    const fee = st.earned * 0.25;
+    if (fee > 0) {
       for (const b of banks) {
         const owner = b.owner >= 0 ? pop.families.get(b.owner) : undefined;
-        if (owner) owner.money += (profit / banks.length) * (1 - city.taxRate * 0.8) * OWNER_SHARE;
+        if (!owner) continue;
+        // a family's bank: the town hands it its fee, taxed like any business
+        const share = fee / banks.length;
+        this.c.eco.add(city, 'money', -share, 'Bank fees to private banks');
+        this.earn(owner, share * (1 - city.taxRate * 0.8), 'Business profit');
+        this.cash(city.id, share * city.taxRate * 0.8, 'businessTax');
       }
     }
     if (st.borrowers && Math.random() < 0.15) say(t('{n} families are paying back bank loans', { n: st.borrowers }));
@@ -1630,6 +1688,12 @@ export class Life {
         const n = Math.min(city.food, fn.need * 3 - f.pantry);
         city.food -= n;
         f.pantry += n;
+        // paid at the till (the town's food stores sell it)
+        const cost = n * TRADE_PRICE.food * city.priceFactor;
+        f.money -= cost;
+        city.money += cost;
+        eco.note(city, 'money', cost, 'Food sales');
+        this.foodPaid.set(city.id, (this.foodPaid.get(city.id) ?? 0) + cost);
         bought.set(city.id, (bought.get(city.id) ?? 0) + n);
       }
       const need = (fn.need * dt) / DAY_SECONDS;

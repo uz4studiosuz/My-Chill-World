@@ -4078,4 +4078,6 @@ export const UZ: Record<string, string> = {
   "{n} homes are getting a new floor: their families have everything they need": "{n} ta uyga yangi qavat qo'shilmoqda: oilalarning hamma narsasi yetarli",
   "A floor is being added · {n}%": "Qavat qo'shilmoqda · {n}%",
   "{n} homes have no food shop within reach: build a grocery or a market near them": "{n} ta uyning yaqinida oziq-ovqat do'koni yo'q: yaqiniga oziq-ovqat do'koni yoki bozor quring",
+  "Wages paid to staff": "Xodimlarga to'langan maosh",
+  "Bank fees to private banks": "Xususiy banklarga to'lov",
 };

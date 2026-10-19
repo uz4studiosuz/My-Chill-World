@@ -223,7 +223,8 @@ export class AutoCity {
     for (const [g, need] of [['food', people * 4], ['wood', 80], ['stone', 80], ['iron', 30]] as const) {
       const extra = city[g] - need * keep - 40;
       if (extra <= 20) continue;
-      this.h.sellGoods(city, g, Math.floor(extra * (style === 'trader' ? 0.5 : 0.25)));
+      // short of money: the town sells more of what it has too much of (its workers' wages have to be paid)
+      this.h.sellGoods(city, g, Math.floor(extra * (city.money < 2500 ? 0.6 : style === 'trader' ? 0.5 : 0.25)));
     }
     // how the town is doing
     const before = this.mood.get(city.id);
