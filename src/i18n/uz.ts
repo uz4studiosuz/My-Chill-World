@@ -4059,4 +4059,5 @@ export const UZ: Record<string, string> = {
   "{n} of {m} playing now · the same time for everyone · towns of players who are away run on autopilot": "{m} kishidan {n} tasi hozir o'ynamoqda · hammaga bir xil vaqt · yo'q o'yinchilarning shaharlari avtopilotda",
   "Ask your friends to choose {server} in Online on the main menu: their towns appear here and on your map.": "Do'stlaringiz bosh menyudagi Onlayn bo'limida {server} serverini tanlasin: ularning shaharlari shu yerda va xaritangizda paydo bo'ladi.",
   "New messages": "Yangi xabarlar",
+  "Riding in the builders' van": "Quruvchilar furgonida ketyapti",
 };

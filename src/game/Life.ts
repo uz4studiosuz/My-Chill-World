@@ -1958,6 +1958,8 @@ export class Life {
 
   /** The economy: 1 normal, below 1 in a crisis, above 1 in a boom (set by the game). Sales, prices and mood follow it. */
   econFactor = 1;
+  /** Builders' vans on the way, by site: who rides along (each gets out when the van arrives). */
+  private vans = new Map<number, (() => void)[]>();
   /** Per town: the share of learned working-age people (0..1). */
   knowledge = new Map<number, number>();
   /** Learned towns earn more: businesses take up to +20% when half the working people have studied. */
@@ -4258,14 +4260,25 @@ export class Life {
     // a far site: the builders ride there in the company's yellow van
     const { traffic } = this.c;
     if (!c.walker && dist(site, yard) > 8 && yard.access >= 0 && site.access >= 0 && traffic.canRoute(yard.access, site.access)) {
+      // the crew rides together: one van per site; the others get in with the driver
+      const going = this.vans.get(site.id);
+      if (going) {
+        c.activity = "Riding in the builders' van";
+        going.push(() => { if (arrive()) work(); });
+        return;
+      }
       c.activity = 'Driving to a construction site';
+      const crew: (() => void)[] = [() => { if (arrive()) work(); }];
+      this.vans.set(site.id, crew);
+      const done = () => { this.vans.delete(site.id); for (const f of crew) f(); };
       const ok = traffic.spawn({
         kind: 'car', from: yard.access, to: site.access, fromPos: buildings.door(yard), toPos: buildings.door(site), color: new THREE.Color('#f2b33d'),
         purpose: 'Builders on the way', driverId: c.id, driverName: this.fullName(c), fromName: BUILDINGS.construction.name, destName: BUILDINGS[site.kind].name,
-        onArrive: () => { if (arrive()) work(); },
-        onFail: () => { if (arrive()) work(); },
+        onArrive: done,
+        onFail: done,
       });
       if (ok) return;
+      this.vans.delete(site.id);
     }
     c.activity = 'Walking to a construction site';
     const fromTile = c.walker && !c.walker.leaving ? tileAt(from) : buildings.frontTile(yard);
