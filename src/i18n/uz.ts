@@ -4218,4 +4218,5 @@ export const UZ: Record<string, string> = {
   "Not everyone fitted — {n} more live here! 📲 Go to my Telegram channel (link in bio): the game's site is there — find yourself in the town 🔎": "Hammasi sig'madi — yana {n} kishi bor! 📲 Telegram kanalimga o'ting (havola bioda): u yerda o'yin sayti bor — o'zingizni shahardan toping 🔎",
   "📲 Go to my Telegram channel (link in bio): the game's site is there — find yourself in the town 🔎": "📲 Telegram kanalimga o'ting (havola bioda): u yerda o'yin sayti bor — o'zingizni shahardan toping 🔎",
   "link in bio": "havola bioda",
+  "Hide info": "Ma'lumotni yopish",
 };

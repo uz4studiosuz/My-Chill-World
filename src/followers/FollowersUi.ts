@@ -56,6 +56,9 @@ export class FollowersUi {
   private studio = el('div', 'studio');
   private banner = el('div', 'fol-banner');
   private chip = el('button', 'fol-chip');
+  /** The picked follower: who it is, with the button that opens their card. */
+  private pick = el('div', 'fol-pick');
+  private pickSig = '';
   private tags = new Map<string, HTMLDivElement>();
   private tagDraw: TagDraw[] = [];
   private fresh = new Map<string, number>();
@@ -130,7 +133,8 @@ export class FollowersUi {
     const ui = document.getElementById('ui');
     if (ui) ui.before(this.tagLayer); else document.body.append(this.tagLayer);
     this.chip.addEventListener('click', () => location.reload());
-    document.body.append(this.panel, this.banner, this.chip, this.studio);
+    document.body.append(this.panel, this.banner, this.chip, this.pick, this.studio);
+    for (const ev of ['pointerdown', 'wheel']) this.pick.addEventListener(ev, (e) => e.stopPropagation());
     // a phone shows the town first: the panel waits folded at the top until it is tapped
     if (window.innerWidth <= 760) this.panel.classList.add('folded');
     document.body.classList.add('followers-town');
@@ -172,6 +176,7 @@ export class FollowersUi {
     this.tagLayer.remove();
     this.banner.remove();
     this.chip.remove();
+    this.pick.remove();
     this.studio.remove();
     document.body.classList.remove('followers-town');
   }
@@ -338,6 +343,24 @@ export class FollowersUi {
     this.listSig = '';
     this.renderList();
     this.flash(t('{n} newest followers marked', { n: newest.length }));
+  }
+
+  /** The bar of the picked follower: their name, age and work, 'Info' (their card) and close. */
+  private updatePick() {
+    const p = this.studioOn ? null : this.game.pickedFollower();
+    if (!p) { if (this.pickSig) { this.pickSig = ''; this.pick.classList.remove('show'); } return; }
+    const info = this.game.followerInfo(p.c);
+    const sig = `${p.c.id}|${p.card}|${info.age}|${info.work}|${info.activity}`;
+    if (sig === this.pickSig) return;
+    this.pickSig = sig;
+    const ava = el('span', `fol-ava ${p.c.sex === 'f' ? 'f' : 'm'}`, info.nick.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 1).toUpperCase() || '@');
+    const text = el('div', 'fol-pick-text');
+    text.append(el('b', '', at(info.nick)), el('small', '', [t('{n} years old', { n: info.age }), info.work, info.activity].filter(Boolean).join(' · ')));
+    const infoBtn = button(p.card ? t('Hide info') : `ℹ️ ${t('Info')}`, () => { this.game.togglePickedCard(); this.pickSig = ''; this.updatePick(); }, `fol-pick-btn${p.card ? ' on' : ''}`);
+    const x = button('✕', () => this.game.clearSelection(), 'fol-icon');
+    x.title = t('Close');
+    this.pick.replaceChildren(ava, text, infoBtn, x);
+    this.pick.classList.add('show');
   }
 
   /** On a phone the panel folds (and the keyboard goes) when someone is picked: the card and the town show. */
@@ -742,8 +765,10 @@ export class FollowersUi {
       // the most important first: the newest (gold) and the starred, then people out in the street, then the
       // nearest to the middle of the screen; a tag that would cover one already placed is left out
       const close = view < 9;
+      const picked = this.game.pickedFollower()?.c.fol;
       for (const o of onScreen) {
-        const starred = o.g.nicks.some((n) => this.marked.has(n));
+        const starred = o.g.nicks.some((n) => this.marked.has(n) || n === picked);
+        if (picked && o.g.nicks.includes(picked)) o.g.gold = true;
         o.d += (o.key === 'spot' ? -10 : 0) + (o.g.gold ? -3 : 0) + (starred ? -2 : 0) + (o.g.inside ? 0.25 : 0);
       }
       onScreen.sort((a, b) => a.d - b.d);
@@ -996,6 +1021,7 @@ export class FollowersUi {
     this.updateTags();
     this.listT -= dt;
     if (this.listT <= 0) { this.listT = 1; this.renderList(); this.placePanel(); }
+    this.updatePick();
     this.townT -= dt;
     if (this.townT <= 0) { this.townT = 2; if (this.tab === 'town' && !this.panel.classList.contains('folded')) this.renderTown(); }
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) this.banner.classList.remove('show'); }

@@ -3121,3 +3121,15 @@ body.portrait-916 .cap-head { max-width: calc(100vh * 9 / 16 * 0.9); }
   .fol-titles b { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fol-panel { max-height: calc(100vh - 190px); }
 }
+
+/* the picked follower: a bar at the bottom with their name and the button that opens their card */
+.fol-pick { position: fixed; z-index: 45; left: 50%; bottom: 150px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; display: grid; grid-template-columns: 34px 1fr auto auto; align-items: center; gap: 10px; width: min(420px, calc(100vw - 24px)); box-sizing: border-box; padding: 9px 10px 9px 12px; border-radius: 16px; background: rgba(21,26,23,.95); border: 1px solid rgba(255,200,74,.45); box-shadow: 0 12px 30px rgba(0,0,0,.4), 0 0 0 3px rgba(255,200,74,.12); color: var(--text); transition: opacity .25s, transform .25s; }
+.fol-pick.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.fol-pick .fol-ava { width: 34px; height: 34px; font-size: 15px; }
+.fol-pick-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.fol-pick-text b { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fol-pick-text small { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fol-pick-btn { border: 0; border-radius: 10px; padding: 8px 12px; font-weight: 800; font-size: 12.5px; cursor: pointer; background: linear-gradient(135deg, #ffd166, #ff9d5c); color: #2b1600; white-space: nowrap; }
+.fol-pick-btn.on { background: rgba(255,255,255,.1); color: var(--text); }
+body.studio-mode .fol-pick { display: none; }
+@media (max-width: 760px) { .fol-pick { bottom: 120px; } }

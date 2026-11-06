@@ -2344,6 +2344,7 @@ export class Game implements ToolHost {
     if (s?.type !== this.selection?.type || s?.id !== this.selection?.id) { this.following = false; this.aptFamily = null; }
     // the followers' town: picking someone or something closes the open windows (on a phone they would cover the card)
     if (s && this.followers && (s.type !== this.selection?.type || s.id !== this.selection?.id)) { this.closeAllPanels(); this.followersUi?.collapseOnPhone(); }
+    if (this.followers) this.cardHeld = s?.type === 'person';
     const eb = s?.type === 'building' ? this.buildings.get(s.id) : undefined;
     if (eb?.kind === 'embassy' && eb.built >= 1 && !this.cityOf(eb).ai && this.routeEdit < 0) {
       // the embassy has its own window: nothing else opens with it
@@ -3342,6 +3343,22 @@ export class Game implements ToolHost {
     this.cam.flyTo(x, z, view, seconds);
   }
 
+  /** The followers' town: the picked person's card waits for the 'Info' button. */
+  private cardHeld = false;
+
+  /** The follower picked now (if a person is picked), and whether their card is open. */
+  pickedFollower(): { c: Citizen; card: boolean } | null {
+    if (this.selection?.type !== 'person') return null;
+    const c = this.pop.citizens.get(this.selection.id);
+    return c?.fol ? { c, card: !this.cardHeld } : null;
+  }
+
+  /** Open the picked person's card (or close it again). */
+  togglePickedCard() {
+    this.cardHeld = !this.cardHeld;
+    this.refreshInspector();
+  }
+
   /** Close the person's card (the film shows its own caption). */
   clearSelection() { this.select(null); }
 
@@ -3548,6 +3565,28 @@ export class Game implements ToolHost {
     s.t = 0;
   }
 
+  private pickRing?: THREE.Mesh;
+
+  /** A golden ring under the picked follower, following them (around the building they are in). */
+  private updatePickRing(dt: number) {
+    const sel = this.selection?.type === 'person' && !this.studio ? this.pop.citizens.get(this.selection.id) : undefined;
+    const p = sel?.fol ? this.personPos(sel) : null;
+    if (!p) { if (this.pickRing) this.pickRing.visible = false; return; }
+    if (!this.pickRing) {
+      this.pickRing = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.8, 48), new THREE.MeshBasicMaterial({ color: '#ffc84a', transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+      this.pickRing.rotation.x = -Math.PI / 2;
+      this.pickRing.renderOrder = 6;
+      this.scene.add(this.pickRing);
+    }
+    const inside = p.y > 0.42;
+    const b = inside ? this.buildings.get(sel!.at) : undefined;
+    const r = b ? Math.max(1, BUILDINGS[b.kind].size) * 0.95 : 0.32;
+    this.pickRing.visible = true;
+    this.pickRing.position.set(p.x, 0.05, p.z);
+    const pulse = 1 + Math.sin(this.time * 4 + dt) * 0.06;
+    this.pickRing.scale.setScalar(r * pulse);
+  }
+
   private updateSpot(dt: number) {
     const s = this.spot;
     if (!s || !s.group.visible) return;
@@ -3741,6 +3780,7 @@ export class Game implements ToolHost {
     this.folCache = null;
     this.settleFollowers();
     this.updateSpot(dt);
+    this.updatePickRing(dt);
     this.creativeStock();
     if (this.utilDirty) { this.utilDirty = false; this.pipes.rebuild(); this.cables.rebuild(); }
     if (this.assignPending) { this.assignPending = false; this.pop.assign(this.buildings); }
@@ -4044,6 +4084,8 @@ export class Game implements ToolHost {
     if (s.type === 'person') {
       const c = this.pop.citizens.get(s.id);
       if (!c) { this.hud?.toast(t('This person is no longer with us')); return this.select(null); }
+      // the followers' town shows the person first (lit up); their card opens with the 'Info' button
+      if (this.cardHeld) { this.inspector.hide(); return; }
       return this.inspector.show(this.personView(c));
     }
     const b = this.buildings.get(s.id);
