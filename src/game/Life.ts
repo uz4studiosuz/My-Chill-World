@@ -2773,7 +2773,7 @@ export class Life {
     const open = own.filter((b) => BUILDINGS[b.kind].jobs > b.workers).sort((a, b) => BUILDINGS[b.kind].salary * pop.wageFactor(b) - BUILDINGS[a.kind].salary * pop.wageFactor(a));
     if (!open.length) return;
     for (const c of pop.citizens.values()) {
-      if (moved + came >= 2 || c.job < 0 || Math.random() > 0.05) continue;
+      if (moved + came >= 2 || c.job < 0 || c.want || Math.random() > 0.05) continue;
       const cur = buildings.get(c.job);
       if (!cur) continue;
       // workers of a neighbour town (joined by road) come over when this town pays clearly more

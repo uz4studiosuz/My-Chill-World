@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Game } from '../game/Game';
 import type { Sex } from '../people/Population';
 import type { Building } from '../buildings/Buildings';
+import { BUILDINGS } from '../buildings/BuildingTypes';
 import { t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
 import { DEV, SANDBOX, onSaveStatus, pushWorld, isAdmin, hasKey, tryAdmin, logout, newerExists, keepVideo } from './store';
@@ -14,6 +15,16 @@ const STUDIO_TITLE_KEY = 'mcw_studio_title';
 const MARK_KEY = 'mcw_followers_marked';
 const TEXTS_KEY = 'mcw_studio_texts';
 type Texts = { counter: string; person: string; cta: string };
+const PACE_KEY = 'mcw_showcase_pace';
+/** The film shows at most this many marked followers (the newest). */
+const MAX_SHOW = 20;
+type Pace = 'normal' | 'fast' | 'turbo';
+/** Seconds of each part of the "new in town" film: normal = home, then the person; fast ones = one shot each. */
+const PACES: Record<Pace, { intro: number; home: number; each: number; view: number; fly: number; together: boolean; fireworks: boolean; outro: number }> = {
+  normal: { intro: 2.8, home: 3.4, each: 7.4, view: 5, fly: 1.5, together: false, fireworks: true, outro: 3 },
+  fast: { intro: 1.8, home: 3, each: 3, view: 5.5, fly: 0.9, together: true, fireworks: true, outro: 2.4 },
+  turbo: { intro: 1.2, home: 1.8, each: 1.8, view: 6, fly: 0.6, together: true, fireworks: false, outro: 2 },
+};
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -89,6 +100,16 @@ export class FollowersUi {
   /** The "new in town" film playing now: its steps (seconds from the start). */
   private show: { steps: [number, () => void][]; t: number; i: number; recorded: boolean } | null = null;
   private markBtn!: HTMLButtonElement;
+  private videoBtn?: HTMLButtonElement;
+  private sub!: HTMLSpanElement;
+  private tab: 'people' | 'add' | 'video' = 'people';
+  private newest = true;
+  /** A row of the list is being edited (the list waits). */
+  private editing = false;
+  /** The home lit up in the film carries its owner's name, wherever they are just then. */
+  private homeTag?: { nick: string; x: number; y: number; z: number; until: number };
+  private onlyMarked = false;
+  private pace: Pace = (['normal', 'fast', 'turbo'].includes(localStorage.getItem(PACE_KEY) ?? '') ? localStorage.getItem(PACE_KEY) : 'fast') as Pace;
   private tourBtn!: HTMLButtonElement;
   private editBox!: HTMLDivElement;
 
@@ -149,45 +170,118 @@ export class FollowersUi {
     this.panel.replaceChildren();
     this.status = undefined;
     this.listSig = '';
+    const admin = isAdmin() && !this.game.viewOnly;
+    if (!admin && this.tab !== 'people') this.tab = 'people';
+
+    // header: the town, how many live there, how many are marked
     const head = el('div', 'fol-head');
-    const title = el('b', '', `👥 ${t("Followers' town")}`);
+    const logo = el('div', 'fol-logo', '🏘️');
+    const titles = el('div', 'fol-titles');
+    titles.append(el('b', '', t("Followers' town")));
+    this.sub = el('span', 'fol-subline', '');
+    titles.append(this.sub);
     this.count = el('span', 'fol-count', '0');
-    const fold = button('–', () => {
-      this.panel.classList.toggle('folded');
-      fold.textContent = this.panel.classList.contains('folded') ? '+' : '–';
-    }, 'btn-mini ghost fol-fold');
-    head.append(title, this.count, fold);
-    const body = el('div', 'fol-body');
+    const fold = button('⌄', () => { this.panel.classList.toggle('folded'); }, 'fol-icon fol-fold');
+    fold.title = t('Fold');
+    head.append(logo, titles, this.count, fold);
+    head.addEventListener('dblclick', () => this.panel.classList.toggle('folded'));
 
-    if (INSTAGRAM) body.append(el('div', 'fol-promo', t('Follow {name} on Instagram — and your house appears in this town!', { name: at(INSTAGRAM) })));
-    else body.append(el('div', 'fol-promo', t('Everyone here is a real follower. Find your house!')));
-
-    // find a follower (everyone can); the admin key typed here lets the admin in
-    const find = el('form', 'fol-find');
+    // search (everyone); the admin key typed here lets the admin in
+    const find = el('form', 'fol-search');
     const q = el('input') as HTMLInputElement;
     this.find = q;
-    q.placeholder = t('Your nickname, e.g. @ali');
+    q.placeholder = t('Find a follower: @nickname');
     q.autocomplete = 'off';
     q.spellcheck = false;
     q.addEventListener('input', () => { this.listSig = ''; this.renderList(); });
-    find.append(q, el('button', 'btn-mini', '🔍'));
+    find.append(el('span', 'fol-search-ico', '⌕'), q);
     find.addEventListener('submit', (e) => { e.preventDefault(); void this.search(q.value); });
+
+    const body = el('div', 'fol-body');
     body.append(find);
 
-    if (isAdmin() && !this.game.viewOnly) body.append(this.buildAdmin());
-    else body.append(el('div', 'fol-view', `👀 ${t('Watching mode: the town lives on by itself — only its admin builds here')}`));
+    // tabs (the admin): people · add · video
+    const panes: Record<string, HTMLDivElement> = {};
+    if (admin) {
+      const tabs = el('div', 'fol-tabs');
+      const tabBtns: HTMLButtonElement[] = [];
+      for (const [id, label] of [['people', t('People')], ['add', t('Add')], ['video', t('Video')]] as const) {
+        const b = button(label, () => { this.tab = id; for (const x of tabBtns) x.classList.toggle('on', x === b); for (const [k, p] of Object.entries(panes)) p.hidden = k !== id; }, `fol-tab${this.tab === id ? ' on' : ''}`);
+        tabBtns.push(b);
+        tabs.append(b);
+      }
+      body.append(tabs);
+    }
 
+    // people
+    const people = el('div', 'fol-pane');
+    panes.people = people;
+    if (!admin) people.append(el('div', 'fol-promo', INSTAGRAM
+      ? t('Follow {name} on Instagram — and your house appears in this town!', { name: at(INSTAGRAM) })
+      : t('Everyone here is a real follower. Find your house!')));
+    const bar = el('div', 'fol-listbar');
+    const sortBtn = button(this.newest ? t('Newest first') : t('A–Z'), () => { this.newest = !this.newest; sortBtn.textContent = this.newest ? t('Newest first') : t('A–Z'); this.listSig = ''; this.renderList(); }, 'fol-chip2');
+    sortBtn.title = t('Order');
+    const onlyBtn = button(`☑ ${t('Marked')}`, () => { this.onlyMarked = !this.onlyMarked; onlyBtn.classList.toggle('on', this.onlyMarked); this.listSig = ''; this.renderList(); }, `fol-chip2${this.onlyMarked ? ' on' : ''}`);
+    onlyBtn.title = t('Only the marked');
+    bar.append(sortBtn, onlyBtn);
+    if (admin) {
+      bar.append(
+        button(`+${MAX_SHOW} ${t('newest')}`, () => this.markNewest(), 'fol-chip2'),
+        button(t('Clear'), () => { this.marked.clear(); this.saveMarks(); this.listSig = ''; this.renderList(); }, 'fol-chip2 ghost'),
+      );
+    }
     this.list = el('div', 'fol-list');
-    body.append(this.list);
+    people.append(bar, this.list);
+    if (!admin) {
+      const tools = el('div', 'fol-row-btns');
+      const tagBtn = button(`🏷️ ${t('Name tags')}`, () => { this.showTags = !this.showTags; tagBtn.classList.toggle('on', this.showTags); }, `fol-btn${this.showTags ? ' on' : ''}`);
+      tools.append(tagBtn);
+      people.append(tools, el('div', 'fol-foot', `👀 ${t('Watching mode: the town lives on by itself — only its admin builds here')}`));
+    }
+    body.append(people);
 
-    const tools = el('div', 'fol-tools');
-    const tagBtn = button(`🏷️ ${t('Name tags')}`, () => { this.showTags = !this.showTags; tagBtn.classList.toggle('active', this.showTags); }, `btn-mini${this.showTags ? ' active' : ''}`);
-    tools.append(tagBtn, button(`🎬 ${t('Studio (filming)')}`, () => this.setStudio(true), 'btn-mini'),
-      button(`☐ ${t('Clear marks')}`, () => { this.marked.clear(); this.saveMarks(); this.listSig = ''; this.renderList(); }, 'btn-mini'));
-    body.append(tools);
+    if (admin) {
+      panes.add = this.buildAdmin();
+      panes.video = this.buildVideoPane();
+      body.append(panes.add, panes.video);
+      for (const [k, p] of Object.entries(panes)) p.hidden = k !== this.tab;
+    }
+
     this.panel.append(head, body);
+    this.saveMarks();
     // the panel is not the game: clicks and keys stay in it
     for (const ev of ['pointerdown', 'wheel', 'keydown']) this.panel.addEventListener(ev, (e) => e.stopPropagation());
+  }
+
+  /** The video tab: how fast the marked are shown, the button that films them, the studio. */
+  private buildVideoPane() {
+    const pane = el('div', 'fol-pane');
+    pane.append(el('div', 'fol-label', t('Pace of the "new in town" film')));
+    const seg = el('div', 'fol-seg');
+    const segBtns: HTMLButtonElement[] = [];
+    for (const [id, label, note] of [['normal', t('Normal'), '≈7 s'], ['fast', t('Fast'), '≈3 s'], ['turbo', t('Very fast'), '≈1.8 s']] as const) {
+      const b = button('', () => { this.pace = id; localStorage.setItem(PACE_KEY, id); for (const x of segBtns) x.classList.toggle('on', x === b); this.saveMarks(); }, `fol-seg-btn${this.pace === id ? ' on' : ''}`);
+      b.append(el('b', '', label), el('small', '', `${note} / ${t('person')}`));
+      segBtns.push(b);
+      seg.append(b);
+    }
+    this.videoBtn = button('', () => void this.startShowcase(), 'fol-cta');
+    const tools = el('div', 'fol-row-btns');
+    const tagBtn = button(`🏷️ ${t('Name tags')}`, () => { this.showTags = !this.showTags; tagBtn.classList.toggle('on', this.showTags); }, `fol-btn${this.showTags ? ' on' : ''}`);
+    tools.append(tagBtn, button(`🎬 ${t('Open the studio')}`, () => this.setStudio(true), 'fol-btn'));
+    pane.append(seg, this.videoBtn, el('div', 'fol-hint', t('Up to {n} marked followers, newest first: each one is lit up at home with their name, then the call to follow. It is saved as an MP4 by itself (turn on 9:16 in the studio for Reels).', { n: MAX_SHOW })), tools);
+    return pane;
+  }
+
+  /** Mark the newest followers (the film of who came lately). */
+  private markNewest() {
+    const newest = this.game.followerList().sort((a, b) => b.id - a.id).slice(0, MAX_SHOW);
+    this.marked = new Set(newest.map((c) => c.fol!));
+    this.saveMarks();
+    this.listSig = '';
+    this.renderList();
+    this.flash(t('{n} newest followers marked', { n: newest.length }));
   }
 
   private async search(text: string) {
@@ -219,42 +313,46 @@ export class FollowersUi {
     sound.play('complete');
   }
 
-  /** Adding followers and saving the town: the admin only. */
+  /** The add tab: one follower (nickname, boy/girl, age), many at once, saving. The admin only. */
   private buildAdmin() {
-    const box = el('div', 'fol-admin');
-    box.append(el('div', 'fol-sub', SANDBOX ? `🧪 ${t('Rehearsal town: nothing is saved')}` : `🔑 ${t('Admin')}`));
-    const form = el('form', 'fol-add');
+    const pane = el('div', 'fol-pane');
+    const form = el('form', 'fol-card fol-add');
     const nick = el('input') as HTMLInputElement;
     nick.placeholder = t('Nickname (Instagram)');
     nick.autocomplete = 'off';
+    nick.spellcheck = false;
     nick.maxLength = 31;
     let sex: Sex = 'm';
-    const sexRow = el('div', 'fol-sex');
-    const boy = button(`👦 ${t('Male')}`, () => setSex('m'), 'btn-mini active');
-    const girl = button(`👧 ${t('Female')}`, () => setSex('f'), 'btn-mini');
+    const row = el('div', 'fol-addrow');
+    const seg = el('div', 'fol-seg small');
+    const boy = button(`👦 ${t('Male')}`, () => setSex('m'), 'fol-seg-btn on');
+    const girl = button(`👧 ${t('Female')}`, () => setSex('f'), 'fol-seg-btn');
     boy.type = girl.type = 'button';
-    const setSex = (s: Sex) => { sex = s; boy.classList.toggle('active', s === 'm'); girl.classList.toggle('active', s === 'f'); };
+    seg.append(boy, girl);
+    const setSex = (s: Sex) => { sex = s; boy.classList.toggle('on', s === 'm'); girl.classList.toggle('on', s === 'f'); };
+    const ageBox = el('label', 'fol-age');
     const age = el('input') as HTMLInputElement;
     age.type = 'number';
     age.min = '1';
     age.max = '99';
     age.value = '20';
-    age.title = t('Age');
-    sexRow.append(boy, girl, age);
+    ageBox.append(age, el('span', '', t('age')));
+    row.append(seg, ageBox);
+    const work = this.workSelect('');
     const showLbl = el('label', 'fol-check');
     const show = el('input') as HTMLInputElement;
     show.type = 'checkbox';
     show.checked = true;
-    showLbl.append(show, document.createTextNode(` 🎥 ${t('Show the move-in (camera flies there)')}`));
-    const add = el('button', 'btn-mini primary fol-addbtn', `➕ ${t('Add follower')}`);
-    form.append(nick, sexRow, showLbl, add);
+    showLbl.append(show, el('span', '', t('Show the move-in (camera flies there)')));
+    const add = el('button', 'fol-cta', `＋ ${t('Add follower')}`);
+    form.append(nick, row, work, showLbl, add);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (this.addOne(nick.value, sex, Number(age.value) || 20, show.checked)) { nick.value = ''; nick.focus(); }
+      if (this.addOne(nick.value, sex, Number(age.value) || 20, show.checked, false, work.value)) { nick.value = ''; nick.focus(); }
     });
 
     // many at once: one per line — "nick, m, 22" (m/f, boy/girl, yigit/qiz)
-    const many = el('details', 'fol-many');
+    const many = el('details', 'fol-card fol-many');
     many.append(el('summary', '', t('Add many at once')));
     const area = el('textarea') as HTMLTextAreaElement;
     area.placeholder = 'ali_007, m, 21\naziza.uz, f, 19\nsardor, m, 25';
@@ -269,31 +367,31 @@ export class FollowersUi {
       }
       area.value = bad.join('\n');
       this.flash(t('{n} followers are moving in', { n }) + (bad.length ? ` · ${t('{n} not added', { n: bad.length })}` : ''));
-    }, 'btn-mini'));
+    }, 'fol-btn'));
 
-    const acts = el('div', 'fol-acts');
-    acts.append(button(`💾 ${t('Save')}`, () => this.game.save(true), 'btn-mini'));
-    if (DEV) acts.append(button(`⬆️ ${t('Push to GitHub')}`, async () => {
+    const acts = el('div', 'fol-row-btns');
+    acts.append(button(`💾 ${t('Save')}`, () => this.game.save(true), 'fol-btn'));
+    if (DEV) acts.append(button(`⬆️ GitHub`, async () => {
       this.game.save(false, false, true);
       if (this.status) this.status.textContent = t('Pushing to GitHub…');
       await new Promise((r) => setTimeout(r, 800));
       const r = await pushWorld(this.game.followerList().length);
       if (this.status) {
         this.status.textContent = r.ok ? `✓ ${t('Pushed — the site updates in a minute')}` : `⚠ ${r.text.slice(0, 160)}`;
-        this.status.className = `fol-status ${r.ok ? 'saved' : 'error'}`;
+        this.status.className = `fol-foot fol-status ${r.ok ? 'saved' : 'error'}`;
       }
       sound.play(r.ok ? 'complete' : 'error');
-    }, 'btn-mini'));
-    if (hasKey()) acts.append(button(`🚪 ${t('Leave admin mode')}`, () => { logout(); location.reload(); }, 'btn-mini'));
-    this.status = el('div', 'fol-status', SANDBOX ? t('Nothing here is saved')
-      : hasKey() ? t('Everything is saved for everyone by itself (the site shows it at once)')
+    }, 'fol-btn'));
+    if (hasKey()) acts.append(button(`🚪 ${t('Leave admin mode')}`, () => { logout(); location.reload(); }, 'fol-btn ghost'));
+    this.status = el('div', 'fol-foot fol-status', SANDBOX ? `🧪 ${t('Rehearsal town: nothing is saved')}`
+      : hasKey() ? `🔑 ${t('Everything is saved for everyone by itself (the site shows it at once)')}`
         : t('Saved into the project file. To save on the site too, type the admin key into the search box'));
-    box.append(form, many, acts, this.status);
-    return box;
+    pane.append(form, many, acts, this.status);
+    return pane;
   }
 
   /** Bring one follower to the town (false when they can't come). */
-  private addOne(nickIn: string, sex: Sex, age: number, show: boolean, quiet = false) {
+  private addOne(nickIn: string, sex: Sex, age: number, show: boolean, quiet = false, want?: string) {
     if (this.game.viewOnly) return false;
     const nick = nickIn.replace(/^@/, '').replace(/\s+/g, '').slice(0, 30);
     let home: Building | undefined;
@@ -306,7 +404,7 @@ export class FollowersUi {
       if (show) setTimeout(() => this.game.focusFollower(c, 4.5, false), 600);
       this.listSig = '';
       this.queueSave();
-    });
+    }, want);
     if (!r.ok) { if (!quiet) { this.flash(r.reason, 'warn'); sound.play('error'); } return false; }
     home = r.home;
     if (show) {
@@ -322,7 +420,11 @@ export class FollowersUi {
     const live = new Set(this.game.followerList().map((c) => c.fol!));
     for (const n of this.marked) if (!live.has(n)) this.marked.delete(n);
     localStorage.setItem(MARK_KEY, JSON.stringify([...this.marked]));
-    if (this.markBtn) this.markBtn.textContent = `🌟 ${t('Show the marked ({n})', { n: this.marked.size })}`;
+    const n = Math.min(MAX_SHOW, this.marked.size);
+    const label = `🌟 ${t('Show the marked ({n})', { n })}`;
+    if (this.markBtn) this.markBtn.textContent = label;
+    if (this.videoBtn) { this.videoBtn.textContent = label; this.videoBtn.disabled = !n; }
+    if (this.sub) this.listSig = '';
   }
 
   private queueSave() {
@@ -330,37 +432,131 @@ export class FollowersUi {
     this.saveTimer = window.setTimeout(() => this.game.save(false, false, true), 1500);
   }
 
+  /** The work list: any (the town decides), none, or a kind of workplace (the town's own first). */
+  private workSelect(value: string) {
+    const sel = el('select', 'fol-select') as HTMLSelectElement;
+    const opt = (v: string, label: string, parent: HTMLElement = sel) => { const o = el('option', '', label) as HTMLOptionElement; o.value = v; parent.append(o); };
+    opt('', `💼 ${t('Work: any (the town decides)')}`);
+    opt('none', `🏠 ${t("Doesn't work")}`);
+    const choices = this.game.workChoices();
+    const here = el('optgroup') as HTMLOptGroupElement;
+    here.label = t('In the town');
+    const later = el('optgroup') as HTMLOptGroupElement;
+    later.label = t('Not built yet (works there once it is)');
+    for (const ch of choices) opt(ch.kind, ch.name, ch.here ? here : later);
+    if (here.children.length) sel.append(here);
+    if (later.children.length) sel.append(later);
+    sel.value = value;
+    sel.addEventListener('keydown', (e) => e.stopPropagation());
+    return sel;
+  }
+
+  /** The admin changes a follower right in the list: nickname, boy or girl, age, work. */
+  private openEdit(nick: string, row: HTMLElement) {
+    const c = this.game.followerList().find((x) => x.fol === nick);
+    if (!c) return;
+    this.editing = true;
+    const card = el('form', 'fol-card fol-edit');
+    const name = el('input') as HTMLInputElement;
+    name.value = c.fol!;
+    name.spellcheck = false;
+    name.maxLength = 31;
+    let sex: Sex = c.sex;
+    const seg = el('div', 'fol-seg small');
+    const boy = button(`👦 ${t('Male')}`, () => setSex('m'), `fol-seg-btn${sex === 'm' ? ' on' : ''}`);
+    const girl = button(`👧 ${t('Female')}`, () => setSex('f'), `fol-seg-btn${sex === 'f' ? ' on' : ''}`);
+    boy.type = girl.type = 'button';
+    const setSex = (s: Sex) => { sex = s; boy.classList.toggle('on', s === 'm'); girl.classList.toggle('on', s === 'f'); };
+    seg.append(boy, girl);
+    const ageBox = el('label', 'fol-age');
+    const age = el('input') as HTMLInputElement;
+    age.type = 'number';
+    age.min = '1';
+    age.max = '99';
+    age.value = String(Math.floor(c.age));
+    ageBox.append(age, el('span', '', t('age')));
+    const r2 = el('div', 'fol-addrow');
+    r2.append(seg, ageBox);
+    const work = this.workSelect(c.want ?? '');
+    const btns = el('div', 'fol-row-btns');
+    const save = el('button', 'fol-cta', t('Save')) as HTMLButtonElement;
+    const close = () => { this.editing = false; this.listSig = ''; this.renderList(); };
+    btns.append(save, button(t('Cancel'), close, 'fol-btn ghost'));
+    card.append(name, r2, work, btns);
+    for (const ev of ['click', 'pointerdown']) card.addEventListener(ev, (e) => e.stopPropagation());
+    card.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); });
+    card.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const err = this.game.editFollower(c, { nick: name.value, sex, age: Number(age.value) || Math.floor(c.age), want: work.value });
+      if (err) { this.flash(err, 'warn'); sound.play('error'); return; }
+      if (c.fol !== nick) {
+        if (this.marked.delete(nick)) { this.marked.add(c.fol!); this.saveMarks(); }
+        const fr = this.fresh.get(nick);
+        if (fr !== undefined) { this.fresh.delete(nick); this.fresh.set(c.fol!, fr); }
+      }
+      this.flash(t('{nick} was changed', { nick: at(c.fol!) }));
+      this.queueSave();
+      close();
+    });
+    row.replaceWith(card);
+    name.focus();
+  }
+
   private renderList() {
+    if (this.editing) return;
     const all = this.game.followerList();
     const q = this.find?.value.replace(/^@/, '').trim().toLowerCase() ?? '';
-    const shown = (q ? all.filter((c) => c.fol!.toLowerCase().includes(q)) : all).sort((a, b) => a.fol!.localeCompare(b.fol!));
-    this.count.textContent = String(all.length + this.game.arrivingCount);
+    let shown = q ? all.filter((c) => c.fol!.toLowerCase().includes(q)) : all;
+    if (this.onlyMarked) shown = shown.filter((c) => this.marked.has(c.fol!));
+    shown = shown.sort((a, b) => (this.newest ? b.id - a.id : a.fol!.localeCompare(b.fol!)));
+    const total = all.length + this.game.arrivingCount;
+    this.count.textContent = String(total);
+    this.sub.textContent = this.marked.size ? t('{n} live here · {m} marked', { n: total, m: this.marked.size }) : t('{n} live here', { n: total });
     const admin = !this.game.viewOnly;
-    const sig = `${admin}|${q}|${[...this.marked].join(',')}|${shown.map((c) => `${c.id}:${c.family}`).join(',')}`;
+    const sig = `${admin}|${q}|${this.newest}|${this.onlyMarked}|${[...this.marked].join(',')}|${shown.map((c) => `${c.id}:${c.job}:${c.school}`).join(',')}`;
     if (sig === this.listSig) return;
     this.listSig = sig;
     this.list.replaceChildren();
-    if (!all.length) { this.list.append(el('div', 'fol-empty', admin ? t('Nobody lives here yet — add the first follower') : t('Nobody lives here yet'))); return; }
+    if (!shown.length) {
+      this.list.append(el('div', 'fol-empty', !all.length ? (admin ? t('Nobody lives here yet — add the first follower') : t('Nobody lives here yet')) : t('Nobody found')));
+      return;
+    }
     for (const c of shown.slice(0, 200)) {
       const info = this.game.followerInfo(c);
-      const row = el('div', 'fol-row');
-      const name = el('span', 'fol-nick', `${c.sex === 'f' ? '👧' : '👦'} ${at(info.nick)}`);
-      const meta = el('span', 'fol-meta', `${info.age}${info.spouse ? ` · 💍 ${at(info.spouse)}` : ''}`);
-      const box = el('input') as HTMLInputElement;
-      box.type = 'checkbox';
-      box.className = 'fol-mark';
-      box.checked = this.marked.has(c.fol!);
-      box.title = t('Mark for the video');
-      box.addEventListener('click', (e) => e.stopPropagation());
-      box.addEventListener('change', () => { if (box.checked) this.marked.add(c.fol!); else this.marked.delete(c.fol!); this.saveMarks(); });
-      row.append(box, name, meta);
+      const row = el('div', `fol-row${this.marked.has(c.fol!) ? ' marked' : ''}`);
+      const ava = el('span', `fol-ava ${c.sex === 'f' ? 'f' : 'm'}`, info.nick.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 1).toUpperCase() || '@');
+      const text = el('div', 'fol-text');
+      const name = el('div', 'fol-nick', at(info.nick));
+      if ((this.fresh.get(c.fol!) ?? -1) > this.clock) name.append(el('span', 'fol-new', t('new')));
+      // the chosen work, and where they work until it is built (or has room)
+      const wantName = c.want && c.want !== 'none' ? this.game.workChoices().find((w) => w.kind === c.want)?.name ?? '' : '';
+      const wish = c.want === 'none' ? `🏠 ${t("Doesn't work")}` : wantName && info.work !== wantName ? `${info.work ? `${info.work} → ` : ''}🎯 ${wantName}` : '';
+      text.append(name, el('div', 'fol-meta', [t('{n} years old', { n: info.age }), wish || info.work].filter(Boolean).join(' · ')));
+      row.append(ava, text);
       row.addEventListener('click', () => this.game.focusFollower(c));
-      if (admin) row.append(button('✖', () => {
-        if (!confirm(t('Take {nick} off the list? Their home stays empty.', { nick: at(info.nick) }))) return;
-        this.game.removeFollower(info.nick);
-        this.listSig = '';
-        this.queueSave();
-      }, 'btn-mini ghost fol-x'));
+      if (admin) {
+        const box = el('input') as HTMLInputElement;
+        box.type = 'checkbox';
+        box.className = 'fol-mark';
+        box.checked = this.marked.has(c.fol!);
+        box.title = t('Mark for the video');
+        box.addEventListener('click', (e) => e.stopPropagation());
+        box.addEventListener('change', () => {
+          if (box.checked) this.marked.add(c.fol!); else this.marked.delete(c.fol!);
+          row.classList.toggle('marked', box.checked);
+          this.saveMarks();
+        });
+        const x = button('×', () => {
+          if (!confirm(t('Take {nick} off the list? Their home is pulled down.', { nick: at(info.nick) }))) return;
+          this.game.removeFollower(info.nick);
+          this.listSig = '';
+          this.queueSave();
+        }, 'fol-icon fol-x');
+        x.title = t('Remove');
+        const edit = button('✎', () => this.openEdit(c.fol!, row), 'fol-icon fol-x fol-ed');
+        edit.title = t('Edit');
+        row.append(box, edit, x);
+      }
       this.list.append(row);
     }
     if (shown.length > 200) this.list.append(el('div', 'fol-empty', t('…and {n} more — search above', { n: shown.length - 200 })));
@@ -398,6 +594,8 @@ export class FollowersUi {
         if (g) { g.nicks.push(c.fol!); g.gold ||= gold; }
         else groups.set(key, { x: p.x, y: p.y + (inside ? 0.1 : 0.32), z: p.z, nicks: [c.fol!], inside, home: p.home, gold });
       }
+      const ht = this.homeTag;
+      if (ht && ht.until > this.clock) groups.set('spot', { x: ht.x, y: ht.y, z: ht.z, nicks: [ht.nick], inside: true, home: true, gold: true });
       // when the camera is far, only the households and the newest followers
       const far = view > 18;
       const size = Math.max(10, Math.min(15, 17 - view * 0.25));
@@ -501,31 +699,50 @@ export class FollowersUi {
    */
   async startShowcase() {
     const all = this.game.followerList();
-    const nicks = [...this.marked].filter((n) => all.some((c) => c.fol === n));
-    if (!nicks.length) { this.flash(t('Mark followers in the list first (the box in front of each name)'), 'warn'); return; }
+    // the newest marked first, at most MAX_SHOW
+    const picked = all.filter((c) => this.marked.has(c.fol!)).sort((a, b) => b.id - a.id);
+    if (!picked.length) { this.flash(t('Mark followers in the list first (the box in front of each name)'), 'warn'); return; }
+    const nicks = picked.slice(0, MAX_SHOW).map((c) => c.fol!);
+    if (picked.length > MAX_SHOW) this.flash(t('Only the {n} newest of the marked are shown', { n: MAX_SHOW }));
     if (!this.studioOn) this.setStudio(true);
     this.tour = false;
     this.tourBtn.classList.remove('active');
     const recorded = !this.rec;
     if (recorded) await this.startRecording(true);
+    const pace = PACES[this.pace];
     const steps: [number, () => void][] = [];
-    const centre = () => { const c = this.game.townCentre(); this.game.lookAt(c.x, c.z, 13, 1.5); };
+    const centre = (view = 13) => { const c = this.game.townCentre(); this.game.lookAt(c.x, c.z, view, 1.4); };
     steps.push([0, () => { centre(); this.hideCaption(); }]);
-    let at0 = 2.8;
-    for (const nick of nicks) {
+    let at0 = pace.intro;
+    nicks.forEach((nick, i) => {
+      const card = () => {
+        const c = this.game.followerList().find((x) => x.fol === nick);
+        if (!c) return;
+        const info = this.game.followerInfo(c);
+        const sub = [t('{n} years old', { n: info.age }), info.work].filter(Boolean).join(' · ');
+        this.showCaption(`${c.sex === 'f' ? '👧' : '👦'} ${at(info.nick)}`, `${sub}${nicks.length > 1 ? `${sub ? '\n' : ''}${i + 1} / ${nicks.length}` : ''}`);
+      };
       steps.push([at0, () => {
         const c = this.game.followerList().find((x) => x.fol === nick);
         const home = c && this.game.homeOf(c);
-        this.hideCaption();
-        if (home) { this.game.lookAt(home.mesh.position.x, home.mesh.position.z, 5, 1.5); this.game.celebrate(home); }
-        this.flash(this.personText(at(nick)), 'big', 3.3);
+        // the home lit up (a golden ring and a beam), the name over it in gold, fireworks
+        if (home) {
+          this.game.lookAt(home.mesh.position.x, home.mesh.position.z, pace.view, pace.fly);
+          this.game.spotlight(home, pace.home + 0.2);
+          this.homeTag = { nick, x: home.mesh.position.x, y: 0.75 + BUILDINGS[home.kind].size * 0.35, z: home.mesh.position.z, until: this.clock + pace.home };
+          if (pace.fireworks) this.game.celebrate(home);
+        }
+        this.fresh.set(nick, this.clock + pace.each);
+        this.flash(this.personText(at(nick)), 'big', pace.home);
+        if (pace.together) card(); else this.hideCaption();
       }]);
-      steps.push([at0 + 3.4, () => this.showFollower(nick, 4.2)]);
-      at0 += 7.4;
-    }
-    steps.push([at0, () => { centre(); this.showCaption(`🏙️ ${t('{n} people live here — every one a follower', { n: this.game.followerList().length })}`, ''); }]);
-    steps.push([at0 + 3, () => { this.hideCaption(); this.flash(this.ctaText(), 'big', 5); }]);
-    steps.push([at0 + 8, () => { this.show = null; if (recorded) void this.stopRecording(); }]);
+      // the normal pace then shows the person themselves
+      if (!pace.together) steps.push([at0 + pace.home, () => { this.showFollower(nick, 4.2); }]);
+      at0 += pace.each;
+    });
+    steps.push([at0, () => { centre(14); this.showCaption(`🏙️ ${t('{n} people live here — every one a follower', { n: this.game.followerList().length })}`, ''); }]);
+    steps.push([at0 + pace.outro, () => { this.hideCaption(); this.flash(this.ctaText(), 'big', 4.5); }]);
+    steps.push([at0 + pace.outro + 4.6, () => { this.show = null; if (recorded) void this.stopRecording(); }]);
     this.show = { steps, t: 0, i: 0, recorded };
   }
 

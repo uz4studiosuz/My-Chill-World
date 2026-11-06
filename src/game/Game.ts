@@ -1102,7 +1102,7 @@ export class Game implements ToolHost {
       if (i < steps - 1 && performance.now() - frameStart > 24) break;
     }
     this.festivities(dt);
-    if (this.followers) this.settleFollowers();
+    if (this.followers) { this.settleFollowers(); this.updateSpot(dt); }
     this.waterLife.update(total > 0 ? Math.min(dt * this.speed, 0.5) : 0, this.terrain.frozen, seasonOf(monthOf(this.eco.day)) === 'summer', this.nightness);
     this.effects.update(dt);
     this.weather.update(dt, total, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
@@ -3270,7 +3270,7 @@ export class Game implements ToolHost {
   // ---------- the followers' town ----------
 
   /** Followers waiting for their new house to go up (they move in when it is finished). */
-  private arriving: { nick: string; sex: Sex; age: number; home: number; done: (c: Citizen) => void }[] = [];
+  private arriving: { nick: string; sex: Sex; age: number; home: number; want?: string; done: (c: Citizen) => void }[] = [];
 
   /** Everyone living in the followers' town (each is a real follower). */
   followerList(): Citizen[] { return [...this.pop.citizens.values()].filter((c) => !!c.fol); }
@@ -3372,7 +3372,7 @@ export class Game implements ToolHost {
    * A new follower comes to live in the town: they get a home of their own (an empty house, or a new one that goes
    * up in seconds) and move in when it is ready.
    */
-  addFollower(nickIn: string, sex: Sex, age: number, done: (c: Citizen) => void = () => {}): { ok: true; home: Building; fresh: boolean } | { ok: false; reason: string } {
+  addFollower(nickIn: string, sex: Sex, age: number, done: (c: Citizen) => void = () => {}, want?: string): { ok: true; home: Building; fresh: boolean } | { ok: false; reason: string } {
     const nick = nickIn.replace(/^@/, '').trim().slice(0, 30);
     if (!nick) return { ok: false, reason: t('Type a nickname') };
     if (this.nickTaken(nick)) return { ok: false, reason: t('@{nick} already lives here', { nick }) };
@@ -3380,7 +3380,7 @@ export class Game implements ToolHost {
     const home = this.followerHome();
     if (!home) return { ok: false, reason: t('No room for a new house — lay a new road first') };
     // they move in on the next frame (or when the new house is finished)
-    this.arriving.push({ nick, sex, age: Math.max(1, Math.min(99, Math.round(age))), home: home.id, done });
+    this.arriving.push({ nick, sex, age: Math.max(1, Math.min(99, Math.round(age))), home: home.id, want: want || undefined, done });
     return { ok: true, home, fresh: this.buildings.list.length > before };
   }
 
@@ -3394,13 +3394,49 @@ export class Game implements ToolHost {
       const home = this.buildings.get(a.home);
       if (!home || home.removed) { const again = this.followerHome(); if (again) this.arriving.push({ ...a, home: again.id }); continue; }
       if (home.built < 1 && !all) { this.arriving.push(a); continue; }
-      moved.push([a, this.pop.addFollower(home.id, a.nick, a.sex, a.age)]);
+      const c = this.pop.addFollower(home.id, a.nick, a.sex, a.age);
+      if (a.want) c.want = a.want;
+      moved.push([a, c]);
     }
     if (!moved.length) return;
     this.pop.assign(this.buildings);
     this.pop.planDay(moved.map(([, c]) => c));
     this.refreshHud();
     for (const [a, c] of moved) { try { a.done(c); } catch (e) { console.warn('[followers]', e); } }
+  }
+
+  /** Kinds of workplace a follower can be given (the ones the town has first), for the admin's list. */
+  workChoices(): { kind: string; name: string; here: boolean }[] {
+    const here = new Set(this.buildings.list.filter((b) => !b.removed && b.city === this.eco.active).map((b) => b.kind));
+    return (Object.keys(BUILDINGS) as BuildingKind[]).filter((k) => BUILDINGS[k].jobs > 0)
+      .map((k) => ({ kind: k as string, name: t(BUILDINGS[k].name), here: here.has(k) }))
+      .sort((a, b) => Number(b.here) - Number(a.here) || a.name.localeCompare(b.name));
+  }
+
+  /** The admin changes a follower: nickname, boy or girl, age, chosen work. Returns an error, or null. */
+  editFollower(c: Citizen, ch: { nick?: string; sex?: Sex; age?: number; want?: string }): string | null {
+    if (ch.nick !== undefined) {
+      const nick = ch.nick.replace(/^@/, '').replace(/\s+/g, '').slice(0, 30);
+      if (!nick) return t('Type a nickname');
+      if (nick.toLowerCase() !== c.fol!.toLowerCase() && this.nickTaken(nick)) return t('@{nick} already lives here', { nick });
+      c.fol = c.name = nick;
+    }
+    if (ch.sex && ch.sex !== c.sex) { c.sex = ch.sex; c.variant = (ch.sex === 'm' ? 0 : 4) + (c.variant % 4); }
+    if (ch.age !== undefined && Math.floor(c.age) !== Math.round(ch.age)) {
+      const age = Math.max(1, Math.min(99, Math.round(ch.age)));
+      c.age = age + 0.5;
+      c.role = age >= 18 ? 'parent' : 'child';
+      c.school = -1;
+      if (age < 16) c.job = -1;
+    }
+    if (ch.want !== undefined) {
+      c.want = ch.want || undefined;
+      // the old job is let go so the chosen one (or any) is found at once
+      if (c.want) c.job = -1;
+    }
+    this.pop.assign(this.buildings);
+    this.refreshHud();
+    return null;
   }
 
   /** A follower leaves the town (taken off the list). */
@@ -3427,6 +3463,44 @@ export class Game implements ToolHost {
   townCentre() {
     const h = this.buildings.townHall(this.eco.active);
     return h ? { x: h.mesh.position.x, z: h.mesh.position.z } : { x: this.cam.target.x, z: this.cam.target.z };
+  }
+
+  private spot?: { group: THREE.Group; ring: THREE.Mesh; beam: THREE.Mesh; left: number; t: number };
+
+  /** Light up a home for a moment: a golden ring on the ground and a soft beam of light over it. */
+  spotlight(b: Building, seconds = 3) {
+    if (!this.spot) {
+      const gold = new THREE.Color('#ffc84a');
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.78, 0.95, 56), new THREE.MeshBasicMaterial({ color: gold, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.04;
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 3.2, 40, 1, true), new THREE.MeshBasicMaterial({ color: gold, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+      beam.position.y = 1.6;
+      const group = new THREE.Group();
+      group.add(ring, beam);
+      group.renderOrder = 5;
+      this.scene.add(group);
+      this.spot = { group, ring, beam, left: 0, t: 0 };
+    }
+    const s = this.spot;
+    s.group.position.set(b.mesh.position.x, 0, b.mesh.position.z);
+    s.group.scale.setScalar(Math.max(1, BUILDINGS[b.kind].size) * 0.9);
+    s.group.visible = true;
+    s.left = seconds;
+    s.t = 0;
+  }
+
+  private updateSpot(dt: number) {
+    const s = this.spot;
+    if (!s || !s.group.visible) return;
+    s.left -= dt;
+    s.t += dt;
+    const fade = Math.min(1, s.t / 0.25, Math.max(0, s.left) / 0.35);
+    const pulse = 1 + Math.sin(s.t * 5) * 0.06;
+    s.ring.scale.setScalar(pulse);
+    (s.ring.material as THREE.MeshBasicMaterial).opacity = 0.95 * fade;
+    (s.beam.material as THREE.MeshBasicMaterial).opacity = (0.12 + Math.sin(s.t * 3) * 0.04) * fade;
+    if (s.left <= 0) s.group.visible = false;
   }
 
   /** Hearts and fireworks over a follower's new home. */

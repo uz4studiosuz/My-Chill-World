@@ -76,6 +76,8 @@ export interface Citizen {
   lost?: boolean;
   /** A real follower of the game's page: their nickname (followers' town — only such people live there). */
   fol?: string;
+  /** The work chosen for a follower by the admin: a kind of workplace, 'none' (does not work) or unset (any). */
+  want?: string;
 }
 
 /** Someone in the town's records: who they were, their parents and spouse, when they died or left. */
@@ -428,13 +430,24 @@ export class Population {
       }
       return best;
     };
+    // a follower whose work the admin chose gets a place there (as soon as such a workplace has one)
+    for (const c of this.citizens.values()) {
+      if (!c.want || !this.canWork(c)) continue;
+      if (c.want === 'none') { if (c.job >= 0) { free.set(c.job, (free.get(c.job) ?? 0) + 1); c.job = -1; } continue; }
+      if (c.job >= 0 && buildings.get(c.job)?.kind === c.want) continue;
+      const id = nearest(free, homeOf(c), c.want);
+      if (id < 0) continue;
+      if (c.job >= 0 && free.has(c.job)) free.set(c.job, free.get(c.job)! + 1);
+      c.job = id;
+      free.set(id, free.get(id)! - 1);
+    }
     for (const c of this.citizens.values()) {
       if (c.school < 0 && (pupil(c) || toddler(c) || student(c) || collegian(c))) {
         let id = pupil(c) || toddler(c) || student(c) ? nearest(seats, homeOf(c), toddler(c) ? 'kindergarten' : pupil(c) ? 'school' : 'university') : -1;
         if (id < 0 && collegian(c)) id = nearest(seats, homeOf(c), 'college');
         if (id >= 0) { c.school = id; seats.set(id, seats.get(id)! - 1); }
       }
-      if (c.job < 0 && this.canWork(c)) {
+      if (c.job < 0 && this.canWork(c) && c.want !== 'none') {
         // the family trade first (for most), when there is a free place they can take
         const ft = this.followsTrade(c) ? this.familyTrade(c) : null;
         let id = ft ? nearest(free, homeOf(c), ft.kind) : -1;
@@ -465,7 +478,7 @@ export class Population {
       const target = buildings.get(id)!;
       let left = n;
       const movers = [...this.citizens.values()]
-        .filter((c) => c.job >= 0 && prio(c.job) >= 4 && homeOf(c)?.city === target.city)
+        .filter((c) => c.job >= 0 && !c.want && prio(c.job) >= 4 && homeOf(c)?.city === target.city)
         .sort((a, b) => {
           const ha = homeOf(a), hb = homeOf(b);
           return (ha ? Math.abs(ha.x - target.x) + Math.abs(ha.z - target.z) : 0) - (hb ? Math.abs(hb.x - target.x) + Math.abs(hb.z - target.z) : 0);
@@ -825,7 +838,7 @@ export class Population {
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, college: c.college, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, fol: c.fol, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, trade: c.trade, gambled: c.gambled, lost: c.lost || undefined,
+        story: c.story, fol: c.fol, want: c.want, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, trade: c.trade, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));
   }
