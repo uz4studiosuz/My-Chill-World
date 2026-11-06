@@ -26,6 +26,8 @@ export interface WorldMeta {
   creative?: boolean;
   /** A town in an online world (shared with other players). */
   online?: { worldId: string; code: string; world: string; host: boolean; started: string; daySeconds: number; slot?: number };
+  /** The followers' town (kept in the project, only real followers live there). */
+  followers?: boolean;
 }
 
 export interface WorldSave {

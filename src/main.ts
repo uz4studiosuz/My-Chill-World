@@ -19,6 +19,9 @@ const THUMB_IDS = ['college', 'eldercare', 'restaurant', 'zoo', 'pier', 'forestr
 /** /editor (or editor.html, #editor) opens the model editor instead of the game. */
 const isEditor = () => /\/editor(\.html)?\/?$/.test(location.pathname) || location.hash === '#editor';
 
+/** /followers: the followers' town (only the followers added by the owner live there). */
+const isFollowers = () => /\/followers\/?$/.test(location.pathname) || location.hash === '#followers';
+
 /** /viewer (linked from nowhere): paste a model file and see it in 3D. */
 const isViewer = () => /\/viewer(\.html)?\/?$/.test(location.pathname) || location.hash === '#viewer';
 
@@ -169,7 +172,16 @@ async function boot() {
     },
   });
 
-  openMainMenu();
+  if (isFollowers()) {
+    // kept in the project (written on the owner's computer, read by everyone else)
+    menu.showLoading(t("Opening the followers' town…"));
+    const { loadWorld, saveWorld } = await import('./followers/store');
+    const save = await loadWorld();
+    if (save) save.meta.followers = true;
+    void start(save
+      ? { save, onSave: saveWorld }
+      : { create: { id: 'followers', name: t("Followers' town"), seed: 20261106, towns: 0, followers: true }, onSave: saveWorld });
+  } else openMainMenu();
   // back from the "set a new password" email link
   Online.onRecovery(() => menu.showNewPassword());
 

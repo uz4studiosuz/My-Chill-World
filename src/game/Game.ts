@@ -20,7 +20,8 @@ import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TR
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel, calendarYear } from '../sim/Calendar';
-import { Population, Citizen, Family } from '../people/Population';
+import { Population, Citizen, Family, Sex } from '../people/Population';
+import { FollowersUi } from '../followers/FollowersUi';
 import { townName } from '../people/names';
 import { sound } from '../audio/Sound';
 import { GoalContext, Goals } from '../sim/Goals';
@@ -89,8 +90,10 @@ export interface GameOptions {
   /** Background world for the main menu: no input, no HUD, no saving. */
   demo?: boolean;
   save?: WorldSave;
-  create?: { name: string; seed: number; calm?: boolean; towns?: number; creative?: boolean; id?: string; online?: WorldMeta['online'] };
+  create?: { name: string; seed: number; calm?: boolean; towns?: number; creative?: boolean; id?: string; online?: WorldMeta['online']; followers?: boolean };
   thumbs?: Map<string, string>;
+  /** Saved somewhere else than this device's world list (the followers' town is kept in the project). */
+  onSave?: (s: WorldSave) => void;
 }
 
 type Selection = { type: 'building'; id: number } | { type: 'person'; id: number } | { type: 'vehicle'; id: number } | null;
@@ -219,6 +222,12 @@ export class Game implements ToolHost {
   private decisionDay = 0;
   /** Photo mode: the interface is hidden; `shotPending` asks the renderer to save the next frame. */
   photoMode = false;
+  /** The followers' town (only people added by hand). */
+  readonly followers: boolean = false;
+  /** Filming: no badges or bubbles over the town. */
+  studio = false;
+  private onSave?: (s: WorldSave) => void;
+  private followersUi?: FollowersUi;
   shotPending = false;
   private photoBar?: HTMLDivElement;
   private resPanel?: ResourcePanel;
@@ -334,8 +343,10 @@ export class Game implements ToolHost {
     const seed = opts.save?.meta.seed ?? opts.create?.seed ?? DEMO_SEED;
     this.meta = opts.save?.meta ?? {
       id: opts.create?.id ?? SaveStore.newId(), name: opts.create?.name ?? 'Demo', seed,
-      day: 1, population: 100, money: 5000, updated: Date.now(), online: opts.create?.online,
+      day: 1, population: 100, money: 5000, updated: Date.now(), online: opts.create?.online, followers: opts.create?.followers || undefined,
     };
+    this.followers = !!this.meta.followers;
+    this.onSave = opts.onSave;
 
     this.scene.background = SKY_DAY.clone();
     this.hemi = new THREE.HemisphereLight('#e4f1ff', '#6f7f4c', 1.5);
@@ -514,8 +525,17 @@ export class Game implements ToolHost {
     this.creative = !!(opts.save?.creative ?? opts.create?.creative);
     this.eco.creative = this.creative;
     if (this.creative) this.calm = this.life.calm = true;
+    // the followers' town: only the followers added by hand live there, everything is free and builds in seconds
+    if (this.followers) {
+      this.creative = this.eco.creative = true;
+      this.calm = this.life.calm = true;
+      this.pop.followers = this.life.followers = true;
+      this.life.rehouse = (f) => this.rehouseFollowers(f);
+    }
     if (opts.save) this.loadSave(opts.save);
-    else this.buildStarterTown(opts.create?.towns ?? 2, opts.create?.online?.slot);
+    else this.buildStarterTown(this.followers ? 0 : opts.create?.towns ?? 2, opts.create?.online?.slot);
+    // the starter village of a followers' town stands empty: its homes wait for the followers
+    if (this.followers && !opts.save) { this.pop.citizens.clear(); this.pop.families.clear(); }
     // pipes now carry the water (roads no longer do): a world from before, or a new one, gets pipes under its roads once
     if (!opts.save?.pipes2) this.pipesUnderRoads();
     // homes and towers join the water only through a pipe under them: those beside a pipe get one once
@@ -524,7 +544,7 @@ export class Game implements ToolHost {
     if (!opts.save?.cables1) this.cablesUnderRoads();
     if (this.creative && !opts.save) this.creativeStock();
     if (opts.save && !opts.save.pipes2) for (const c of this.eco.cities.values()) if (!c.ai) { c.bricks += 120; c.iron += 30; }
-    this.wantTutorial = !!opts.create && Tutorial.wanted();
+    this.wantTutorial = !!opts.create && !this.followers && Tutorial.wanted();
 
     this.waterLife = new WaterLife(this.map,
       () => this.buildings.list.filter((b) => b.kind === 'townhall').map((b) => ({ x: b.x, z: b.z })),
@@ -576,7 +596,8 @@ export class Game implements ToolHost {
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(false, true); }, { signal });
     window.addEventListener('pagehide', () => this.save(false, true), { signal });
     // an offline town waits while you are away from the game (another window or tab): it does not run on alone
-    const away = (on: boolean) => { this.awayPaused = on && !this.meta.online; };
+    // (the followers' town keeps running: it is filmed with a screen recorder in front)
+    const away = (on: boolean) => { this.awayPaused = on && !this.meta.online && !this.followers; };
     window.addEventListener('blur', () => away(true), { signal });
     window.addEventListener('focus', () => away(false), { signal });
     document.addEventListener('visibilitychange', () => away(document.hidden), { signal });
@@ -588,6 +609,8 @@ export class Game implements ToolHost {
     // a question still waiting for an answer comes back in the new UI (after the language changes)
     const pendingDecision = this.decision?.visible ? this.decision.pending : undefined;
     this.hud?.dispose();
+    this.followersUi?.dispose();
+    this.followersUi = this.followers ? new FollowersUi(this) : undefined;
     this.hud = new Hud(document.getElementById('ui')!, {
       setTool: (tl) => this.setTool(tl),
       undo: () => this.undo(),
@@ -1063,6 +1086,7 @@ export class Game implements ToolHost {
       if (i < steps - 1 && performance.now() - frameStart > 24) break;
     }
     this.festivities(dt);
+    if (this.followers) this.settleFollowers();
     this.waterLife.update(total > 0 ? Math.min(dt * this.speed, 0.5) : 0, this.terrain.frozen, seasonOf(monthOf(this.eco.day)) === 'summer', this.nightness);
     this.effects.update(dt);
     this.weather.update(dt, total, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
@@ -1402,7 +1426,9 @@ export class Game implements ToolHost {
     if (this.demo) return;
     this.saveT = 0;
     try {
+      if (this.followers) this.settleFollowers(true);
       const data = this.toSave();
+      if (this.onSave) { this.onSave(data); if (manual) this.hud?.toast(t('Game saved')); return; }
       SaveStore.save(data);
       // online: the town is kept in the cloud too, so it opens the same on any device (at most once a minute,
       // and always when the page is left or hidden)
@@ -1423,6 +1449,7 @@ export class Game implements ToolHost {
   }
 
   dispose() {
+    this.followersUi?.dispose();
     this.online?.dispose();
     this.ghosts?.dispose();
     this.abort.abort();
@@ -1829,7 +1856,7 @@ export class Game implements ToolHost {
     }
     // builders come from a construction company — without one nothing can be built (except the company and a Town Hall)
     if (host && (host.relation ?? 40) < 25) return { ok: false, reason: t('{city} does not trust you enough to let you build there (relations below 25)', { city: host.name }) };
-    if (!host && kind !== 'townhall' && kind !== 'construction' && !this.buildings.list.some((b) => b.kind === 'construction' && b.city === this.eco.active)) {
+    if (!host && !this.followers && kind !== 'townhall' && kind !== 'construction' && !this.buildings.list.some((b) => b.kind === 'construction' && b.city === this.eco.active)) {
       return { ok: false, reason: t('Build a Construction Company first — its builders build everything else') };
     }
     return { ok: true, money: def.money, stone: def.stone, wood: def.wood, iron: def.iron };
@@ -1963,6 +1990,8 @@ export class Game implements ToolHost {
       const b = this.buildings.at(idx(tl.x, tl.z));
       if (!b) continue;
       if (b.kind === 'townhall') keptTownHall = true;
+      // a follower's home stays (take the follower off the list first)
+      else if (this.followers && this.pop.familyAt(b.id)) { this.hud?.toast(t("Someone lives here — a follower's home can't be removed")); continue; }
       else if (b.kind === 'cemeteryext' || this.eco.cities.get(b.city)?.ai) continue;
       else targets.add(b);
     }
@@ -2318,7 +2347,7 @@ export class Game implements ToolHost {
   /** Problem badges over buildings, the reach of the selected service and what a selected power plant feeds. */
   private updateOverlays(dt: number) {
     if (this.tunnelMarks) this.tunnelMarks.visible = this.showTunnelMarks() && !this.photoMode;
-    this.overlays.visible = !this.demo && !this.pov && !this.drive?.active && !this.photoMode;
+    this.overlays.visible = !this.demo && !this.pov && !this.drive?.active && !this.photoMode && !this.studio;
     this.overlays.update(dt);
     this.overlayT -= dt;
     if (this.overlayT > 0 || this.demo) return;
@@ -3214,6 +3243,173 @@ export class Game implements ToolHost {
     this.overlays.bubble(c.walker!, this.thoughtOf(c)[0]);
   }
 
+  // ---------- the followers' town ----------
+
+  /** Followers waiting for their new house to go up (they move in when it is finished). */
+  private arriving: { nick: string; sex: Sex; age: number; home: number; done: (c: Citizen) => void }[] = [];
+
+  /** Everyone living in the followers' town (each is a real follower). */
+  followerList(): Citizen[] { return [...this.pop.citizens.values()].filter((c) => !!c.fol); }
+
+  /** Followers on their way (their house is going up). */
+  get arrivingCount() { return this.arriving.length; }
+
+  /** Nicknames already taken (living here or on their way). */
+  private nickTaken(nick: string) {
+    const n = nick.toLowerCase();
+    return this.followerList().some((c) => c.fol!.toLowerCase() === n) || this.arriving.some((a) => a.nick.toLowerCase() === n);
+  }
+
+  findFollower(nick: string): Citizen | undefined {
+    const n = nick.replace(/^@/, '').trim().toLowerCase();
+    if (!n) return undefined;
+    const all = this.followerList();
+    return all.find((c) => c.fol!.toLowerCase() === n) ?? all.find((c) => c.fol!.toLowerCase().includes(n));
+  }
+
+  /** Where a follower is right now (on foot, in a car or in a building), for the name tags. */
+  followerPos(c: Citizen) {
+    const p = this.personPos(c);
+    return p && { ...p, home: c.at === this.pop.families.get(c.family)?.home };
+  }
+
+  /** Where a follower is and what they do, in a few words. */
+  followerInfo(c: Citizen) {
+    const job = c.job >= 0 ? this.buildings.get(c.job) : undefined;
+    const school = c.school >= 0 ? this.buildings.get(c.school) : undefined;
+    const spouse = this.pop.spouseOf(c);
+    return {
+      nick: c.fol ?? c.name, sex: c.sex, age: Math.floor(c.age), activity: t(c.activity),
+      work: job ? t(BUILDINGS[job.kind].name) : school ? t(BUILDINGS[school.kind].name) : '',
+      student: !job && !!school, spouse: spouse ? spouse.fol ?? spouse.name : '',
+    };
+  }
+
+  /** The camera flies to a follower and keeps them in view. */
+  focusFollower(c: Citizen, view = 5, follow = true) {
+    const p = this.personPos(c);
+    if (p) this.cam.flyTo(p.x, p.z, view, 1.6);
+    this.select({ type: 'person', id: c.id });
+    this.following = follow;
+  }
+
+  /** A quiet look at a place (no selection), for the film. */
+  lookAt(x: number, z: number, view: number, seconds = 2) {
+    this.select(null);
+    this.cam.flyTo(x, z, view, seconds);
+  }
+
+  /** Close the person's card (the film shows its own caption). */
+  clearSelection() { this.select(null); }
+
+  /** A home for a new follower: an empty house, or a new house on a free plot by a road near the town centre. */
+  private followerHome(): Building | null {
+    const city = this.eco.active;
+    const taken = new Set(this.arriving.map((a) => a.home));
+    const free = this.buildings.list.filter((b) => b.kind === 'house' && b.city === city && !b.removed && !taken.has(b.id) && !this.pop.familyAt(b.id));
+    const hall = this.buildings.townHall(city);
+    const cx = hall?.x ?? N / 2, cz = hall?.z ?? N / 2;
+    const d = (x: number, z: number) => Math.abs(x - cx) + Math.abs(z - cz);
+    if (free.length) return free.sort((a, b) => d(a.x, a.z) - d(b.x, b.z))[0];
+    // a free plot beside a road, the nearest to the town hall first (a little jitter keeps the streets from filling in a line)
+    const plots: { x: number; z: number; d: number }[] = [];
+    for (let k = 0; k < N * N; k++) {
+      if (!this.net.type[k]) continue;
+      const x = k % N, z = (k / N) | 0;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const px = x + dx, pz = z + dz;
+        if (!inBounds(px, pz) || this.net.type[idx(px, pz)] || this.buildings.occ[idx(px, pz)] !== -1) continue;
+        plots.push({ x: px, z: pz, d: d(px, pz) + Math.random() * 3 });
+      }
+    }
+    plots.sort((a, b) => a.d - b.d);
+    for (const p of plots.slice(0, 400)) {
+      if (!this.checkPlace('house', p).ok) continue;
+      this.place('house', p);
+      const b = this.buildings.at(idx(p.x, p.z));
+      if (!b || b.kind !== 'house') continue;
+      // water and power reach the new home through a pipe and a cable under it
+      const fp = this.buildings.footprint('house', b.x, b.z);
+      this.pipes.add(fp); this.pipes.rebuild();
+      this.cables.add(fp); this.cables.rebuild();
+      this.networkChanged();
+      return b;
+    }
+    return null;
+  }
+
+  /**
+   * A new follower comes to live in the town: they get a home of their own (an empty house, or a new one that goes
+   * up in seconds) and move in when it is ready.
+   */
+  addFollower(nickIn: string, sex: Sex, age: number, done: (c: Citizen) => void = () => {}): { ok: true; home: Building; fresh: boolean } | { ok: false; reason: string } {
+    const nick = nickIn.replace(/^@/, '').trim().slice(0, 30);
+    if (!nick) return { ok: false, reason: t('Type a nickname') };
+    if (this.nickTaken(nick)) return { ok: false, reason: t('@{nick} already lives here', { nick }) };
+    const before = this.buildings.list.length;
+    const home = this.followerHome();
+    if (!home) return { ok: false, reason: t('No room for a new house — lay a new road first') };
+    // they move in on the next frame (or when the new house is finished)
+    this.arriving.push({ nick, sex, age: Math.max(1, Math.min(99, Math.round(age))), home: home.id, done });
+    return { ok: true, home, fresh: this.buildings.list.length > before };
+  }
+
+  /** Followers move in as soon as their house is finished (all of them at once before saving). */
+  private settleFollowers(all = false) {
+    if (!this.arriving.length) return;
+    const queue = this.arriving;
+    const moved: [typeof queue[number], Citizen][] = [];
+    this.arriving = [];
+    for (const a of queue) {
+      const home = this.buildings.get(a.home);
+      if (!home || home.removed) { const again = this.followerHome(); if (again) this.arriving.push({ ...a, home: again.id }); continue; }
+      if (home.built < 1 && !all) { this.arriving.push(a); continue; }
+      moved.push([a, this.pop.addFollower(home.id, a.nick, a.sex, a.age)]);
+    }
+    if (!moved.length) return;
+    this.pop.assign(this.buildings);
+    this.pop.planDay(moved.map(([, c]) => c));
+    this.refreshHud();
+    for (const [a, c] of moved) { try { a.done(c); } catch (e) { console.warn('[followers]', e); } }
+  }
+
+  /** A follower leaves the town (taken off the list). */
+  removeFollower(nick: string): boolean {
+    this.arriving = this.arriving.filter((a) => a.nick.toLowerCase() !== nick.toLowerCase());
+    const c = this.followerList().find((x) => x.fol!.toLowerCase() === nick.toLowerCase());
+    if (!c) return false;
+    if (this.selection?.type === 'person' && this.selection.id === c.id) this.select(null);
+    if (c.walker) this.walkers.dismiss(c.walker);
+    const f = this.pop.families.get(c.family);
+    this.pop.removeCitizen(c, 'left');
+    if (f && !f.members.length) this.pop.families.delete(f.id);
+    this.pop.assign(this.buildings);
+    this.refreshHud();
+    return true;
+  }
+
+  /** The middle of the town (its town hall), for wide shots. */
+  townCentre() {
+    const h = this.buildings.townHall(this.eco.active);
+    return h ? { x: h.mesh.position.x, z: h.mesh.position.z } : { x: this.cam.target.x, z: this.cam.target.z };
+  }
+
+  /** Hearts and fireworks over a follower's new home. */
+  celebrate(b: Building) {
+    const { x, z } = b.mesh.position;
+    this.effects.hearts(x, z);
+    for (let i = 0; i < 5; i++) setTimeout(() => this.effects.firework(x + (Math.random() - 0.5) * 2.5, z + (Math.random() - 0.5) * 2.5), i * 320);
+    sound.play('achieve');
+  }
+
+  /** The followers' town never loses its people: a family whose home was lost gets another one. */
+  private rehouseFollowers(f: Family): boolean {
+    const home = this.followerHome();
+    if (!home) return false;
+    f.home = home.id;
+    return true;
+  }
+
   /** Photo mode: hide the interface, keep a small bar to take a picture or leave. */
   togglePhoto() {
     if (!this.hud) return;
@@ -3245,7 +3441,7 @@ export class Game implements ToolHost {
 
   /** Now and then the town hall has to decide something (random events). */
   private maybeDecide() {
-    if (!this.decision || this.decision.visible || this.demo || this.eco.day - this.decisionDay < 3 || Math.random() > 0.35) return;
+    if (!this.decision || this.decision.visible || this.demo || this.followers || this.eco.day - this.decisionDay < 3 || Math.random() > 0.35) return;
     const city = this.eco.city;
     const ctx: DecisionCtx = {
       city,
@@ -6577,7 +6773,7 @@ export class Game implements ToolHost {
       const name = t(BUILDINGS[b.kind].name);
       sound.play('toast');
       this.life.events.unshift(t('Strike! The workers of the {name} stopped work: the pay is too low', { name }));
-      if (!this.decision || this.decision.visible || this.demo) continue;
+      if (!this.decision || this.decision.visible || this.demo || this.followers) continue;
       const raise = () => {
         if (b.owner >= 0) b.wageF = Math.max(1.05, (b.wageF ?? 1) + 0.15); else { city.wageAuto = false; city.wages[b.kind] = Math.max(1.05, (city.wages[b.kind] ?? 1) + 0.15); }
         b.strike = undefined;

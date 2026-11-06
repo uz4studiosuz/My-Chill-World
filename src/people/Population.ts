@@ -74,6 +74,8 @@ export interface Citizen {
   trade?: string;
   gambled?: number;
   lost?: boolean;
+  /** A real follower of the game's page: their nickname (followers' town — only such people live there). */
+  fol?: string;
 }
 
 /** Someone in the town's records: who they were, their parents and spouse, when they died or left. */
@@ -216,6 +218,56 @@ export class Population {
   private nextFamily = 1;
 
   get size() { return this.citizens.size; }
+  /**
+   * Followers' town: only the people added by hand live here (no newcomers, no babies, nobody dies or leaves).
+   * They keep the age they were given, work, learn and marry one another.
+   */
+  followers = false;
+
+  /** A follower moves into a home of their own (a family of one). */
+  addFollower(home: number, nick: string, sex: Sex, age: number): Citizen {
+    const f: Family = { id: this.nextFamily++, surname: '', home, money: 1500, income: 0, car: null, members: [], debtDays: 0 };
+    this.families.set(f.id, f);
+    const c = this.addCitizen(f, sex, age, age >= ADULT_AGE ? 'parent' : 'child');
+    c.age = age + 0.5;
+    c.name = nick;
+    c.fol = nick;
+    c.edu = age >= ADULT_AGE ? 0.6 : Math.min(0.9, Math.max(0, (age - 6) / 12));
+    c.skill = age >= 22 ? 1 : 0;
+    c.hunger = 100;
+    c.health = 100;
+    this.note(c, 'Followed the page and moved into a home of their own');
+    return c;
+  }
+
+  /** The followers' town: two single followers marry now and then; the bride moves into the groom's home. */
+  private followerWeddings(r: DayReport, belongs: (f: Family) => boolean, hasHall: boolean) {
+    if (Math.random() > (hasHall ? 0.7 : 0.35)) return;
+    const single = (sex: Sex) => [...this.citizens.values()].filter((c) => c.sex === sex && c.age >= 20 && c.fol && c.role === 'parent'
+      && this.families.get(c.family)?.members.length === 1 && belongs(this.families.get(c.family)!));
+    const men = single('m'), women = single('f');
+    if (!men.length || !women.length) return;
+    const groom = pick(men);
+    const brides = women.filter((w) => Math.abs(w.age - groom.age) <= 10 && w.age <= groom.age + 4);
+    if (!brides.length) return;
+    const bride = pick(brides);
+    const gf = this.families.get(groom.family)!, bf = this.families.get(bride.family)!;
+    bf.members = [];
+    this.families.delete(bf.id);
+    bride.family = gf.id;
+    gf.members.push(bride.id);
+    gf.money += bf.money;
+    this.note(groom, hasHall ? 'Married {name} at the Wedding Hall' : 'Married {name}', { name: bride.name });
+    this.note(bride, hasHall ? 'Married {name} at the Wedding Hall' : 'Married {name}', { name: groom.name });
+    this.note(bride, "Moved into {name}'s home", { name: groom.name });
+    r.weddings.push([groom.name, bride.name, gf.home, gf.id, undefined]);
+  }
+
+  /** The husband or wife of a person (the other grown-up of a followers' family), if any. */
+  spouseOf(c: Citizen) {
+    const f = this.families.get(c.family);
+    return f ? this.members(f).find((m) => m.id !== c.id && m.role === 'parent') : undefined;
+  }
 
   familyAt(home: number) {
     for (const f of this.families.values()) if (f.home === home) return f;
@@ -631,7 +683,9 @@ export class Population {
       if (Math.random() > (opts.waterAt ? opts.waterAt(cf.home) : water)) { c.health -= 22; cause = c.hunger < 25 ? cause : 'thirst'; }
       if (c.age > 60) c.health -= Math.max(0, (c.age - 60) * 0.35 - opts.heal * 0.04);
       else if (c.hunger >= 25) c.health = Math.min(100, c.health + 12 + opts.heal);
-      c.age += PER_YEAR;
+      // a follower keeps the age they were given, and is never in danger
+      if (this.followers) { c.health = Math.max(c.health, 70); c.hunger = Math.max(c.hunger, 60); }
+      else c.age += PER_YEAR;
       if (c.school >= 0) c.edu = Math.min(1, c.edu + 0.1 * PER_YEAR * (1 + (opts.eduBoost ?? 0)));
       const sb = c.school >= 0 ? buildings.get(c.school) : undefined;
       if (c.age >= ADULT_AGE && sb?.kind === 'school') { c.school = -1; this.note(c, 'Finished school'); }
@@ -642,7 +696,7 @@ export class Population {
       if (c.age >= 20 && c.skill === 0 && c.school < 0) c.skill = 1;
       if (c.role === 'parent' && c.age >= 70) c.role = 'elder';
       // life is fragile: elderly people pass away, anyone can fall seriously ill (less so with doctors around)
-      if (c.health > 0 && !opts.calm) {
+      if (c.health > 0 && !opts.calm && !this.followers) {
         const care = 1 - Math.min(0.6, opts.heal / 50);
         const old = c.age < 55 ? 0 : c.age < 65 ? 0.004 : c.age < 75 ? 0.012 : c.age < 85 ? 0.03 : 0.07;
         if (Math.random() < old * care) { c.health = 0; cause = 'old age'; }
@@ -653,7 +707,7 @@ export class Population {
           else this.note(c, 'Fell seriously ill');
         }
       }
-      if (c.health <= 0) die(c, cause);
+      if (c.health <= 0 && !this.followers) die(c, cause);
     }
 
     // everyday trouble: fights, car accidents and, rarely, a murder
@@ -661,7 +715,7 @@ export class Population {
       const cf = this.families.get(c.family);
       return !!cf && belongs(cf) && c.age >= 16;
     });
-    if (adults.length >= 8 && !opts.calm) {
+    if (adults.length >= 8 && !opts.calm && !this.followers) {
       const n = adults.length;
       const cars = [...this.families.values()].filter((f) => belongs(f) && f.car).length;
       const two = (): [Citizen, Citizen] | null => {
@@ -704,7 +758,7 @@ export class Population {
 
     // births (couples aged 20–42, about one child every three years)
     for (const f of this.families.values()) {
-      if (!belongs(f)) continue;
+      if (!belongs(f) || this.followers) continue;
       const people = this.members(f);
       const dad = people.find((c) => c.role === 'parent' && c.sex === 'm' && c.age < 55);
       const mom = people.find((c) => c.role === 'parent' && c.sex === 'f' && c.age >= 20 && c.age <= 42);
@@ -718,9 +772,10 @@ export class Population {
       }
     }
 
+    if (this.followers) this.followerWeddings(r, belongs, hasHall);
     // grown-up children start their own household; with a Wedding Hall they can marry
     for (const f of [...this.families.values()]) {
-      if (!belongs(f)) continue;
+      if (!belongs(f) || this.followers) continue;
       const grown = this.members(f).filter((c) => c.role === 'child' && c.age >= 20);
       for (const c of grown) {
         const home = freeHomes()[0];
@@ -761,7 +816,7 @@ export class Population {
     for (const f of [...this.families.values()]) {
       if (!f.members.length) { this.families.delete(f.id); continue; }
       if (!belongs(f)) continue;
-      if (f.debtDays >= 6) {
+      if (f.debtDays >= 6 && !this.followers) {
         r.leftTown += f.members.length;
         this.removeFamily(f);
       }
@@ -794,7 +849,7 @@ export class Population {
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, college: c.college, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, trade: c.trade, gambled: c.gambled, lost: c.lost || undefined,
+        story: c.story, fol: c.fol, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, trade: c.trade, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));
   }

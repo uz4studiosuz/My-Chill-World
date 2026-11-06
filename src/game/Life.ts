@@ -10,7 +10,7 @@ import { RoadNetwork } from '../roads/RoadNetwork';
 import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Building, Buildings, Point } from '../buildings/Buildings';
-import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE, DIG_PER_LEVEL, UTILITY } from '../buildings/BuildingTypes';
+import { BANKING, CROPS, TRADE_PRICE, VISIT_PRICE, CASINO_TAX, BATTERY, CHAIN, CHAIN2, FLU, PENSION, MILITARY, TRASH, BUS, SERVICE_FEE, BUILDINGS, BUILD_DAYS, BUSINESS_KINDS, CARS, CLEAN_POWER, POLLUTERS, POLLUTION_RANGE, TOURISM, FIRE_RANGE, FUEL, IRON_PER_DAY, POLICE_RANGE, SHOP_PRICE, POWER_PRIORITY, HOUSE_UPGRADE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, WOOD_PER_LOG, DEGREE_JOBS, BIKE, DIG_PER_LEVEL, UTILITY } from '../buildings/BuildingTypes';
 import type { BuildingKind, CropKind } from '../buildings/BuildingTypes';
 import { Economy } from '../sim/Economy';
 import { growingSeason, monthOf, seasonOf } from '../sim/Calendar';
@@ -132,6 +132,10 @@ export class Life {
   private porters = new Set<number>();
   /** Calm mode: no disasters, crime or bankruptcy. */
   calm = false;
+  /** Followers' town: only people added by hand (no newcomers, nobody leaves); buildings go up in seconds. */
+  followers = false;
+  /** Followers' town: a new home for a family whose home was lost (set by the game). */
+  rehouse?: (f: Family) => boolean;
   /** Festival running today (Navruz, New Year). */
   festival: string | null = null;
   /** Air pollution at each home (building id). */
@@ -299,7 +303,7 @@ export class Life {
     this.stormT -= dt;
     if (this.stormT <= 0) { this.stormT = DAY_SECONDS * (0.02 + Math.random() * 0.04); this.storm(); }
     this.immigrationT += dt;
-    if (this.immigrationT > IMMIGRATION_INTERVAL) { this.immigrationT = 0; this.immigrate(); }
+    if (this.immigrationT > IMMIGRATION_INTERVAL) { this.immigrationT = 0; if (!this.followers) this.immigrate(); }
     this.leisure.update(dt);
   }
 
@@ -2997,7 +3001,7 @@ export class Life {
     let target = mood.reduce((a, [, v]) => a + v, 0);
     target = Math.max(0, Math.min(100, target));
     city.happiness += (target - city.happiness) * 0.4;
-    if (city.happiness < 30 && Math.random() < 0.35) {
+    if (city.happiness < 30 && Math.random() < 0.35 && !this.followers) {
       const owners = new Set(this.c.buildings.list.map((b) => b.owner));
       const leaving = [...pop.families.values()].find((f) => belongs(f) && !owners.has(f.id));
       if (leaving && !this.relocate(leaving, city.id, false)) {
@@ -4443,6 +4447,8 @@ export class Life {
    * Construction speed of one site: slow on its own, much faster while builders from a construction company work on it.
    */
   buildSpeed(b: Building) {
+    // the followers' town: a building rises in a few seconds (about 8 s for a house at normal speed)
+    if (this.followers) return (DAY_SECONDS * BUILD_DAYS[BUILDINGS[b.kind].size]) / (6 + BUILDINGS[b.kind].size * 2);
     const n = Math.min(5, this.crewSize(b));
     // a Town Hall and the construction company itself go up slowly with hired hands; everything else needs builders
     const now = this.clock();
@@ -4709,6 +4715,7 @@ export class Life {
       for (const f of [...pop.families.values()].filter((x) => x.home === b.id)) {
         const other = this.freeHomes(b.city).find((h) => h.id !== b.id);
         if (other) f.home = other.id;
+        else if (this.followers) { this.rehouse?.(f); continue; }
         else if (!this.relocate(f, b.city, true)) {
           for (const m of pop.members(f)) if (m.walker) this.c.walkers.dismiss(m.walker);
           pop.removeFamily(f);
