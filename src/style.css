@@ -3098,3 +3098,9 @@ body.followers-town .side-act[data-panel="news"] { display: none !important; }
 /* name tags: lighter, so the town shows through */
 .fol-tag { transition: opacity .25s; }
 .fol-tag.in { background: rgba(28,36,31,.7); }
+
+/* a gold tag (the newest, the home lit up in the film) keeps its gold also over a building */
+.fol-tag.gold, .fol-tag.in.gold { background: linear-gradient(135deg, #ffe08a, #ffb84d); color: #3b2500; opacity: 1 !important; }
+/* the card under the film: the emoji and the name on one line */
+.cap-head { white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
+body.portrait-916 .cap-head { max-width: calc(100vh * 9 / 16 * 0.9); }

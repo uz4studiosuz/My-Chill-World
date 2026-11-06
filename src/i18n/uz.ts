@@ -4214,4 +4214,8 @@ export const UZ: Record<string, string> = {
   "everyone works · {m} free jobs": "hamma ishlaydi · {m} bo'sh ish o'rni",
   "Build your own town!": "O'z shahringizni quring!",
   "Make a new world, explore it and play — free, in the browser": "Yangi dunyo yarating, kashf eting va o'ynang — bepul, brauzerda",
+  "Telegram (the ones not shown; {n} = how many)": "Telegram (ko'rsatilmaganlar uchun; {n} = soni)",
+  "Not everyone fitted — {n} more live here! 📲 Go to my Telegram channel (link in bio): the game's site is there — find yourself in the town 🔎": "Hammasi sig'madi — yana {n} kishi bor! 📲 Telegram kanalimga o'ting (havola bioda): u yerda o'yin sayti bor — o'zingizni shahardan toping 🔎",
+  "📲 Go to my Telegram channel (link in bio): the game's site is there — find yourself in the town 🔎": "📲 Telegram kanalimga o'ting (havola bioda): u yerda o'yin sayti bor — o'zingizni shahardan toping 🔎",
+  "link in bio": "havola bioda",
 };

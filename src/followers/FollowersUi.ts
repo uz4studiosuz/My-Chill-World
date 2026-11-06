@@ -14,7 +14,7 @@ export const INSTAGRAM = '';
 const STUDIO_TITLE_KEY = 'mcw_studio_title';
 const MARK_KEY = 'mcw_followers_marked';
 const TEXTS_KEY = 'mcw_studio_texts';
-type Texts = { counter: string; person: string; cta: string };
+type Texts = { counter: string; person: string; cta: string; tg: string };
 const PACE_KEY = 'mcw_showcase_pace';
 /** At most this many name tags at once (the ones nearest the middle of the screen). */
 const MAX_TAGS = 140;
@@ -102,7 +102,7 @@ export class FollowersUi {
   /** Followers marked in the list: the "new in town" film shows them one by one. */
   private marked = new Set<string>(JSON.parse(localStorage.getItem(MARK_KEY) ?? '[]') as string[]);
   /** The film's own words (empty = the usual ones). */
-  private texts: Texts = { counter: '', person: '', cta: '', ...(JSON.parse(localStorage.getItem(TEXTS_KEY) ?? '{}') as Partial<Texts>) };
+  private texts: Texts = { counter: '', person: '', cta: '', tg: '', ...(JSON.parse(localStorage.getItem(TEXTS_KEY) ?? '{}') as Partial<Texts>) };
   /** The "new in town" film playing now: its steps (seconds from the start). */
   private show: { steps: [number, () => void][]; t: number; i: number; recorded: boolean } | null = null;
   private markBtn!: HTMLButtonElement;
@@ -722,7 +722,7 @@ export class FollowersUi {
       const close = view < 9;
       for (const o of onScreen) {
         const starred = o.g.nicks.some((n) => this.marked.has(n));
-        o.d += (o.g.gold ? -3 : 0) + (starred ? -2 : 0) + (o.g.inside ? 0.25 : 0);
+        o.d += (o.key === 'spot' ? -10 : 0) + (o.g.gold ? -3 : 0) + (starred ? -2 : 0) + (o.g.inside ? 0.25 : 0);
       }
       onScreen.sort((a, b) => a.d - b.d);
       const boxes: [number, number, number, number][] = [];
@@ -736,7 +736,7 @@ export class FollowersUi {
         const fs = g.gold ? size + 1 : g.inside ? size - 1 : size;
         const w = ([...text].length * 0.6 + 1.4) * fs, h = fs * 1.55;
         const x0 = rx - w / 2, y0 = ry - h;
-        if (!g.gold && boxes.some(([bx, by, bw, bh]) => x0 < bx + bw + 3 && x0 + w + 3 > bx && y0 < by + bh + 2 && y0 + h + 2 > by)) continue;
+        if (key !== 'spot' && boxes.some(([bx, by, bw, bh]) => x0 < bx + bw + 3 && x0 + w + 3 > bx && y0 < by + bh + 2 && y0 + h + 2 > by)) continue;
         boxes.push([x0, y0, w, h]);
         let el2 = this.tags.get(key);
         if (!el2) { el2 = el('div', 'fol-tag'); this.tagLayer.append(el2); this.tags.set(key, el2); }
@@ -817,12 +817,21 @@ export class FollowersUi {
       field(t('Title'), this.title.textContent ?? '', '', (v) => { this.title.textContent = v; localStorage.setItem(STUDIO_TITLE_KEY, v); }),
       field(t('Line under the title ({n} = how many)'), this.texts.counter, `👥 ${t('{n} followers live here', { n: '{n}' })}`, (v) => { this.texts.counter = v; keep(); }),
       field(t('For each person ({nick} = the nickname)'), this.texts.person, this.personText('{nick}'), (v) => { this.texts.person = v; keep(); }),
+      field(t('Telegram (the ones not shown; {n} = how many)'), this.texts.tg, this.tgText(1), (v) => { this.texts.tg = v; keep(); }),
       field(t('At the end'), this.texts.cta, this.ctaText(), (v) => { this.texts.cta = v; keep(); }),
     );
     return box;
   }
 
   private personText(nick: string) { return (this.texts.person || t('🎉 New in town: {nick}')).replace('{nick}', nick); }
+  /** The outro for the ones the film could not show: the Telegram channel (link in the bio) has the game's site. */
+  private tgText(extra: number) {
+    const base = this.texts.tg || (extra > 0
+      ? t('Not everyone fitted — {n} more live here! 📲 Go to my Telegram channel (link in bio): the game\'s site is there — find yourself in the town 🔎')
+      : t('📲 Go to my Telegram channel (link in bio): the game\'s site is there — find yourself in the town 🔎'));
+    return base.replace('{n}', String(extra));
+  }
+
   private ctaText() { return this.texts.cta || t('Follow and write your nickname in the comments — your house is next! 👇'); }
 
   /**
@@ -874,8 +883,11 @@ export class FollowersUi {
       at0 += pace.each;
     });
     steps.push([at0, () => { centre(14); this.showOnly = new Set(nicks); this.showCaption(`🏙️ ${t('{n} people live here — every one a follower', { n: this.game.followerList().length })}`, ''); }]);
-    steps.push([at0 + pace.outro, () => { this.hideCaption(); this.flash(this.ctaText(), 'big', 4.5); }]);
-    steps.push([at0 + pace.outro + 4.6, () => { this.show = null; this.showOnly = null; if (recorded) void this.stopRecording(); }]);
+    // the ones who did not fit (and everyone else): the Telegram channel, link in the bio, the site there
+    const extra = Math.max(0, picked.length - nicks.length);
+    steps.push([at0 + pace.outro, () => { this.showCaption('📲 Telegram', t('link in bio')); this.flash(this.tgText(extra), 'big', 5.4); }]);
+    steps.push([at0 + pace.outro + 5.5, () => { this.hideCaption(); this.flash(this.ctaText(), 'big', 4.5); }]);
+    steps.push([at0 + pace.outro + 10.1, () => { this.show = null; this.showOnly = null; if (recorded) void this.stopRecording(); }]);
     this.show = { steps, t: 0, i: 0, recorded };
   }
 
