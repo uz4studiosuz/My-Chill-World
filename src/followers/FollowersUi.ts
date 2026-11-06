@@ -116,6 +116,8 @@ export class FollowersUi {
   private editing = false;
   /** The home lit up in the film carries its owner's name, wherever they are just then. */
   private homeTag?: { nick: string; x: number; y: number; z: number; until: number };
+  /** While the "new in town" film plays: only these names show over the town (the one in the shot). */
+  private showOnly: Set<string> | null = null;
   private onlyMarked = false;
   private pace: Pace = (['normal', 'fast', 'turbo'].includes(localStorage.getItem(PACE_KEY) ?? '') ? localStorage.getItem(PACE_KEY) : 'fast') as Pace;
   private tourBtn!: HTMLButtonElement;
@@ -693,6 +695,7 @@ export class FollowersUi {
       const onlyMarked = this.tagMode === 'marked';
       for (const c of game.followerList()) {
         if (onlyMarked && !this.marked.has(c.fol!)) continue;
+        if (this.showOnly && !this.showOnly.has(c.fol!)) continue;
         const p = game.followerPos(c);
         if (!p) continue;
         const inside = p.y > 0.42;
@@ -714,18 +717,36 @@ export class FollowersUi {
         if (this.v.z > 1 || Math.abs(this.v.x) > 1.05 || Math.abs(this.v.y) > 1.05) continue;
         onScreen.push({ key, g, rx: (this.v.x * 0.5 + 0.5) * rect.width, ry: (-this.v.y * 0.5 + 0.5) * rect.height, d: (g.gold ? -1 : 0) + Math.hypot(this.v.x, this.v.y) });
       }
-      if (onScreen.length > MAX_TAGS) onScreen.sort((a, b) => a.d - b.d).length = MAX_TAGS;
-      for (const { key, g, rx, ry } of onScreen) {
-        let d = this.tags.get(key);
-        if (!d) { d = el('div', 'fol-tag'); this.tagLayer.append(d); this.tags.set(key, d); }
+      // the most important first: the newest (gold) and the starred, then people out in the street, then the
+      // nearest to the middle of the screen; a tag that would cover one already placed is left out
+      const close = view < 9;
+      for (const o of onScreen) {
+        const starred = o.g.nicks.some((n) => this.marked.has(n));
+        o.d += (o.g.gold ? -3 : 0) + (starred ? -2 : 0) + (o.g.inside ? 0.25 : 0);
+      }
+      onScreen.sort((a, b) => a.d - b.d);
+      const boxes: [number, number, number, number][] = [];
+      for (const { key, g, rx, ry, d: dist } of onScreen) {
+        if (boxes.length >= MAX_TAGS) break;
+        // up close the household is named; farther out a home shows its first name and how many more
+        const more = g.nicks.length - (close ? 2 : 1);
         const text = g.inside
-          ? `${g.home ? '🏠' : '🏢'} ${g.nicks.slice(0, 2).map(at).join(' ')}${g.nicks.length > 2 ? ` +${g.nicks.length - 2}` : ''}`
+          ? `${g.home ? '🏠' : '🏢'} ${g.nicks.slice(0, close ? 2 : 1).map(at).join(' ')}${more > 0 ? ` +${more}` : ''}`
           : at(g.nicks[0]);
-        if (d.textContent !== text) d.textContent = text;
-        d.className = `fol-tag${g.inside ? ' in' : ''}${g.gold ? ' gold' : ''}`;
-        d.style.fontSize = `${size}px`;
-        d.style.transform = `translate(${(rect.left + rx).toFixed(1)}px, ${(rect.top + ry).toFixed(1)}px) translate(-50%, -100%)`;
-        this.tagDraw.push({ x: rx, y: ry, text, inside: g.inside, gold: g.gold, size });
+        const fs = g.gold ? size + 1 : g.inside ? size - 1 : size;
+        const w = ([...text].length * 0.6 + 1.4) * fs, h = fs * 1.55;
+        const x0 = rx - w / 2, y0 = ry - h;
+        if (!g.gold && boxes.some(([bx, by, bw, bh]) => x0 < bx + bw + 3 && x0 + w + 3 > bx && y0 < by + bh + 2 && y0 + h + 2 > by)) continue;
+        boxes.push([x0, y0, w, h]);
+        let el2 = this.tags.get(key);
+        if (!el2) { el2 = el('div', 'fol-tag'); this.tagLayer.append(el2); this.tags.set(key, el2); }
+        if (el2.textContent !== text) el2.textContent = text;
+        el2.className = `fol-tag${g.inside ? ' in' : ''}${g.gold ? ' gold' : ''}`;
+        el2.style.fontSize = `${fs}px`;
+        // farther from the middle of the screen a tag fades a little: the town stays in view
+        el2.style.opacity = g.gold ? '1' : String(Math.max(0.55, Math.min(1, 1.25 - Math.max(0, dist) * 0.55)));
+        el2.style.transform = `translate(${(rect.left + rx).toFixed(1)}px, ${(rect.top + ry).toFixed(1)}px) translate(-50%, -100%)`;
+        this.tagDraw.push({ x: rx, y: ry, text, inside: g.inside, gold: g.gold, size: fs });
         used.add(key);
       }
     }
@@ -823,7 +844,7 @@ export class FollowersUi {
     const pace = PACES[this.pace];
     const steps: [number, () => void][] = [];
     const centre = (view = 13) => { const c = this.game.townCentre(); this.game.lookAt(c.x, c.z, view, 1.4); };
-    steps.push([0, () => { centre(); this.hideCaption(); }]);
+    steps.push([0, () => { centre(); this.hideCaption(); this.showOnly = new Set(nicks); }]);
     let at0 = pace.intro;
     nicks.forEach((nick, i) => {
       const card = () => {
@@ -844,6 +865,7 @@ export class FollowersUi {
           if (pace.fireworks) this.game.celebrate(home);
         }
         this.fresh.set(nick, this.clock + pace.each);
+        this.showOnly = new Set([nick]);
         this.flash(this.personText(at(nick)), 'big', pace.home);
         if (pace.together) card(); else this.hideCaption();
       }]);
@@ -851,9 +873,9 @@ export class FollowersUi {
       if (!pace.together) steps.push([at0 + pace.home, () => { this.showFollower(nick, 4.2); }]);
       at0 += pace.each;
     });
-    steps.push([at0, () => { centre(14); this.showCaption(`🏙️ ${t('{n} people live here — every one a follower', { n: this.game.followerList().length })}`, ''); }]);
+    steps.push([at0, () => { centre(14); this.showOnly = new Set(nicks); this.showCaption(`🏙️ ${t('{n} people live here — every one a follower', { n: this.game.followerList().length })}`, ''); }]);
     steps.push([at0 + pace.outro, () => { this.hideCaption(); this.flash(this.ctaText(), 'big', 4.5); }]);
-    steps.push([at0 + pace.outro + 4.6, () => { this.show = null; if (recorded) void this.stopRecording(); }]);
+    steps.push([at0 + pace.outro + 4.6, () => { this.show = null; this.showOnly = null; if (recorded) void this.stopRecording(); }]);
     this.show = { steps, t: 0, i: 0, recorded };
   }
 
@@ -865,7 +887,7 @@ export class FollowersUi {
   }
 
   setStudio(on: boolean) {
-    if (!on) this.show = null;
+    if (!on) { this.show = null; this.showOnly = null; }
     if (!on && this.rec) void this.toggleRecording();
     this.studioOn = on;
     this.game.studio = on;
