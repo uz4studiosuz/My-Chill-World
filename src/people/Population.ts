@@ -223,6 +223,8 @@ export class Population {
    * They keep the age they were given, work, learn and marry one another.
    */
   followers = false;
+  /** Followers marry only in the admin's town (a visitor's copy is not kept, so nothing happens there). */
+  weddingsOn = true;
 
   /** A follower moves into a home of their own (a family of one). */
   addFollower(home: number, nick: string, sex: Sex, age: number): Citizen {
@@ -772,7 +774,7 @@ export class Population {
       }
     }
 
-    if (this.followers) this.followerWeddings(r, belongs, hasHall);
+    if (this.followers && this.weddingsOn) this.followerWeddings(r, belongs, hasHall);
     // grown-up children start their own household; with a Wedding Hall they can marry
     for (const f of [...this.families.values()]) {
       if (!belongs(f) || this.followers) continue;

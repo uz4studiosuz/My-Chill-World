@@ -1,7 +1,7 @@
 {
   "name": "my-chill-world",
   "private": true,
-  "version": "0.83.0",
+  "version": "0.84.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "mp4-muxer": "^5.2.2",
     "sucrase": "^3.35.0",
     "three": "^0.186.1"
   },

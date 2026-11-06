@@ -42,6 +42,19 @@ function followersDev(): Plugin {
           res.end(String(e));
         }
       });
+      // a recorded video goes into release/followers/videos (not pushed: release/ is ignored by git)
+      server.middlewares.use('/__followers/video', (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        const name = (new URL(req.url ?? '', 'http://x').searchParams.get('name') ?? 'video.mp4').replace(/[^\w.-]/g, '_');
+        const out = path.join(root, 'release', 'followers', 'videos');
+        fs.mkdirSync(out, { recursive: true });
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          fs.writeFileSync(path.join(out, name), Buffer.concat(chunks));
+          res.end(`release/followers/videos/${name}`);
+        });
+      });
       server.middlewares.use('/__followers/push', async (req, res) => {
         if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
         const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });

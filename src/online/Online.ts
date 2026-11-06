@@ -274,6 +274,42 @@ export const Online = {
     if (error) throw new Error(why(error));
     return !!data?.length;
   },
+
+  // ---- the followers' town: one shared town, read by everyone, written only with the admin key ----
+
+  /** The followers' town as its admin last saved it (anyone can read it), or null. */
+  async followersPull(): Promise<{ updated: number; json: string } | null> {
+    try {
+      const { data, error } = await db().from('followers_world').select('updated, data').eq('id', 1).maybeSingle();
+      if (error || !data) return null;
+      return { updated: Number(data.updated), json: await unpack(data.data as string) };
+    } catch { return null; }
+  },
+
+  /** When the followers' town was last saved (0 when never or unknown). */
+  async followersUpdated(): Promise<number> {
+    try {
+      const { data } = await db().from('followers_world').select('updated').eq('id', 1).maybeSingle();
+      return Number(data?.updated ?? 0);
+    } catch { return 0; }
+  },
+
+  /** Is this the admin key? (checked on the server: the key itself is in no file of the game). null = no answer. */
+  async followersIsAdmin(secret: string): Promise<boolean | null> {
+    try {
+      const { data, error } = await db().rpc('followers_is_admin', { secret });
+      return error ? null : !!data;
+    } catch { return null; }
+  },
+
+  /** Save the followers' town (only with the admin key). Returns an error, or null. */
+  async followersPush(secret: string, updated: number, json: string, people: number): Promise<string | null> {
+    try {
+      const payload = await pack(json);
+      const { error } = await db().rpc('followers_save', { secret, payload, upd: updated, people });
+      return error ? why(error) : null;
+    } catch (e) { return why(e); }
+  },
 };
 
 /** The game day of an online world now: the same for everyone, from the moment it started. */

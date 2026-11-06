@@ -4,7 +4,8 @@ import type { Sex } from '../people/Population';
 import type { Building } from '../buildings/Buildings';
 import { t } from '../i18n/i18n';
 import { sound } from '../audio/Sound';
-import { DEV, onSaveStatus, pushWorld } from './store';
+import { DEV, SANDBOX, onSaveStatus, pushWorld, isAdmin, hasKey, tryAdmin, logout, newerExists, keepVideo } from './store';
+import { Recorder } from './Recorder';
 
 /** The page's Instagram name, shown in the film and to visitors (empty: not shown). */
 export const INSTAGRAM = '';
@@ -22,24 +23,35 @@ const button = (label: string, fn: () => void, cls = 'btn-mini') => {
   return b;
 };
 const at = (nick: string) => `@${nick}`;
+const FONT = '"Segoe UI", "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", Arial, sans-serif';
+
+/** A name tag as drawn this frame (screen position relative to the game canvas). */
+interface TagDraw { x: number; y: number; text: string; inside: boolean; gold: boolean; size: number }
 
 /**
- * The followers' town page: name tags over every follower, a panel to find a follower's home (and, on the owner's
- * computer, to add followers and publish the town), and a studio mode for filming.
+ * The followers' town page: name tags over every follower, a panel to find a follower's home (the admin also adds
+ * followers and saves the town there), a studio mode for filming and an MP4 recorder.
  */
 export class FollowersUi {
   private panel = el('div', 'fol-panel');
   private tagLayer = el('div', 'fol-tags');
   private studio = el('div', 'studio');
   private banner = el('div', 'fol-banner');
+  private chip = el('button', 'fol-chip');
   private tags = new Map<string, HTMLDivElement>();
+  private tagDraw: TagDraw[] = [];
   private fresh = new Map<string, number>();
   private v = new THREE.Vector3();
   private raf = 0;
   private last = performance.now();
+  /** Time of this page (seconds), also when a video is rendered frame by frame. */
+  private clock = 0;
   private listT = 0;
   private listSig = '';
   private bannerT = 0;
+  private bannerAt = 0;
+  private bannerKind = '';
+  private captionAt = -99;
   private showTags = true;
   private studioOn = false;
   private tour = true;
@@ -47,14 +59,26 @@ export class FollowersUi {
   private tourStep = 0;
   private tourOrder: string[] = [];
   private barT = 0;
+  private syncT = 0;
+  private pollT = 60;
   private abort = new AbortController();
   private saveTimer = 0;
-  private status!: HTMLDivElement;
+  private status?: HTMLDivElement;
   private list!: HTMLDivElement;
   private count!: HTMLSpanElement;
+  private find!: HTMLInputElement;
+  private title!: HTMLDivElement;
   private caption!: HTMLDivElement;
   private counter!: HTMLDivElement;
   private bar!: HTMLDivElement;
+  private recBtn!: HTMLButtonElement;
+  private portrait = false;
+  private showTitle = true;
+  private showCounter = true;
+  private rec: Recorder | null = null;
+  private recStart = 0;
+  private recNext = 0;
+  private recLive = false;
 
   constructor(private game: Game) {
     this.buildPanel();
@@ -62,20 +86,25 @@ export class FollowersUi {
     // the name tags lie under the game's interface, the rest above it
     const ui = document.getElementById('ui');
     if (ui) ui.before(this.tagLayer); else document.body.append(this.tagLayer);
-    document.body.append(this.panel, this.banner, this.studio);
+    this.chip.addEventListener('click', () => location.reload());
+    document.body.append(this.panel, this.banner, this.chip, this.studio);
     document.body.classList.add('followers-town');
     const sig = this.abort.signal;
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.key === 'Escape' && this.studioOn) { e.stopPropagation(); this.setStudio(false); }
       if (e.code === 'KeyT' && this.studioOn) this.tourNext();
+      if (e.code === 'KeyR' && this.studioOn) void this.toggleRecording();
     }, { signal: sig, capture: true });
     window.addEventListener('mousemove', () => { this.barT = 2.5; }, { signal: sig });
     onSaveStatus((s, note) => {
       if (!this.status) return;
-      this.status.textContent = s === 'saving' ? t('Saving into the project…') : s === 'saved' ? `✓ ${t('Saved into the project')} ${new Date().toLocaleTimeString()}` : `⚠ ${t('Could not save')}: ${note ?? ''}`;
+      this.status.textContent = s === 'saving' ? t('Saving…') : s === 'saved' ? `✓ ${t('Saved')} ${new Date().toLocaleTimeString()}` : `⚠ ${t('Could not save')}: ${note ?? ''}`;
       this.status.className = `fol-status ${s}`;
     });
+    // the picture is read right after the game draws it
+    this.game.afterRender = () => this.liveFrame();
+    if (DEV) (window as unknown as Record<string, unknown>).__fui = this;
     const loop = () => {
       this.raf = requestAnimationFrame(loop);
       const now = performance.now();
@@ -90,10 +119,14 @@ export class FollowersUi {
     cancelAnimationFrame(this.raf);
     this.abort.abort();
     clearTimeout(this.saveTimer);
+    this.rec?.cancel();
+    this.rec = null;
+    if (this.game.afterRender) this.game.afterRender = undefined;
     if (this.studioOn) this.setStudio(false);
     this.panel.remove();
     this.tagLayer.remove();
     this.banner.remove();
+    this.chip.remove();
     this.studio.remove();
     document.body.classList.remove('followers-town');
   }
@@ -101,6 +134,9 @@ export class FollowersUi {
   // ---------- the panel ----------
 
   private buildPanel() {
+    this.panel.replaceChildren();
+    this.status = undefined;
+    this.listSig = '';
     const head = el('div', 'fol-head');
     const title = el('b', '', `👥 ${t("Followers' town")}`);
     this.count = el('span', 'fol-count', '0');
@@ -114,29 +150,26 @@ export class FollowersUi {
     if (INSTAGRAM) body.append(el('div', 'fol-promo', t('Follow {name} on Instagram — and your house appears in this town!', { name: at(INSTAGRAM) })));
     else body.append(el('div', 'fol-promo', t('Everyone here is a real follower. Find your house!')));
 
-    // find a follower (everyone can)
+    // find a follower (everyone can); the admin key typed here lets the admin in
     const find = el('form', 'fol-find');
     const q = el('input') as HTMLInputElement;
+    this.find = q;
     q.placeholder = t('Your nickname, e.g. @ali');
     q.autocomplete = 'off';
+    q.spellcheck = false;
     q.addEventListener('input', () => { this.listSig = ''; this.renderList(); });
     find.append(q, el('button', 'btn-mini', '🔍'));
-    find.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const c = this.game.findFollower(q.value);
-      if (!c) { this.flash(t("{nick} doesn't live here yet", { nick: at(q.value.replace(/^@/, '').trim() || '?') }), 'warn'); sound.play('error'); return; }
-      this.game.focusFollower(c);
-      this.flash(t('🏠 Here is {nick}', { nick: at(c.fol!) }));
-    });
+    find.addEventListener('submit', (e) => { e.preventDefault(); void this.search(q.value); });
     body.append(find);
 
-    if (DEV) body.append(this.buildAdmin(q));
+    if (isAdmin() && !this.game.viewOnly) body.append(this.buildAdmin());
+    else body.append(el('div', 'fol-view', `👀 ${t('Watching mode: the town lives on by itself — only its admin builds here')}`));
 
     this.list = el('div', 'fol-list');
     body.append(this.list);
 
     const tools = el('div', 'fol-tools');
-    const tagBtn = button(`🏷️ ${t('Name tags')}`, () => { this.showTags = !this.showTags; tagBtn.classList.toggle('active', this.showTags); }, 'btn-mini active');
+    const tagBtn = button(`🏷️ ${t('Name tags')}`, () => { this.showTags = !this.showTags; tagBtn.classList.toggle('active', this.showTags); }, `btn-mini${this.showTags ? ' active' : ''}`);
     tools.append(tagBtn, button(`🎬 ${t('Studio (filming)')}`, () => this.setStudio(true), 'btn-mini'));
     body.append(tools);
     this.panel.append(head, body);
@@ -144,10 +177,39 @@ export class FollowersUi {
     for (const ev of ['pointerdown', 'wheel', 'keydown']) this.panel.addEventListener(ev, (e) => e.stopPropagation());
   }
 
-  /** Adding followers and publishing the town: only on the owner's computer (the dev server). */
-  private buildAdmin(find: HTMLInputElement) {
+  private async search(text: string) {
+    const c = this.game.findFollower(text);
+    if (c) {
+      this.game.focusFollower(c);
+      this.flash(t('🏠 Here is {nick}', { nick: at(c.fol!) }));
+      return;
+    }
+    // not a follower: maybe the admin key (checked by the server, never kept in the game's files)
+    const raw = text.trim();
+    if (raw.length >= 6 && !/\s/.test(raw)) {
+      const ok = await tryAdmin(raw);
+      if (ok) {
+        this.find.value = '';
+        this.becomeAdmin();
+        return;
+      }
+      if (ok === null && /[#!$%^&*]/.test(raw)) { this.flash(t('The server did not answer — try again'), 'warn'); return; }
+    }
+    this.flash(t("{nick} doesn't live here yet", { nick: at(raw.replace(/^@/, '') || '?') }), 'warn');
+    sound.play('error');
+  }
+
+  private becomeAdmin() {
+    this.game.setViewOnly(false);
+    this.buildPanel();
+    this.flash(`🔑 ${t('Admin mode: you can build and add followers — everything is saved for everyone')}`, 'big');
+    sound.play('complete');
+  }
+
+  /** Adding followers and saving the town: the admin only. */
+  private buildAdmin() {
     const box = el('div', 'fol-admin');
-    box.append(el('div', 'fol-sub', `🔒 ${t('Only you see this (your computer)')}`));
+    box.append(el('div', 'fol-sub', SANDBOX ? `🧪 ${t('Rehearsal town: nothing is saved')}` : `🔑 ${t('Admin')}`));
     const form = el('form', 'fol-add');
     const nick = el('input') as HTMLInputElement;
     nick.placeholder = t('Nickname (Instagram)');
@@ -175,7 +237,7 @@ export class FollowersUi {
     form.append(nick, sexRow, showLbl, add);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (this.addOne(nick.value, sex, Number(age.value) || 20, show.checked)) { nick.value = ''; nick.focus(); find.value = ''; }
+      if (this.addOne(nick.value, sex, Number(age.value) || 20, show.checked)) { nick.value = ''; nick.focus(); }
     });
 
     // many at once: one per line — "nick, m, 22" (m/f, boy/girl, yigit/qiz)
@@ -197,29 +259,33 @@ export class FollowersUi {
     }, 'btn-mini'));
 
     const acts = el('div', 'fol-acts');
-    acts.append(
-      button(`💾 ${t('Save')}`, () => this.game.save(true), 'btn-mini'),
-      button(`⬆️ ${t('Push to GitHub')}`, async () => {
-        this.game.save();
-        this.status.textContent = t('Pushing to GitHub…');
-        await new Promise((r) => setTimeout(r, 800));
-        const r = await pushWorld(this.game.followerList().length);
+    acts.append(button(`💾 ${t('Save')}`, () => this.game.save(true), 'btn-mini'));
+    if (DEV) acts.append(button(`⬆️ ${t('Push to GitHub')}`, async () => {
+      this.game.save(false, false, true);
+      if (this.status) this.status.textContent = t('Pushing to GitHub…');
+      await new Promise((r) => setTimeout(r, 800));
+      const r = await pushWorld(this.game.followerList().length);
+      if (this.status) {
         this.status.textContent = r.ok ? `✓ ${t('Pushed — the site updates in a minute')}` : `⚠ ${r.text.slice(0, 160)}`;
         this.status.className = `fol-status ${r.ok ? 'saved' : 'error'}`;
-        sound.play(r.ok ? 'complete' : 'error');
-      }, 'btn-mini'),
-    );
-    this.status = el('div', 'fol-status', t('Changes are saved into the project by themselves'));
+      }
+      sound.play(r.ok ? 'complete' : 'error');
+    }, 'btn-mini'));
+    if (hasKey()) acts.append(button(`🚪 ${t('Leave admin mode')}`, () => { logout(); location.reload(); }, 'btn-mini'));
+    this.status = el('div', 'fol-status', SANDBOX ? t('Nothing here is saved')
+      : hasKey() ? t('Everything is saved for everyone by itself (the site shows it at once)')
+        : t('Saved into the project file. To save on the site too, type the admin key into the search box'));
     box.append(form, many, acts, this.status);
     return box;
   }
 
   /** Bring one follower to the town (false when they can't come). */
   private addOne(nickIn: string, sex: Sex, age: number, show: boolean, quiet = false) {
+    if (this.game.viewOnly) return false;
     const nick = nickIn.replace(/^@/, '').replace(/\s+/g, '').slice(0, 30);
     let home: Building | undefined;
     const r = this.game.addFollower(nick, sex, age, (c) => {
-      this.fresh.set(c.fol!, performance.now() + 120_000);
+      this.fresh.set(c.fol!, this.clock + 120);
       if (home && (show || !quiet)) this.game.celebrate(home);
       if (!quiet) this.flash(t('🎉 {nick} moved into their new home!', { nick: at(c.fol!) }), 'big');
       if (show) setTimeout(() => this.game.focusFollower(c, 4.5, false), 600);
@@ -239,19 +305,20 @@ export class FollowersUi {
 
   private queueSave() {
     clearTimeout(this.saveTimer);
-    this.saveTimer = window.setTimeout(() => this.game.save(), 1500);
+    this.saveTimer = window.setTimeout(() => this.game.save(false, false, true), 1500);
   }
 
   private renderList() {
     const all = this.game.followerList();
-    const q = (this.panel.querySelector('.fol-find input') as HTMLInputElement | null)?.value.replace(/^@/, '').trim().toLowerCase() ?? '';
+    const q = this.find?.value.replace(/^@/, '').trim().toLowerCase() ?? '';
     const shown = (q ? all.filter((c) => c.fol!.toLowerCase().includes(q)) : all).sort((a, b) => a.fol!.localeCompare(b.fol!));
     this.count.textContent = String(all.length + this.game.arrivingCount);
-    const sig = `${q}|${shown.map((c) => `${c.id}:${c.family}`).join(',')}`;
+    const admin = !this.game.viewOnly;
+    const sig = `${admin}|${q}|${shown.map((c) => `${c.id}:${c.family}`).join(',')}`;
     if (sig === this.listSig) return;
     this.listSig = sig;
     this.list.replaceChildren();
-    if (!all.length) { this.list.append(el('div', 'fol-empty', DEV ? t('Nobody lives here yet — add the first follower') : t('Nobody lives here yet'))); return; }
+    if (!all.length) { this.list.append(el('div', 'fol-empty', admin ? t('Nobody lives here yet — add the first follower') : t('Nobody lives here yet'))); return; }
     for (const c of shown.slice(0, 200)) {
       const info = this.game.followerInfo(c);
       const row = el('div', 'fol-row');
@@ -259,7 +326,7 @@ export class FollowersUi {
       const meta = el('span', 'fol-meta', `${info.age}${info.spouse ? ` · 💍 ${at(info.spouse)}` : ''}`);
       row.append(name, meta);
       row.addEventListener('click', () => this.game.focusFollower(c));
-      if (DEV) row.append(button('✖', () => {
+      if (admin) row.append(button('✖', () => {
         if (!confirm(t('Take {nick} off the list? Their home stays empty.', { nick: at(info.nick) }))) return;
         this.game.removeFollower(info.nick);
         this.listSig = '';
@@ -271,10 +338,12 @@ export class FollowersUi {
   }
 
   /** A message in the middle of the screen (it shows in the film too). */
-  private flash(text: string, kind: 'big' | 'warn' | '' = '') {
+  flash(text: string, kind: 'big' | 'warn' | '' = '', seconds?: number) {
     this.banner.textContent = text;
     this.banner.className = `fol-banner show ${kind}`;
-    this.bannerT = kind === 'big' ? 4.5 : 3;
+    this.bannerKind = kind;
+    this.bannerAt = this.clock;
+    this.bannerT = seconds ?? (kind === 'big' ? 4.5 : 3);
   }
 
   // ---------- name tags ----------
@@ -283,11 +352,11 @@ export class FollowersUi {
     const game = this.game;
     const view = game.cam.viewHalf;
     const used = new Set<string>();
+    this.tagDraw = [];
     if (this.showTags && view < 40) {
       const canvas = document.getElementById('game') as HTMLCanvasElement;
       const rect = canvas.getBoundingClientRect();
       const cam = game.viewCamera;
-      const now = performance.now();
       // people inside a building share one tag (the household at home, the staff at work)
       const groups = new Map<string, { x: number; y: number; z: number; nicks: string[]; inside: boolean; home: boolean; gold: boolean }>();
       for (const c of game.followerList()) {
@@ -295,7 +364,7 @@ export class FollowersUi {
         if (!p) continue;
         const inside = p.y > 0.42;
         const key = inside ? `b${c.at}` : `c${c.id}`;
-        const gold = (this.fresh.get(c.fol!) ?? 0) > now;
+        const gold = (this.fresh.get(c.fol!) ?? -1) > this.clock;
         const g = groups.get(key);
         if (g) { g.nicks.push(c.fol!); g.gold ||= gold; }
         else groups.set(key, { x: p.x, y: p.y + (inside ? 0.1 : 0.32), z: p.z, nicks: [c.fol!], inside, home: p.home, gold });
@@ -307,8 +376,8 @@ export class FollowersUi {
         if (far && !g.inside && !g.gold) continue;
         this.v.set(g.x, g.y, g.z).project(cam);
         if (this.v.z > 1 || Math.abs(this.v.x) > 1.05 || Math.abs(this.v.y) > 1.05) continue;
-        const sx = rect.left + (this.v.x * 0.5 + 0.5) * rect.width;
-        const sy = rect.top + (-this.v.y * 0.5 + 0.5) * rect.height;
+        const rx = (this.v.x * 0.5 + 0.5) * rect.width;
+        const ry = (-this.v.y * 0.5 + 0.5) * rect.height;
         let d = this.tags.get(key);
         if (!d) { d = el('div', 'fol-tag'); this.tagLayer.append(d); this.tags.set(key, d); }
         const text = g.inside
@@ -317,7 +386,8 @@ export class FollowersUi {
         if (d.textContent !== text) d.textContent = text;
         d.className = `fol-tag${g.inside ? ' in' : ''}${g.gold ? ' gold' : ''}`;
         d.style.fontSize = `${size}px`;
-        d.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px) translate(-50%, -100%)`;
+        d.style.transform = `translate(${(rect.left + rx).toFixed(1)}px, ${(rect.top + ry).toFixed(1)}px) translate(-50%, -100%)`;
+        this.tagDraw.push({ x: rx, y: ry, text, inside: g.inside, gold: g.gold, size });
         used.add(key);
       }
     }
@@ -329,6 +399,7 @@ export class FollowersUi {
   private buildStudio() {
     const frame = el('div', 'studio-frame');
     const title = el('div', 'studio-title');
+    this.title = title;
     title.contentEditable = 'true';
     title.spellcheck = false;
     title.textContent = localStorage.getItem(STUDIO_TITLE_KEY) ?? (INSTAGRAM
@@ -345,29 +416,37 @@ export class FollowersUi {
       const b = button(label, () => { const v = !b.classList.contains('active'); b.classList.toggle('active', v); fn(v); }, `btn-mini${on ? ' active' : ''}`);
       return b;
     };
+    this.recBtn = button(`⏺ ${t('Record MP4 (R)')}`, () => void this.toggleRecording(), 'btn-mini rec');
     this.bar.append(
+      this.recBtn,
       toggle(`🎥 ${t('Auto tour')}`, true, (v) => { this.tour = v; this.tourT = 0; if (!v) this.caption.classList.remove('show'); }),
       toggle(`🏷️ ${t('Name tags')}`, true, (v) => { this.showTags = v; }),
-      toggle(`📝 ${t('Title')}`, true, (v) => { title.style.display = v ? '' : 'none'; }),
-      toggle(`👥 ${t('Counter')}`, true, (v) => { this.counter.style.display = v ? '' : 'none'; }),
-      toggle(`📱 9:16`, false, (v) => { document.body.classList.toggle('portrait-916', v); window.dispatchEvent(new Event('resize')); }),
+      toggle(`📝 ${t('Title')}`, true, (v) => { this.showTitle = v; title.style.display = v ? '' : 'none'; }),
+      toggle(`👥 ${t('Counter')}`, true, (v) => { this.showCounter = v; this.counter.style.display = v ? '' : 'none'; }),
+      toggle(`📱 9:16`, false, (v) => this.setPortrait(v)),
       button(`⏭ ${t('Next (T)')}`, () => this.tourNext(), 'btn-mini'),
       button(`⏹ ${t('Exit (Esc)')}`, () => this.setStudio(false), 'btn-mini ghost'),
     );
-    this.bar.append(el('div', 'studio-hint', t('This bar hides by itself — move the mouse to see it. The title can be edited: click it.')));
+    this.bar.append(el('div', 'studio-hint', t('This bar hides by itself — move the mouse to see it. The title can be edited: click it. The MP4 has the picture, the title and the captions, without this bar.')));
     for (const ev of ['pointerdown', 'wheel']) this.bar.addEventListener(ev, (e) => e.stopPropagation());
     this.studio.append(frame, this.bar);
   }
 
-  private setStudio(on: boolean) {
+  setPortrait(v: boolean) {
+    this.portrait = v;
+    document.body.classList.toggle('portrait-916', v);
+    for (const b of this.bar.querySelectorAll('button')) if (b.textContent === '📱 9:16') b.classList.toggle('active', v);
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  setStudio(on: boolean) {
+    if (!on && this.rec) void this.toggleRecording();
     this.studioOn = on;
     this.game.studio = on;
     document.body.classList.toggle('studio-mode', on);
     document.body.classList.toggle('photo-mode', on);
     if (!on) {
-      document.body.classList.remove('portrait-916');
-      for (const b of this.bar.querySelectorAll('button')) if (b.textContent === '📱 9:16') b.classList.remove('active');
-      window.dispatchEvent(new Event('resize'));
+      this.setPortrait(false);
       this.caption.classList.remove('show');
       this.game.clearSelection();
     } else {
@@ -377,8 +456,16 @@ export class FollowersUi {
     }
   }
 
+  /** Studio options for a scripted film: the tour, the title and its text. */
+  configure(o: { tour?: boolean; title?: string | null; counter?: boolean; tags?: boolean }) {
+    if (o.tour !== undefined) { this.tour = o.tour; this.tourT = 0.5; }
+    if (o.title !== undefined) { this.showTitle = o.title !== null; this.title.style.display = this.showTitle ? '' : 'none'; if (o.title) this.title.textContent = o.title; }
+    if (o.counter !== undefined) { this.showCounter = o.counter; this.counter.style.display = o.counter ? '' : 'none'; }
+    if (o.tags !== undefined) this.showTags = o.tags;
+  }
+
   /** The next shot of the tour: a follower up close (most of the time), or the whole town from above. */
-  private tourNext() {
+  tourNext() {
     const all = this.game.followerList();
     this.tourStep++;
     if (!all.length || this.tourStep % 5 === 1) {
@@ -393,8 +480,15 @@ export class FollowersUi {
     if (!this.tourOrder.length) this.tourOrder = all.map((c) => c.fol!).sort(() => Math.random() - 0.5);
     const outside = this.tourOrder.findIndex((n) => { const c = all.find((x) => x.fol === n); const p = c && this.game.followerPos(c); return !!p && p.y <= 0.42; });
     const nick = this.tourOrder.splice(outside >= 0 ? outside : 0, 1)[0];
-    const c = all.find((x) => x.fol === nick)!;
-    this.game.focusFollower(c, 4.2, true);
+    this.showFollower(nick);
+    this.tourT = 7.5;
+  }
+
+  /** Close-up of one follower with their caption. */
+  showFollower(nick: string, view = 4.2) {
+    const c = this.game.findFollower(nick);
+    if (!c) return;
+    this.game.focusFollower(c, view, true);
     const info = this.game.followerInfo(c);
     const sub = [
       t('{n} years old', { n: info.age }),
@@ -402,24 +496,42 @@ export class FollowersUi {
       info.spouse ? `💍 ${t('married to {nick}', { nick: at(info.spouse) })}` : '',
     ].filter(Boolean).join(' · ');
     this.showCaption(`${c.sex === 'f' ? '👧' : '👦'} ${at(info.nick)}`, `${sub}${sub ? '\n' : ''}${info.activity}`);
-    this.tourT = 7.5;
   }
 
-  private showCaption(head: string, sub: string) {
+  showCaption(head: string, sub: string) {
     this.caption.replaceChildren(el('div', 'cap-head', head), ...(sub ? [el('div', 'cap-sub', sub)] : []));
     this.caption.classList.remove('show');
     void this.caption.offsetWidth;
     this.caption.classList.add('show');
+    this.captionAt = this.clock;
   }
 
-  private update(dt: number) {
+  hideCaption() { this.caption.classList.remove('show'); }
+
+  /** One step of the page (called every frame, or by a scripted film with a fixed step). */
+  update(dt: number) {
+    this.clock += dt;
     this.updateTags();
     this.listT -= dt;
     if (this.listT <= 0) { this.listT = 1; this.renderList(); }
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) this.banner.classList.remove('show'); }
+    // a visitor's clock keeps to the town's real time; now and then they hear of a newer town
+    this.syncT -= dt;
+    if (this.syncT <= 0) { this.syncT = 5; this.game.followersResync(); }
+    if (this.game.viewOnly && !SANDBOX) {
+      this.pollT -= dt;
+      if (this.pollT <= 0) {
+        this.pollT = 60;
+        void newerExists().then((yes) => {
+          if (!yes) return;
+          this.chip.textContent = `🔄 ${t('The town was updated — new followers. Show')}`;
+          this.chip.classList.add('show');
+        });
+      }
+    }
     if (!this.studioOn) return;
     this.barT -= dt;
-    this.bar.classList.toggle('hide', this.barT <= 0);
+    this.bar.classList.toggle('hide', this.barT <= 0 && !this.rec);
     const n = this.game.followerList().length;
     const txt = `👥 ${t('{n} followers live here', { n })}`;
     if (this.counter.textContent !== txt) this.counter.textContent = txt;
@@ -429,6 +541,229 @@ export class FollowersUi {
       this.tourT -= dt;
       if (this.tourT <= 0) this.tourNext();
     }
+    if (this.rec && this.recLive) {
+      const s = Math.floor((performance.now() - this.recStart) / 1000);
+      this.recBtn.textContent = `⏹ ${t('Stop')} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }
+  }
+
+  // ---------- the MP4 recorder ----------
+
+  /** Start a recording: 1080×1920 in 9:16, otherwise 1920×1080. `live` = from the screen as it plays. */
+  async startRecording(live = true, fps = 30) {
+    if (this.rec) return;
+    const w = this.portrait ? 1080 : 1920, h = this.portrait ? 1920 : 1080;
+    try {
+      this.rec = await Recorder.create(w, h, fps);
+    } catch (e) {
+      this.flash(`⚠ ${(e as Error).message}`, 'warn');
+      return;
+    }
+    // the game is drawn sharp enough for the video
+    const canvas = document.getElementById('game') as HTMLCanvasElement;
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    const cropW = cw / ch > w / h ? ch * (w / h) : cw;
+    this.game.setPixelRatio?.(Math.min(3, Math.max(1, w / cropW)));
+    this.recLive = live;
+    this.recStart = performance.now();
+    this.recNext = 0;
+    this.recBtn.classList.add('on');
+  }
+
+  async stopRecording(): Promise<string | null> {
+    const rec = this.rec;
+    if (!rec) return null;
+    this.rec = null;
+    this.recBtn.classList.remove('on');
+    this.recBtn.textContent = `⏺ ${t('Record MP4 (R)')}`;
+    this.game.setPixelRatio?.(undefined);
+    if (!rec.frames) { rec.cancel(); return null; }
+    this.flash(t('Making the MP4…'), '', 30);
+    try {
+      const blob = await rec.finish();
+      const name = `my-chill-world-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.mp4`;
+      const where = await keepVideo(blob, name);
+      this.flash(`✓ ${t('Video saved')}: ${where}`, '', 6);
+      sound.play('complete');
+      return where;
+    } catch (e) {
+      this.flash(`⚠ ${(e as Error).message}`, 'warn', 6);
+      return null;
+    }
+  }
+
+  private async toggleRecording() {
+    if (this.rec) await this.stopRecording();
+    else await this.startRecording(true);
+  }
+
+  /** Live recording: right after the game drew its frame, at most 30 times a second. */
+  private liveFrame() {
+    if (!this.rec || !this.recLive) return;
+    const ms = performance.now() - this.recStart;
+    if (ms < this.recNext) return;
+    this.recNext = Math.max(this.recNext + 1000 / this.rec.fps, ms - 1000 / this.rec.fps);
+    if (this.rec.busy) return;
+    try { this.rec.frame((ctx, w, h) => this.compose(ctx, w, h), ms * 1000); } catch (e) { console.warn('[rec]', e); void this.stopRecording(); }
+  }
+
+  /** A scripted film: one frame at this time (after the game was stepped and drawn). */
+  async capture(timeSec: number) {
+    if (!this.rec) return;
+    this.rec.frame((ctx, w, h) => this.compose(ctx, w, h), timeSec * 1e6);
+    if (this.rec.frames % 10 === 0) await this.rec.drain();
+  }
+
+  /** The video frame: the game's picture (filling the frame) with the tags, title, counter, caption and banner. */
+  private compose(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    const canvas = document.getElementById('game') as HTMLCanvasElement;
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    // the part of the screen that fills the video (cut in the middle)
+    let cropW = cw, cropH = ch;
+    if (cw / ch > W / H) cropW = ch * (W / H); else cropH = cw * (H / W);
+    const cropX = (cw - cropW) / 2, cropY = (ch - cropH) / 2;
+    const k = W / cropW;
+    const dpr = canvas.width / cw;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(canvas, cropX * dpr, cropY * dpr, cropW * dpr, cropH * dpr, 0, 0, W, H);
+    const u = Math.min(W, H) / 1080;
+
+    // name tags
+    for (const g of this.tagDraw) {
+      const x = (g.x - cropX) * k, y = (g.y - cropY) * k;
+      if (x < -50 || y < -20 || x > W + 50 || y > H + 50) continue;
+      const fs = g.size * k * 0.95;
+      ctx.font = `${g.inside ? 700 : 800} ${fs}px ${FONT}`;
+      const tw = ctx.measureText(g.text).width, ph = fs * 1.45, pw = tw + fs * 1.0;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,.3)';
+      ctx.shadowBlur = fs * 0.4;
+      ctx.shadowOffsetY = fs * 0.12;
+      ctx.fillStyle = g.gold ? '#ffc65a' : g.inside ? 'rgba(28,36,31,.85)' : 'rgba(255,255,255,.94)';
+      this.pill(ctx, x - pw / 2, y - ph, pw, ph, ph / 2);
+      ctx.restore();
+      ctx.fillStyle = g.gold ? '#3b2500' : g.inside ? '#fff' : '#1d2a22';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(g.text, x, y - ph / 2 + fs * 0.04);
+    }
+
+    if (this.studioOn) {
+      // the title at the top, the counter under it
+      let y = H * 0.05;
+      if (this.showTitle && this.title.textContent) {
+        const fs = 66 * u * (this.portrait ? 1 : 0.9);
+        ctx.font = `900 ${fs}px ${FONT}`;
+        const lines = this.wrap(ctx, this.title.textContent, W * 0.88);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        for (const line of lines) {
+          ctx.save();
+          ctx.shadowColor = 'rgba(0,0,0,.55)';
+          ctx.shadowBlur = fs * 0.35;
+          ctx.shadowOffsetY = fs * 0.06;
+          ctx.lineWidth = fs * 0.12;
+          ctx.strokeStyle = 'rgba(0,0,0,.35)';
+          ctx.strokeText(line, W / 2, y);
+          ctx.fillStyle = '#fff';
+          ctx.fillText(line, W / 2, y);
+          ctx.restore();
+          y += fs * 1.12;
+        }
+        y += fs * 0.25;
+      }
+      if (this.showCounter && this.counter.textContent) {
+        const fs = 34 * u;
+        ctx.font = `800 ${fs}px ${FONT}`;
+        const tw = ctx.measureText(this.counter.textContent).width;
+        ctx.fillStyle = 'rgba(255,255,255,.93)';
+        this.pill(ctx, W / 2 - tw / 2 - fs * 0.7, y, tw + fs * 1.4, fs * 1.6, fs * 0.8);
+        ctx.fillStyle = '#1d2a22';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.counter.textContent, W / 2, y + fs * 0.82);
+      }
+      // the caption of the follower in view
+      if (this.caption.classList.contains('show')) {
+        const a = Math.min(1, (this.clock - this.captionAt) / 0.45);
+        const head = this.caption.querySelector('.cap-head')?.textContent ?? '';
+        const sub = this.caption.querySelector('.cap-sub')?.textContent ?? '';
+        ctx.save();
+        ctx.globalAlpha = a;
+        const lift = (1 - a) * 30 * u;
+        const subFs = 30 * u, headFs = 58 * u;
+        const subLines = sub ? sub.split('\n').flatMap((l) => { ctx.font = `700 ${subFs}px ${FONT}`; return this.wrap(ctx, l, W * 0.84); }) : [];
+        let by = H * 0.91 + lift - subLines.length * subFs * 1.35 - (subLines.length ? subFs * 0.9 : 0);
+        ctx.font = `900 ${headFs}px ${FONT}`;
+        const hw = Math.min(W * 0.9, ctx.measureText(head).width + headFs * 0.9), hh = headFs * 1.5;
+        ctx.shadowColor = 'rgba(0,0,0,.35)';
+        ctx.shadowBlur = 24 * u;
+        ctx.fillStyle = '#fff';
+        this.pill(ctx, W / 2 - hw / 2, by - hh, hw, hh, 22 * u);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#18231c';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(head, W / 2, by - hh / 2 + headFs * 0.04, W * 0.86);
+        if (subLines.length) {
+          by += subFs * 0.6;
+          ctx.font = `700 ${subFs}px ${FONT}`;
+          const sw = Math.max(...subLines.map((l) => ctx.measureText(l).width)) + subFs * 1.2;
+          const sh = subLines.length * subFs * 1.35 + subFs * 0.6;
+          ctx.fillStyle = 'rgba(15,20,17,.66)';
+          this.pill(ctx, W / 2 - sw / 2, by, sw, sh, 16 * u);
+          ctx.fillStyle = '#fff';
+          subLines.forEach((l, i) => ctx.fillText(l, W / 2, by + subFs * 0.3 + subFs * 1.35 * (i + 0.5)));
+        }
+        ctx.restore();
+      }
+    }
+
+    // the banner (moving in, a wedding, the call to follow)
+    if (this.bannerT > 0 && this.banner.textContent) {
+      const a = Math.min(1, (this.clock - this.bannerAt) / 0.3, this.bannerT / 0.3);
+      const big = this.bannerKind === 'big';
+      const fs = (big ? 50 : 32) * u;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, a);
+      ctx.font = `800 ${fs}px ${FONT}`;
+      const lines = this.wrap(ctx, this.banner.textContent, W * 0.8);
+      const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + fs * 1.6;
+      const bh = lines.length * fs * 1.25 + fs * 0.9;
+      const bx = W / 2 - bw / 2, by = H * (this.portrait || H > W ? 0.3 : 0.2) - (1 - a) * 12 * u;
+      ctx.shadowColor = 'rgba(0,0,0,.35)';
+      ctx.shadowBlur = 30 * u;
+      if (big) {
+        const gr = ctx.createLinearGradient(bx, by, bx + bw, by + bh);
+        gr.addColorStop(0, '#ffd666');
+        gr.addColorStop(1, '#ff8c5a');
+        ctx.fillStyle = gr;
+      } else ctx.fillStyle = this.bannerKind === 'warn' ? 'rgba(120,40,30,.92)' : 'rgba(20,26,22,.88)';
+      this.pill(ctx, bx, by, bw, bh, 26 * u);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = big ? '#2b1600' : '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      lines.forEach((l, i) => ctx.fillText(l, W / 2, by + fs * 0.45 + fs * 1.25 * (i + 0.5)));
+      ctx.restore();
+    }
+  }
+
+  private pill(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, Math.min(r, h / 2, w / 2));
+    ctx.fill();
+  }
+
+  private wrap(ctx: CanvasRenderingContext2D, text: string, max: number) {
+    const out: string[] = [];
+    let line = '';
+    for (const word of text.split(/\s+/)) {
+      const next = line ? `${line} ${word}` : word;
+      if (ctx.measureText(next).width > max && line) { out.push(line); line = word; } else line = next;
+    }
+    if (line) out.push(line);
+    return out;
   }
 }
-

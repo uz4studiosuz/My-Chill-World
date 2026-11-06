@@ -74,6 +74,8 @@ async function boot() {
     game?.dispose();
     game = g;
     if (import.meta.env.DEV) Object.assign(window as unknown as Record<string, unknown>, { __game: g, __renderer: renderer });
+    // a video is recorded sharper than the screen shows it
+    g.setPixelRatio = (r) => { renderer.setPixelRatio(r ?? Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2)); resize(); };
     resize();
   };
 
@@ -175,12 +177,13 @@ async function boot() {
   if (isFollowers()) {
     // kept in the project (written on the owner's computer, read by everyone else)
     menu.showLoading(t("Opening the followers' town…"));
-    const { loadWorld, saveWorld } = await import('./followers/store');
+    const { loadWorld, saveWorld, isAdmin } = await import('./followers/store');
     const save = await loadWorld();
     if (save) save.meta.followers = true;
+    const followersAdmin = isAdmin();
     void start(save
-      ? { save, onSave: saveWorld }
-      : { create: { id: 'followers', name: t("Followers' town"), seed: 20261106, towns: 0, followers: true }, onSave: saveWorld });
+      ? { save, onSave: saveWorld, followersAdmin }
+      : { create: { id: 'followers', name: t("Followers' town"), seed: 20261106, towns: 0, followers: true }, onSave: saveWorld, followersAdmin });
   } else openMainMenu();
   // back from the "set a new password" email link
   Online.onRecovery(() => menu.showNewPassword());
@@ -212,6 +215,7 @@ async function boot() {
     if (!game) return;
     game.update(dt);
     renderer.render(game.viewScene, game.viewCamera);
+    game.afterRender?.();
     // photo mode: save the frame that was just drawn
     if (game.shotPending) {
       const g = game;

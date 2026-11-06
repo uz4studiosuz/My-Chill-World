@@ -302,3 +302,51 @@ drop policy if exists "write my save" on public.town_saves;
 create policy "write my save" on public.town_saves for insert to authenticated with check (user_id = auth.uid());
 drop policy if exists "update my save" on public.town_saves;
 create policy "update my save" on public.town_saves for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- =====================================================================
+-- The followers' town (/followers): one town that everyone can watch; only the admin (with the admin key) saves it.
+-- The key is kept here only as a bcrypt hash; the game sends what is typed and the server checks it.
+-- =====================================================================
+create extension if not exists pgcrypto with schema extensions;
+
+create table if not exists public.followers_world (
+  id int primary key default 1,
+  updated bigint not null default 0,
+  data text not null,
+  people int not null default 0,
+  updated_at timestamptz not null default now()
+);
+alter table public.followers_world enable row level security;
+drop policy if exists "anyone can watch the followers town" on public.followers_world;
+create policy "anyone can watch the followers town" on public.followers_world for select to anon, authenticated using (true);
+-- no insert/update policy: only followers_save() below can write it
+
+create table if not exists public.followers_admin (id int primary key default 1, hash text not null);
+alter table public.followers_admin enable row level security;
+-- no policies at all: nobody can read the hash
+
+create or replace function public.followers_is_admin(secret text) returns boolean
+language sql stable security definer set search_path = public, extensions as $$
+  select exists (select 1 from public.followers_admin a where a.hash = extensions.crypt(secret, a.hash));
+$$;
+
+create or replace function public.followers_save(secret text, payload text, upd bigint, people int) returns boolean
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  if not public.followers_is_admin(secret) then
+    raise exception 'Wrong admin key';
+  end if;
+  insert into public.followers_world (id, updated, data, people, updated_at)
+  values (1, upd, payload, people, now())
+  on conflict (id) do update set updated = excluded.updated, data = excluded.data, people = excluded.people, updated_at = now();
+  return true;
+end $$;
+
+revoke all on function public.followers_is_admin(text) from public;
+revoke all on function public.followers_save(text, text, bigint, int) from public;
+grant execute on function public.followers_is_admin(text) to anon, authenticated;
+grant execute on function public.followers_save(text, text, bigint, int) to anon, authenticated;
+
+-- the admin key: put your own instead of CHANGE-ME and run this line (do not commit the real key)
+insert into public.followers_admin (id, hash) values (1, extensions.crypt('CHANGE-ME', extensions.gen_salt('bf', 10)))
+  on conflict (id) do update set hash = excluded.hash;

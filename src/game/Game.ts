@@ -91,9 +91,11 @@ export interface GameOptions {
   demo?: boolean;
   save?: WorldSave;
   create?: { name: string; seed: number; calm?: boolean; towns?: number; creative?: boolean; id?: string; online?: WorldMeta['online']; followers?: boolean };
+  /** The followers' town is opened by its admin (it lives through the days it was away); otherwise watched only. */
+  followersAdmin?: boolean;
   thumbs?: Map<string, string>;
   /** Saved somewhere else than this device's world list (the followers' town is kept in the project). */
-  onSave?: (s: WorldSave) => void;
+  onSave?: (s: WorldSave, now?: boolean) => void;
 }
 
 type Selection = { type: 'building'; id: number } | { type: 'person'; id: number } | { type: 'vehicle'; id: number } | null;
@@ -226,8 +228,16 @@ export class Game implements ToolHost {
   readonly followers: boolean = false;
   /** Filming: no badges or bubbles over the town. */
   studio = false;
-  private onSave?: (s: WorldSave) => void;
+  private onSave?: (s: WorldSave, now?: boolean) => void;
   private followersUi?: FollowersUi;
+  /** Watching only (a visitor of the followers' town): no building, no tools, normal speed. */
+  viewOnly = false;
+  /** Called by the page right after each frame is drawn (the video recorder reads the picture then). */
+  afterRender?: () => void;
+  /** Set by the page: render sharper (for a video) or back to normal (undefined). */
+  setPixelRatio?: (r?: number) => void;
+  /** The followers' town's clock follows real time from the moment it was saved. */
+  private folAnchor = { clock: 0, at: Date.now() };
   shotPending = false;
   private photoBar?: HTMLDivElement;
   private resPanel?: ResourcePanel;
@@ -601,6 +611,10 @@ export class Game implements ToolHost {
     window.addEventListener('blur', () => away(true), { signal });
     window.addEventListener('focus', () => away(false), { signal });
     document.addEventListener('visibilitychange', () => away(document.hidden), { signal });
+    if (this.followers) {
+      this.setViewOnly(!opts.followersAdmin);
+      if (opts.save) this.followersCatchUp(opts.save.meta.updated, !!opts.followersAdmin);
+    }
   }
 
   /** (Re)build the HUD — also used after switching language. */
@@ -1422,13 +1436,14 @@ export class Game implements ToolHost {
     if (p) this.tool?.cancel();
   }
 
-  save(manual = false, leaving = false) {
+  save(manual = false, leaving = false, urgent = false) {
     if (this.demo) return;
     this.saveT = 0;
     try {
-      if (this.followers) this.settleFollowers(true);
+      // followers whose house is still going up move in only when the page is left (not at every autosave)
+      if (this.followers && leaving) this.settleFollowers(true);
       const data = this.toSave();
-      if (this.onSave) { this.onSave(data); if (manual) this.hud?.toast(t('Game saved')); return; }
+      if (this.onSave) { this.onSave(data, manual || leaving || urgent); if (manual) this.hud?.toast(t('Game saved')); return; }
       SaveStore.save(data);
       // online: the town is kept in the cloud too, so it opens the same on any device (at most once a minute,
       // and always when the page is left or hidden)
@@ -1450,6 +1465,7 @@ export class Game implements ToolHost {
 
   dispose() {
     this.followersUi?.dispose();
+    document.body.classList.remove('fol-viewer');
     this.online?.dispose();
     this.ghosts?.dispose();
     this.abort.abort();
@@ -1863,6 +1879,7 @@ export class Game implements ToolHost {
   }
 
   place(kind: PlaceKind, tl: Tile, rotDir = 0) {
+    if (this.viewOnly) return;
     const r = this.checkPlace(kind, tl, rotDir);
     if (!r.ok) { sound.play('error'); return this.hud?.toast(r.reason!); }
     if (kind === 'roundabout') {
@@ -1961,6 +1978,7 @@ export class Game implements ToolHost {
 
   /** Ask first: list what will be demolished, then do it. */
   bulldoze(path: Tile[]) {
+    if (this.viewOnly) return;
     if (path.some((tl) => this.foreignTown(tl.x, tl.z))) {
       const town = path.map((tl) => this.foreignTown(tl.x, tl.z)).find(Boolean)!;
       this.hud?.toast(t('{city} is a neighbour town — you cannot change it', { city: town.name }));
@@ -2051,6 +2069,7 @@ export class Game implements ToolHost {
   }
 
   private setTool(tl: ToolId) {
+    if (this.viewOnly && tl !== 'pan') return;
     if (this.moving && tl !== this.moving.kind) this.moving = null;
     this.tool?.setTool(tl);
     this.grid.visible = tl !== 'pan';
@@ -2058,6 +2077,7 @@ export class Game implements ToolHost {
   }
 
   private setSpeed(s: number) {
+    if (this.viewOnly && s !== 1) { this.hud?.toast(t('You are watching the town — only its admin can change it')); s = 1; }
     s = Math.min(s, 50); // the fastest speed is 50×
     if (this.meta.online && s > 1) { s = 1; this.hud?.toast(t('An online world runs at the same speed for everyone')); }
     if (s > 0) this.lastSpeed = s;
@@ -2066,6 +2086,7 @@ export class Game implements ToolHost {
   }
 
   private undo() {
+    if (this.viewOnly) return;
     // the last road ordered and not yet finished: cancelled, what is still unbuilt is paid back
     const job = this.roadJobs[this.roadJobs.length - 1];
     if (job) {
@@ -3398,8 +3419,45 @@ export class Game implements ToolHost {
   celebrate(b: Building) {
     const { x, z } = b.mesh.position;
     this.effects.hearts(x, z);
-    for (let i = 0; i < 5; i++) setTimeout(() => this.effects.firework(x + (Math.random() - 0.5) * 2.5, z + (Math.random() - 0.5) * 2.5), i * 320);
+    // low bursts one after another (timed by the effects, so a recorded film has them too)
+    for (let i = 0; i < 6; i++) this.effects.firework(x + (Math.random() - 0.5) * 2.2, z + (Math.random() - 0.5) * 2.2, i * 0.32, 1.6 + Math.random() * 0.9);
     sound.play('achieve');
+  }
+
+  /** Watching only, or the admin's own town (building, adding followers, saving). */
+  setViewOnly(v: boolean) {
+    this.viewOnly = v;
+    this.pop.weddingsOn = !v;
+    document.body.classList.toggle('fol-viewer', v);
+    if (v) { this.setTool('pan'); this.setSpeed(1); this.select(null); }
+  }
+
+  /**
+   * The followers' town keeps time with the real world: opened later, it is later there too. The admin's town
+   * lives through the days it was away (at most 30: weddings, jobs); a visitor's copy just moves its clock on.
+   */
+  private followersCatchUp(savedAt: number, admin: boolean) {
+    const gap = Math.max(0, (Date.now() - savedAt) / 1000);
+    this.folAnchor = { clock: this.eco.clock, at: savedAt };
+    if (gap < 5) return;
+    const target = this.eco.clock + gap;
+    if (admin) {
+      const days = Math.min(30, Math.floor(target / DAY_SECONDS) - Math.floor(this.eco.clock / DAY_SECONDS));
+      for (let i = 0; i < days; i++) { this.eco.endOfDay(); this.life.update(0.01); if (this.eco.day !== this.lastDay) this.onNewDay(); }
+    }
+    this.eco.setClock(Math.max(this.eco.clock, target));
+    this.lastDay = this.eco.day;
+    this.pop.day = this.eco.day;
+  }
+
+  /** A visitor's clock stays on the town's real time (a hidden tab falls behind; a fast one runs ahead). */
+  followersResync() {
+    if (!this.viewOnly) { this.folAnchor = { clock: this.eco.clock, at: Date.now() }; return; }
+    const target = this.folAnchor.clock + (Date.now() - this.folAnchor.at) / 1000;
+    if (Math.abs(target - this.eco.clock) < 20) return;
+    this.eco.setClock(target);
+    this.lastDay = this.eco.day;
+    this.pop.day = this.eco.day;
   }
 
   /** The followers' town never loses its people: a family whose home was lost gets another one. */

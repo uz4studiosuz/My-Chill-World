@@ -125,15 +125,15 @@ export class Effects {
   }
 
   /** A firework burst high over (x, z). */
-  firework(x: number, z: number) {
+  firework(x: number, z: number, delay = 0, height?: number) {
     const palette = ['#ff5a5a', '#ffd166', '#7be08f', '#6fb6ff', '#e88cff', '#ffffff'];
     const color = new THREE.Color(palette[Math.floor(Math.random() * palette.length)]);
-    const y = 3 + Math.random() * 1.5;
+    const y = height ?? 3 + Math.random() * 1.5;
     for (let i = 0; i < 30; i++) {
       const a = Math.random() * Math.PI * 2, b = Math.random() * Math.PI - Math.PI / 2, sp = 1.4 + Math.random();
       this.add({
         x, y, z, vx: Math.cos(a) * Math.cos(b) * sp, vy: Math.sin(b) * sp + 0.4, vz: Math.sin(a) * Math.cos(b) * sp,
-        life: 0, max: 1 + Math.random() * 0.5, size: 0.07, delay: 0, color: color.clone(), flat: false, glow: true,
+        life: 0, max: 1 + Math.random() * 0.5, size: 0.07, delay, color: color.clone(), flat: false, glow: true,
       });
     }
   }
