@@ -11,6 +11,7 @@ export class Recorder {
   private muxer: Muxer<ArrayBufferTarget>;
   private enc: VideoEncoder;
   private failed: Error | null = null;
+  private chunks = 0;
 
   static supported() { return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined'; }
 
@@ -32,10 +33,16 @@ export class Recorder {
     this.canvas.width = width;
     this.canvas.height = height;
     this.ctx = this.canvas.getContext('2d')!;
-    this.muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: 'avc', width, height, frameRate: fps }, fastStart: 'in-memory' });
+    // a live recording starts a moment after 0: the muxer moves the times so the video starts at 0
+    this.muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: 'avc', width, height, frameRate: fps }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
     this.enc = new VideoEncoder({
-      output: (chunk, meta) => this.muxer.addVideoChunk(chunk, meta),
-      error: (e) => { this.failed = e; },
+      output: (chunk, meta) => {
+        try {
+          this.muxer.addVideoChunk(chunk, meta);
+          this.chunks++;
+        } catch (e) { this.failed ??= e as Error; }
+      },
+      error: (e) => { this.failed ??= e; },
     });
     this.enc.configure(config);
   }
@@ -62,6 +69,7 @@ export class Recorder {
     await this.enc.flush();
     this.enc.close();
     if (this.failed) throw this.failed;
+    if (!this.chunks) throw new Error('The video encoder gave no picture — record a few seconds longer');
     this.muxer.finalize();
     return new Blob([this.muxer.target.buffer], { type: 'video/mp4' });
   }

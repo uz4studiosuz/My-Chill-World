@@ -28,6 +28,8 @@ export interface WorldMeta {
   online?: { worldId: string; code: string; world: string; host: boolean; started: string; daySeconds: number; slot?: number };
   /** The followers' town (kept in the project, only real followers live there). */
   followers?: boolean;
+  /** The followers' town had its empty homes taken away once (as many homes as followers since then). */
+  homesTrimmed?: boolean;
 }
 
 export interface WorldSave {

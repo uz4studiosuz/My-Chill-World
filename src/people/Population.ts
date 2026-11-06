@@ -220,11 +220,9 @@ export class Population {
   get size() { return this.citizens.size; }
   /**
    * Followers' town: only the people added by hand live here (no newcomers, no babies, nobody dies or leaves).
-   * They keep the age they were given, work, learn and marry one another.
+   * They keep the age they were given (nobody grows old or dies), work and learn; nobody marries.
    */
   followers = false;
-  /** Followers marry only in the admin's town (a visitor's copy is not kept, so nothing happens there). */
-  weddingsOn = true;
 
   /** A follower moves into a home of their own (a family of one). */
   addFollower(home: number, nick: string, sex: Sex, age: number): Citizen {
@@ -240,29 +238,6 @@ export class Population {
     c.health = 100;
     this.note(c, 'Followed the page and moved into a home of their own');
     return c;
-  }
-
-  /** The followers' town: two single followers marry now and then; the bride moves into the groom's home. */
-  private followerWeddings(r: DayReport, belongs: (f: Family) => boolean, hasHall: boolean) {
-    if (Math.random() > (hasHall ? 0.7 : 0.35)) return;
-    const single = (sex: Sex) => [...this.citizens.values()].filter((c) => c.sex === sex && c.age >= 20 && c.fol && c.role === 'parent'
-      && this.families.get(c.family)?.members.length === 1 && belongs(this.families.get(c.family)!));
-    const men = single('m'), women = single('f');
-    if (!men.length || !women.length) return;
-    const groom = pick(men);
-    const brides = women.filter((w) => Math.abs(w.age - groom.age) <= 10 && w.age <= groom.age + 4);
-    if (!brides.length) return;
-    const bride = pick(brides);
-    const gf = this.families.get(groom.family)!, bf = this.families.get(bride.family)!;
-    bf.members = [];
-    this.families.delete(bf.id);
-    bride.family = gf.id;
-    gf.members.push(bride.id);
-    gf.money += bf.money;
-    this.note(groom, hasHall ? 'Married {name} at the Wedding Hall' : 'Married {name}', { name: bride.name });
-    this.note(bride, hasHall ? 'Married {name} at the Wedding Hall' : 'Married {name}', { name: groom.name });
-    this.note(bride, "Moved into {name}'s home", { name: groom.name });
-    r.weddings.push([groom.name, bride.name, gf.home, gf.id, undefined]);
   }
 
   /** The husband or wife of a person (the other grown-up of a followers' family), if any. */
@@ -774,7 +749,6 @@ export class Population {
       }
     }
 
-    if (this.followers && this.weddingsOn) this.followerWeddings(r, belongs, hasHall);
     // grown-up children start their own household; with a Wedding Hall they can marry
     for (const f of [...this.families.values()]) {
       if (!belongs(f) || this.followers) continue;

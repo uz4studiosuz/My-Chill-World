@@ -95,7 +95,6 @@ export class Menu {
     this.renderHome([
       w ? homeItem('Continue', () => this.h.loadWorld(w.id), `${w.name} · ${dateLabel(w.day)} · ${t('{n} people', { n: w.population })}`, true, 'play') : null,
       homeItem('New World', () => this.showNew(), t('A fresh valley, a small village'), !w, 'plus'),
-      homeItem('Online', () => void this.showOnline(), t('Play with other people on a server'), false, 'globe'),
       worlds.length ? homeItem('Load World', () => this.showLoad(), t('{n} saved worlds', { n: worlds.length }), false, 'folder') : null,
       homeItem('Import a world', () => this.pickImport(), t('Open a world file from another computer or phone'), false, 'folder'),
       worlds.length ? homeItem('Records', () => this.showRecords(), undefined, false, 'trophy') : null,

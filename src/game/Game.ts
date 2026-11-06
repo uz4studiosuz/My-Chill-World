@@ -614,6 +614,8 @@ export class Game implements ToolHost {
     if (this.followers) {
       this.setViewOnly(!opts.followersAdmin);
       if (opts.save) this.followersCatchUp(opts.save.meta.updated, !!opts.followersAdmin);
+      // as many homes as followers: the empty homes of the starter village go (once; later the admin may build more)
+      if (!this.meta.homesTrimmed) { this.trimEmptyHomes(); this.meta = { ...this.meta, homesTrimmed: true }; }
     }
   }
 
@@ -2077,7 +2079,8 @@ export class Game implements ToolHost {
   }
 
   private setSpeed(s: number) {
-    if (this.viewOnly && s !== 1) { this.hud?.toast(t('You are watching the town — only its admin can change it')); s = 1; }
+    // the followers' town keeps real time for everyone: no pause, no fast-forward
+    if (this.followers) s = 1;
     s = Math.min(s, 50); // the fastest speed is 50×
     if (this.meta.online && s > 1) { s = 1; this.hud?.toast(t('An online world runs at the same speed for everyone')); }
     if (s > 0) this.lastSpeed = s;
@@ -3288,6 +3291,12 @@ export class Game implements ToolHost {
     return all.find((c) => c.fol!.toLowerCase() === n) ?? all.find((c) => c.fol!.toLowerCase().includes(n));
   }
 
+  /** A follower's home. */
+  homeOf(c: Citizen): Building | undefined {
+    const b = this.buildings.get(this.pop.families.get(c.family)?.home ?? -1);
+    return b && !b.removed ? b : undefined;
+  }
+
   /** Where a follower is right now (on foot, in a car or in a building), for the name tags. */
   followerPos(c: Citizen) {
     const p = this.personPos(c);
@@ -3403,7 +3412,12 @@ export class Game implements ToolHost {
     if (c.walker) this.walkers.dismiss(c.walker);
     const f = this.pop.families.get(c.family);
     this.pop.removeCitizen(c, 'left');
-    if (f && !f.members.length) this.pop.families.delete(f.id);
+    if (f && !f.members.length) {
+      this.pop.families.delete(f.id);
+      // their house goes too: the town has as many homes as followers
+      const home = this.buildings.get(f.home);
+      if (home && !home.removed && BUILDINGS[home.kind].units && !this.pop.familyAt(home.id)) this.destroyBuilding(home, false);
+    }
     this.pop.assign(this.buildings);
     this.refreshHud();
     return true;
@@ -3427,7 +3441,6 @@ export class Game implements ToolHost {
   /** Watching only, or the admin's own town (building, adding followers, saving). */
   setViewOnly(v: boolean) {
     this.viewOnly = v;
-    this.pop.weddingsOn = !v;
     document.body.classList.toggle('fol-viewer', v);
     if (v) { this.setTool('pan'); this.setSpeed(1); this.select(null); }
   }
@@ -3458,6 +3471,16 @@ export class Game implements ToolHost {
     this.eco.setClock(target);
     this.lastDay = this.eco.day;
     this.pop.day = this.eco.day;
+  }
+
+  /** Take away the homes nobody lives in (and nobody is moving into). */
+  private trimEmptyHomes() {
+    const coming = new Set(this.arriving.map((a) => a.home));
+    for (const b of [...this.buildings.list]) {
+      if (b.removed || !BUILDINGS[b.kind].units || coming.has(b.id) || this.pop.familyAt(b.id)) continue;
+      this.destroyBuilding(b, false);
+    }
+    this.pop.assign(this.buildings);
   }
 
   /** The followers' town never loses its people: a family whose home was lost gets another one. */

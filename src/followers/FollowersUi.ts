@@ -11,6 +11,9 @@ import { Recorder } from './Recorder';
 export const INSTAGRAM = '';
 
 const STUDIO_TITLE_KEY = 'mcw_studio_title';
+const MARK_KEY = 'mcw_followers_marked';
+const TEXTS_KEY = 'mcw_studio_texts';
+type Texts = { counter: string; person: string; cta: string };
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -79,6 +82,15 @@ export class FollowersUi {
   private recStart = 0;
   private recNext = 0;
   private recLive = false;
+  /** Followers marked in the list: the "new in town" film shows them one by one. */
+  private marked = new Set<string>(JSON.parse(localStorage.getItem(MARK_KEY) ?? '[]') as string[]);
+  /** The film's own words (empty = the usual ones). */
+  private texts: Texts = { counter: '', person: '', cta: '', ...(JSON.parse(localStorage.getItem(TEXTS_KEY) ?? '{}') as Partial<Texts>) };
+  /** The "new in town" film playing now: its steps (seconds from the start). */
+  private show: { steps: [number, () => void][]; t: number; i: number; recorded: boolean } | null = null;
+  private markBtn!: HTMLButtonElement;
+  private tourBtn!: HTMLButtonElement;
+  private editBox!: HTMLDivElement;
 
   constructor(private game: Game) {
     this.buildPanel();
@@ -170,7 +182,8 @@ export class FollowersUi {
 
     const tools = el('div', 'fol-tools');
     const tagBtn = button(`🏷️ ${t('Name tags')}`, () => { this.showTags = !this.showTags; tagBtn.classList.toggle('active', this.showTags); }, `btn-mini${this.showTags ? ' active' : ''}`);
-    tools.append(tagBtn, button(`🎬 ${t('Studio (filming)')}`, () => this.setStudio(true), 'btn-mini'));
+    tools.append(tagBtn, button(`🎬 ${t('Studio (filming)')}`, () => this.setStudio(true), 'btn-mini'),
+      button(`☐ ${t('Clear marks')}`, () => { this.marked.clear(); this.saveMarks(); this.listSig = ''; this.renderList(); }, 'btn-mini'));
     body.append(tools);
     this.panel.append(head, body);
     // the panel is not the game: clicks and keys stay in it
@@ -286,6 +299,8 @@ export class FollowersUi {
     let home: Building | undefined;
     const r = this.game.addFollower(nick, sex, age, (c) => {
       this.fresh.set(c.fol!, this.clock + 120);
+      this.marked.add(c.fol!);
+      this.saveMarks();
       if (home && (show || !quiet)) this.game.celebrate(home);
       if (!quiet) this.flash(t('🎉 {nick} moved into their new home!', { nick: at(c.fol!) }), 'big');
       if (show) setTimeout(() => this.game.focusFollower(c, 4.5, false), 600);
@@ -303,6 +318,13 @@ export class FollowersUi {
     return true;
   }
 
+  private saveMarks() {
+    const live = new Set(this.game.followerList().map((c) => c.fol!));
+    for (const n of this.marked) if (!live.has(n)) this.marked.delete(n);
+    localStorage.setItem(MARK_KEY, JSON.stringify([...this.marked]));
+    if (this.markBtn) this.markBtn.textContent = `🌟 ${t('Show the marked ({n})', { n: this.marked.size })}`;
+  }
+
   private queueSave() {
     clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => this.game.save(false, false, true), 1500);
@@ -314,7 +336,7 @@ export class FollowersUi {
     const shown = (q ? all.filter((c) => c.fol!.toLowerCase().includes(q)) : all).sort((a, b) => a.fol!.localeCompare(b.fol!));
     this.count.textContent = String(all.length + this.game.arrivingCount);
     const admin = !this.game.viewOnly;
-    const sig = `${admin}|${q}|${shown.map((c) => `${c.id}:${c.family}`).join(',')}`;
+    const sig = `${admin}|${q}|${[...this.marked].join(',')}|${shown.map((c) => `${c.id}:${c.family}`).join(',')}`;
     if (sig === this.listSig) return;
     this.listSig = sig;
     this.list.replaceChildren();
@@ -324,7 +346,14 @@ export class FollowersUi {
       const row = el('div', 'fol-row');
       const name = el('span', 'fol-nick', `${c.sex === 'f' ? '👧' : '👦'} ${at(info.nick)}`);
       const meta = el('span', 'fol-meta', `${info.age}${info.spouse ? ` · 💍 ${at(info.spouse)}` : ''}`);
-      row.append(name, meta);
+      const box = el('input') as HTMLInputElement;
+      box.type = 'checkbox';
+      box.className = 'fol-mark';
+      box.checked = this.marked.has(c.fol!);
+      box.title = t('Mark for the video');
+      box.addEventListener('click', (e) => e.stopPropagation());
+      box.addEventListener('change', () => { if (box.checked) this.marked.add(c.fol!); else this.marked.delete(c.fol!); this.saveMarks(); });
+      row.append(box, name, meta);
       row.addEventListener('click', () => this.game.focusFollower(c));
       if (admin) row.append(button('✖', () => {
         if (!confirm(t('Take {nick} off the list? Their home stays empty.', { nick: at(info.nick) }))) return;
@@ -417,9 +446,14 @@ export class FollowersUi {
       return b;
     };
     this.recBtn = button(`⏺ ${t('Record MP4 (R)')}`, () => void this.toggleRecording(), 'btn-mini rec');
+    this.markBtn = button(`🌟 ${t('Show the marked ({n})', { n: this.marked.size })}`, () => void this.startShowcase(), 'btn-mini primary');
+    this.tourBtn = toggle(`🎥 ${t('Auto tour')}`, true, (v) => { this.tour = v; this.tourT = 0; if (!v) this.caption.classList.remove('show'); });
+    this.editBox = this.buildTextEditor();
     this.bar.append(
+      this.markBtn,
       this.recBtn,
-      toggle(`🎥 ${t('Auto tour')}`, true, (v) => { this.tour = v; this.tourT = 0; if (!v) this.caption.classList.remove('show'); }),
+      toggle(`✏️ ${t('Texts')}`, false, (v) => { this.editBox.style.display = v ? '' : 'none'; }),
+      this.tourBtn,
       toggle(`🏷️ ${t('Name tags')}`, true, (v) => { this.showTags = v; }),
       toggle(`📝 ${t('Title')}`, true, (v) => { this.showTitle = v; title.style.display = v ? '' : 'none'; }),
       toggle(`👥 ${t('Counter')}`, true, (v) => { this.showCounter = v; this.counter.style.display = v ? '' : 'none'; }),
@@ -427,9 +461,72 @@ export class FollowersUi {
       button(`⏭ ${t('Next (T)')}`, () => this.tourNext(), 'btn-mini'),
       button(`⏹ ${t('Exit (Esc)')}`, () => this.setStudio(false), 'btn-mini ghost'),
     );
+    this.bar.append(this.editBox);
+    this.bar.append(el('div', 'studio-hint', `🌟 ${t('Mark followers in the list (the box in front of each name): this shows each one — their home, then them — and saves it as an MP4.')}`));
     this.bar.append(el('div', 'studio-hint', t('This bar hides by itself — move the mouse to see it. The title can be edited: click it. The MP4 has the picture, the title and the captions, without this bar.')));
     for (const ev of ['pointerdown', 'wheel']) this.bar.addEventListener(ev, (e) => e.stopPropagation());
     this.studio.append(frame, this.bar);
+  }
+
+  /** The film's words: the title, the line under it, the words for each person and the last words. */
+  private buildTextEditor() {
+    const box = el('div', 'studio-edit');
+    box.style.display = 'none';
+    const field = (label: string, value: string, placeholder: string, set: (v: string) => void) => {
+      const l = el('label', '', label);
+      const i = el('input') as HTMLInputElement;
+      i.value = value;
+      i.placeholder = placeholder;
+      i.addEventListener('input', () => set(i.value));
+      i.addEventListener('keydown', (e) => e.stopPropagation());
+      l.append(i);
+      return l;
+    };
+    const keep = () => localStorage.setItem(TEXTS_KEY, JSON.stringify(this.texts));
+    box.append(
+      field(t('Title'), this.title.textContent ?? '', '', (v) => { this.title.textContent = v; localStorage.setItem(STUDIO_TITLE_KEY, v); }),
+      field(t('Line under the title ({n} = how many)'), this.texts.counter, `👥 ${t('{n} followers live here', { n: '{n}' })}`, (v) => { this.texts.counter = v; keep(); }),
+      field(t('For each person ({nick} = the nickname)'), this.texts.person, this.personText('{nick}'), (v) => { this.texts.person = v; keep(); }),
+      field(t('At the end'), this.texts.cta, this.ctaText(), (v) => { this.texts.cta = v; keep(); }),
+    );
+    return box;
+  }
+
+  private personText(nick: string) { return (this.texts.person || t('🎉 New in town: {nick}')).replace('{nick}', nick); }
+  private ctaText() { return this.texts.cta || t('Follow and write your nickname in the comments — your house is next! 👇'); }
+
+  /**
+   * The "new in town" film: the town from above, then each marked follower — their home with fireworks, then
+   * themselves with their card — and the call to follow at the end. It is recorded as an MP4 by itself.
+   */
+  async startShowcase() {
+    const all = this.game.followerList();
+    const nicks = [...this.marked].filter((n) => all.some((c) => c.fol === n));
+    if (!nicks.length) { this.flash(t('Mark followers in the list first (the box in front of each name)'), 'warn'); return; }
+    if (!this.studioOn) this.setStudio(true);
+    this.tour = false;
+    this.tourBtn.classList.remove('active');
+    const recorded = !this.rec;
+    if (recorded) await this.startRecording(true);
+    const steps: [number, () => void][] = [];
+    const centre = () => { const c = this.game.townCentre(); this.game.lookAt(c.x, c.z, 13, 1.5); };
+    steps.push([0, () => { centre(); this.hideCaption(); }]);
+    let at0 = 2.8;
+    for (const nick of nicks) {
+      steps.push([at0, () => {
+        const c = this.game.followerList().find((x) => x.fol === nick);
+        const home = c && this.game.homeOf(c);
+        this.hideCaption();
+        if (home) { this.game.lookAt(home.mesh.position.x, home.mesh.position.z, 5, 1.5); this.game.celebrate(home); }
+        this.flash(this.personText(at(nick)), 'big', 3.3);
+      }]);
+      steps.push([at0 + 3.4, () => this.showFollower(nick, 4.2)]);
+      at0 += 7.4;
+    }
+    steps.push([at0, () => { centre(); this.showCaption(`🏙️ ${t('{n} people live here — every one a follower', { n: this.game.followerList().length })}`, ''); }]);
+    steps.push([at0 + 3, () => { this.hideCaption(); this.flash(this.ctaText(), 'big', 5); }]);
+    steps.push([at0 + 8, () => { this.show = null; if (recorded) void this.stopRecording(); }]);
+    this.show = { steps, t: 0, i: 0, recorded };
   }
 
   setPortrait(v: boolean) {
@@ -440,6 +537,7 @@ export class FollowersUi {
   }
 
   setStudio(on: boolean) {
+    if (!on) this.show = null;
     if (!on && this.rec) void this.toggleRecording();
     this.studioOn = on;
     this.game.studio = on;
@@ -530,14 +628,20 @@ export class FollowersUi {
       }
     }
     if (!this.studioOn) return;
+    // the bar stays while its words are being edited
+    if (this.editBox.contains(document.activeElement)) this.barT = 2.5;
     this.barT -= dt;
-    this.bar.classList.toggle('hide', this.barT <= 0 && !this.rec);
+    this.bar.classList.toggle('hide', this.barT <= 0 && (!this.rec || !!this.show));
     const n = this.game.followerList().length;
-    const txt = `👥 ${t('{n} followers live here', { n })}`;
+    const txt = this.texts.counter ? this.texts.counter.replace('{n}', String(n)) : `👥 ${t('{n} followers live here', { n })}`;
     if (this.counter.textContent !== txt) this.counter.textContent = txt;
     // a slow turn around the town, like a drone
     this.game.cam.rotate(dt * 0.035, false);
-    if (this.tour) {
+    if (this.show) {
+      const s = this.show;
+      s.t += dt;
+      while (this.show === s && s.i < s.steps.length && s.steps[s.i][0] <= s.t) s.steps[s.i++][1]();
+    } else if (this.tour) {
       this.tourT -= dt;
       if (this.tourT <= 0) this.tourNext();
     }
@@ -633,7 +737,8 @@ export class FollowersUi {
     for (const g of this.tagDraw) {
       const x = (g.x - cropX) * k, y = (g.y - cropY) * k;
       if (x < -50 || y < -20 || x > W + 50 || y > H + 50) continue;
-      const fs = g.size * k * 0.95;
+      // the size in the video does not depend on how wide the window is
+      const fs = g.size * 2.1 * u;
       ctx.font = `${g.inside ? 700 : 800} ${fs}px ${FONT}`;
       const tw = ctx.measureText(g.text).width, ph = fs * 1.45, pw = tw + fs * 1.0;
       ctx.save();

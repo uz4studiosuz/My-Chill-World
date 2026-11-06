@@ -186,7 +186,7 @@ async function boot() {
       : { create: { id: 'followers', name: t("Followers' town"), seed: 20261106, towns: 0, followers: true }, onSave: saveWorld, followersAdmin });
   } else openMainMenu();
   // back from the "set a new password" email link
-  Online.onRecovery(() => menu.showNewPassword());
+  // (online play on servers was taken out of the game: its menu is no longer offered)
 
   const clock = new THREE.Clock();
   // automatic quality: if the device can't keep ~40 fps, drop shadows and render resolution
