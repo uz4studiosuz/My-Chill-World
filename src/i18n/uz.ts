@@ -4189,4 +4189,8 @@ export const UZ: Record<string, string> = {
   "Not built yet (works there once it is)": "Hali qurilmagan (qurilganda o'sha yerda ishlaydi)",
   "{nick} was changed": "{nick} o'zgartirildi",
   "Edit": "Tahrirlash",
+  "A new street was laid for the new homes": "Yangi uylar uchun yangi ko'cha yotqizildi",
+  "Download the list": "Ro'yxatni yuklab olish",
+  "{n} already live here: {list}": "{n} tasi allaqachon bor: {list}",
+  "{n} followers in the file": "Faylda {n} obunachi",
 };

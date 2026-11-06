@@ -363,18 +363,24 @@ export class FollowersUi {
     many.append(area, button(t('Add all'), () => {
       let n = 0;
       const bad: string[] = [];
+      const twice: string[] = [];
       for (const line of area.value.split(/\n/)) {
         const [nk, sx, ag] = line.split(/[,;\t]/).map((x) => x.trim());
         if (!nk) continue;
+        // already living here (or on their way): not added again
+        if (this.game.hasFollower(nk)) { twice.push(at(nk.replace(/^@/, ''))); continue; }
         const s: Sex = /^(f|w|girl|qiz|ayol|female|q)/i.test(sx ?? '') ? 'f' : 'm';
-        if (this.addOne(nk, s, Number(ag) || 18 + Math.floor(Math.random() * 12), false, true)) n++; else bad.push(nk);
+        if (this.addOne(nk, s, Number(ag) || 18 + Math.floor(Math.random() * 12), false, true)) n++; else bad.push(line.trim());
       }
       area.value = bad.join('\n');
-      this.flash(t('{n} followers are moving in', { n }) + (bad.length ? ` · ${t('{n} not added', { n: bad.length })}` : ''));
+      this.flash([t('{n} followers are moving in', { n }),
+        twice.length ? t('{n} already live here: {list}', { n: twice.length, list: twice.slice(0, 5).join(', ') + (twice.length > 5 ? '…' : '') }) : '',
+        bad.length ? t('{n} not added', { n: bad.length }) : ''].filter(Boolean).join(' · '), twice.length || bad.length ? 'warn' : '', 5);
     }, 'fol-btn'));
 
     const acts = el('div', 'fol-row-btns');
     acts.append(button(`💾 ${t('Save')}`, () => this.game.save(true), 'fol-btn'));
+    acts.append(button(`⬇ ${t('Download the list')}`, () => this.downloadList(), 'fol-btn'));
     if (DEV) acts.append(button(`⬆️ GitHub`, async () => {
       this.game.save(false, false, true);
       if (this.status) this.status.textContent = t('Pushing to GitHub…');
@@ -394,10 +400,27 @@ export class FollowersUi {
     return pane;
   }
 
+  /** The followers as a text file, one a line — "nickname, m/f, age" (the same lines "Add many" takes). */
+  private downloadList() {
+    const all = this.game.followerList().sort((a, b) => a.id - b.id);
+    if (!all.length) { this.flash(t('Nobody lives here yet'), 'warn'); return; }
+    const text = all.map((c) => `${c.fol}, ${c.sex}, ${Math.floor(c.age)}`).join('\r\n') + '\r\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    a.download = `followers-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    this.flash(t('{n} followers in the file', { n: all.length }));
+  }
+
   /** Bring one follower to the town (false when they can't come). */
   private addOne(nickIn: string, sex: Sex, age: number, show: boolean, quiet = false, want?: string) {
     if (this.game.viewOnly) return false;
     const nick = nickIn.replace(/^@/, '').replace(/\s+/g, '').slice(0, 30);
+    if (nick && this.game.hasFollower(nick)) {
+      if (!quiet) { this.flash(t('@{nick} already lives here', { nick }), 'warn'); sound.play('error'); }
+      return false;
+    }
     let home: Building | undefined;
     const r = this.game.addFollower(nick, sex, age, (c) => {
       this.fresh.set(c.fol!, this.clock + 120);

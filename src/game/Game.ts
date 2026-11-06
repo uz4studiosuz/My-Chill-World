@@ -2371,7 +2371,7 @@ export class Game implements ToolHost {
   /** Problem badges over buildings, the reach of the selected service and what a selected power plant feeds. */
   private updateOverlays(dt: number) {
     if (this.tunnelMarks) this.tunnelMarks.visible = this.showTunnelMarks() && !this.photoMode;
-    this.overlays.visible = !this.demo && !this.pov && !this.drive?.active && !this.photoMode && !this.studio && !this.followers;
+    this.overlays.visible = !this.demo && !this.pov && !this.drive?.active && !this.photoMode && !this.studio;
     this.overlays.update(dt);
     this.overlayT -= dt;
     if (this.overlayT > 0 || this.demo) return;
@@ -3284,6 +3284,9 @@ export class Game implements ToolHost {
     return this.followerList().some((c) => c.fol!.toLowerCase() === n) || this.arriving.some((a) => a.nick.toLowerCase() === n);
   }
 
+  /** Does a follower with this nickname live here already (or is on the way)? Any case, with or without @. */
+  hasFollower(nick: string) { return this.nickTaken(nick.replace(/^@/, '').replace(/\s+/g, '')); }
+
   findFollower(nick: string): Citizen | undefined {
     const n = nick.replace(/^@/, '').trim().toLowerCase();
     if (!n) return undefined;
@@ -3333,7 +3336,7 @@ export class Game implements ToolHost {
   clearSelection() { this.select(null); }
 
   /** A home for a new follower: an empty house, or a new house on a free plot by a road near the town centre. */
-  private followerHome(): Building | null {
+  private followerHome(grown = false): Building | null {
     const city = this.eco.active;
     const taken = new Set(this.arriving.map((a) => a.home));
     const free = this.buildings.list.filter((b) => b.kind === 'house' && b.city === city && !b.removed && !taken.has(b.id) && !this.pop.familyAt(b.id));
@@ -3346,9 +3349,14 @@ export class Game implements ToolHost {
     for (let k = 0; k < N * N; k++) {
       if (!this.net.type[k]) continue;
       const x = k % N, z = (k / N) | 0;
+      // a street that ends here grows on later: the plot straight ahead of its end stays free for it
+      const ways = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dz]) => inBounds(x + dx, z + dz) && this.net.type[idx(x + dx, z + dz)]);
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const px = x + dx, pz = z + dz;
         if (!inBounds(px, pz) || this.net.type[idx(px, pz)] || this.buildings.occ[idx(px, pz)] !== -1) continue;
+        if (ways.length === 1 && ways[0][0] === -dx && ways[0][1] === -dz) continue;
+        // every sixth tile of a straight street keeps its sides free: a side street can branch off there later
+        if (ways.length === 2 && ways[0][0] === -ways[1][0] && ways[0][1] === -ways[1][1] && (ways[0][0] !== 0 ? x : z) % 6 === 0) continue;
         plots.push({ x: px, z: pz, d: d(px, pz) + Math.random() * 3 });
       }
     }
@@ -3365,7 +3373,56 @@ export class Game implements ToolHost {
       this.networkChanged();
       return b;
     }
+    // every plot by the roads is taken: a new street is laid at once, and the house goes up beside it
+    if (!grown && this.growStreet()) return this.followerHome(true);
     return null;
+  }
+
+  /**
+   * A new straight street (4–10 tiles) grows out of the town's roads into free land, as near the town hall as it
+   * can, keeping a row of plots free beside the streets already there. Laid at once, with water pipes and cables.
+   */
+  private growStreet(): boolean {
+    const hall = this.buildings.townHall(this.eco.active);
+    const cx = hall?.x ?? N / 2, cz = hall?.z ?? N / 2;
+    const road = (x: number, z: number) => inBounds(x, z) && !!this.net.type[idx(x, z)];
+    const free = (x: number, z: number) => {
+      if (!inBounds(x, z)) return false;
+      const k = idx(x, z);
+      return this.map.isLand(k) && !this.net.type[k] && this.buildings.occ[k] === -1 && !this.footpaths.tiles[k] && !this.canals.tiles[k] && !this.railway.tiles[k] && !this.foreignTown(x, z);
+    };
+    let pick: Tile[] | null = null, from: Tile | null = null, best = Infinity;
+    for (let k = 0; k < N * N; k++) {
+      if (!this.net.type[k] || this.net.isRing(k)) continue;
+      const x = k % N, z = (k / N) | 0;
+      if (Math.abs(x - cx) + Math.abs(z - cz) > 90) continue;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const run: Tile[] = [];
+        for (let step = 1; step <= 10; step++) {
+          const tx = x + dx * step, tz = z + dz * step;
+          if (!free(tx, tz)) break;
+          // keep a plot free on both sides between this street and any other one
+          let close = false;
+          for (const s2 of step === 1 ? [] : [1, 2]) if (road(tx + dz * s2, tz + dx * s2) || road(tx - dz * s2, tz - dx * s2)) close = true;
+          if (close) break;
+          run.push({ x: tx, z: tz });
+        }
+        if (run.length < 4) continue;
+        const end = run[run.length - 1];
+        const score = Math.abs(end.x - cx) + Math.abs(end.z - cz) - run.length * 0.5 + Math.random() * 3;
+        if (score < best) { best = score; pick = run; from = { x, z }; }
+      }
+    }
+    if (!pick || !from) return false;
+    this.net.buildPath([from, ...pick], ROAD_TWO_LANE);
+    this.net.clearUndo();
+    this.pipes.add(pick); this.pipes.rebuild();
+    this.cables.add(pick); this.cables.rebuild();
+    this.terrain.clearTiles(pick.map((tl) => idx(tl.x, tl.z)));
+    this.effects.pave(pick);
+    this.networkChanged();
+    this.hud?.toast(t('A new street was laid for the new homes'));
+    return true;
   }
 
   /**
