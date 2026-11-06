@@ -224,9 +224,10 @@ export class FollowersUi {
     sortBtn.title = t('Order');
     const onlyBtn = button(`☑ ${t('Marked')}`, () => { this.onlyMarked = !this.onlyMarked; onlyBtn.classList.toggle('on', this.onlyMarked); this.listSig = ''; this.renderList(); }, `fol-chip2${this.onlyMarked ? ' on' : ''}`);
     onlyBtn.title = t('Only the marked');
-    bar.append(sortBtn, onlyBtn);
+    bar.append(sortBtn);
     if (admin) {
       bar.append(
+        onlyBtn,
         button(`+${MAX_SHOW} ${t('newest')}`, () => this.markNewest(), 'fol-chip2'),
         button(t('Clear'), () => { this.marked.clear(); this.saveMarks(); this.listSig = ''; this.renderList(); }, 'fol-chip2 ghost'),
       );
@@ -283,6 +284,9 @@ export class FollowersUi {
     this.renderList();
     this.flash(t('{n} newest followers marked', { n: newest.length }));
   }
+
+  /** Build the panel again (the visitor became the admin, or the other way round). */
+  refresh() { this.buildPanel(); }
 
   private async search(text: string) {
     const c = this.game.findFollower(text);
@@ -512,7 +516,7 @@ export class FollowersUi {
     const total = all.length + this.game.arrivingCount;
     this.count.textContent = String(total);
     this.sub.textContent = this.marked.size ? t('{n} live here · {m} marked', { n: total, m: this.marked.size }) : t('{n} live here', { n: total });
-    const admin = !this.game.viewOnly;
+    const admin = isAdmin() && !this.game.viewOnly;
     const sig = `${admin}|${q}|${this.newest}|${this.onlyMarked}|${[...this.marked].join(',')}|${shown.map((c) => `${c.id}:${c.job}:${c.school}`).join(',')}`;
     if (sig === this.listSig) return;
     this.listSig = sig;

@@ -2371,7 +2371,7 @@ export class Game implements ToolHost {
   /** Problem badges over buildings, the reach of the selected service and what a selected power plant feeds. */
   private updateOverlays(dt: number) {
     if (this.tunnelMarks) this.tunnelMarks.visible = this.showTunnelMarks() && !this.photoMode;
-    this.overlays.visible = !this.demo && !this.pov && !this.drive?.active && !this.photoMode && !this.studio;
+    this.overlays.visible = !this.demo && !this.pov && !this.drive?.active && !this.photoMode && !this.studio && !this.followers;
     this.overlays.update(dt);
     this.overlayT -= dt;
     if (this.overlayT > 0 || this.demo) return;
@@ -3517,6 +3517,8 @@ export class Game implements ToolHost {
     this.viewOnly = v;
     document.body.classList.toggle('fol-viewer', v);
     if (v) { this.setTool('pan'); this.setSpeed(1); this.select(null); }
+    // the panel shows the admin's tools only to the admin
+    this.followersUi?.refresh();
   }
 
   /**

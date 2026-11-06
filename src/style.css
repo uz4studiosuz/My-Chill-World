@@ -3065,3 +3065,12 @@ body.fol-viewer .fol-panel { max-height: calc(100vh - 80px); }
 .fol-ed { font-size: 14px; }
 .fol-edit { margin: 2px 0 6px; border-color: rgba(255,200,74,.35); }
 .fol-edit .fol-row-btns .fol-cta { flex: 1; padding: 8px; }
+
+/* the followers town keeps only what matters: the town, its people and the panel
+   (no economy: no stats sidebar, money, mood, layers, minimap, hints, reports or cost) */
+body.followers-town #ui .sidebar, body.followers-town #ui .side-toggle, body.followers-town #ui .layerbar,
+body.followers-town #ui .map-legend, body.followers-town #ui .minimap, body.followers-town #ui .hint,
+body.followers-town #ui .day-report, body.followers-town #ui .daywatch, body.followers-town #ui .news,
+body.followers-town #ui .build-cost, body.followers-town #ui .res-pop, body.followers-town #ui .pending,
+body.followers-town #ui .topbar .chip-fold, body.followers-town #ui .topbar .res-more,
+body.followers-town #ui .topbar .chips > .chip-group:nth-child(-n+4) { display: none !important; }
