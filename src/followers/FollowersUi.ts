@@ -131,6 +131,8 @@ export class FollowersUi {
     if (ui) ui.before(this.tagLayer); else document.body.append(this.tagLayer);
     this.chip.addEventListener('click', () => location.reload());
     document.body.append(this.panel, this.banner, this.chip, this.studio);
+    // a phone shows the town first: the panel waits folded at the top until it is tapped
+    if (window.innerWidth <= 760) this.panel.classList.add('folded');
     document.body.classList.add('followers-town');
     const sig = this.abort.signal;
     window.addEventListener('keydown', (e) => {
@@ -195,6 +197,8 @@ export class FollowersUi {
     fold.title = t('Fold');
     head.append(logo, titles, this.count, fold);
     head.addEventListener('dblclick', () => this.panel.classList.toggle('folded'));
+    // a folded panel opens with a tap anywhere on its bar
+    head.addEventListener('click', (e) => { if (this.panel.classList.contains('folded') && e.target !== fold) this.panel.classList.remove('folded'); });
 
     // search (everyone); the admin key typed here lets the admin in
     const find = el('form', 'fol-search');
@@ -334,6 +338,14 @@ export class FollowersUi {
     this.listSig = '';
     this.renderList();
     this.flash(t('{n} newest followers marked', { n: newest.length }));
+  }
+
+  /** The panel sits just under the game's top bar (on a phone that bar has two rows). */
+  private placePanel() {
+    const bar = document.querySelector('#ui .topbar') as HTMLElement | null;
+    const r = bar?.getBoundingClientRect();
+    const top = r && r.height ? Math.round(r.bottom + 8) : 54;
+    if (this.panel.style.top !== `${top}px`) this.panel.style.top = `${top}px`;
   }
 
   /** Build the panel again (the visitor became the admin, or the other way round). */
@@ -973,7 +985,7 @@ export class FollowersUi {
     this.clock += dt;
     this.updateTags();
     this.listT -= dt;
-    if (this.listT <= 0) { this.listT = 1; this.renderList(); }
+    if (this.listT <= 0) { this.listT = 1; this.renderList(); this.placePanel(); }
     this.townT -= dt;
     if (this.townT <= 0) { this.townT = 2; if (this.tab === 'town' && !this.panel.classList.contains('folded')) this.renderTown(); }
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) this.banner.classList.remove('show'); }

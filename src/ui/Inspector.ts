@@ -154,6 +154,8 @@ export class Inspector {
     const panelScroll = same ? (this.root.scrollTop || this.savedPanelScroll) : 0;
     this.key = v.key;
     this.root.replaceChildren();
+    // p = a person, v = a vehicle, b = a building, c = a town (pages can style the cards by kind)
+    this.root.dataset.kind = v.key.replace(/^ghost:.*/, 'g')[0];
 
     const head = el('div', 'ins-head');
     const badge = el('div', 'ins-badge');
@@ -262,7 +264,8 @@ export class Inspector {
         b.addEventListener('click', a.onClick);
         acts.appendChild(b);
       }
-      this.root.appendChild(acts);
+      // the buttons go at the top, right under the title: they are seen without scrolling
+      head.after(acts);
     }
     this.root.classList.add('show');
     this.root.scrollTop = panelScroll;
