@@ -340,6 +340,15 @@ export class FollowersUi {
     this.flash(t('{n} newest followers marked', { n: newest.length }));
   }
 
+  /** On a phone the panel folds (and the keyboard goes) when someone is picked: the card and the town show. */
+  collapseOnPhone() {
+    if (window.innerWidth > 760) return;
+    this.panel.classList.add('folded');
+    // the town's side panel (opened over the town on a phone) closes too
+    document.querySelector('#ui .sidebar')?.classList.remove('open');
+    (document.activeElement as HTMLElement | null)?.blur?.();
+  }
+
   /** The panel sits just under the game's top bar (on a phone that bar has two rows). */
   private placePanel() {
     const bar = document.querySelector('#ui .topbar') as HTMLElement | null;
@@ -356,7 +365,8 @@ export class FollowersUi {
     if (c) {
       this.game.focusFollower(c);
       const admin = isAdmin() && !this.game.viewOnly;
-      this.flash(admin || this.marked.has(c.fol!) ? t('🏠 Here is {nick}', { nick: at(c.fol!) }) : t('🏠 Here is {nick} — press ★ in the list to mark them', { nick: at(c.fol!) }), '', 4);
+      // on a phone the card that opens says who it is (a message would cover it)
+      if (window.innerWidth > 760) this.flash(admin || this.marked.has(c.fol!) ? t('🏠 Here is {nick}', { nick: at(c.fol!) }) : t('🏠 Here is {nick} — press ★ in the list to mark them', { nick: at(c.fol!) }), '', 4);
       return;
     }
     // not a follower: maybe the admin key (checked by the server, never kept in the game's files)

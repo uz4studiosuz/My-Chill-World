@@ -2342,6 +2342,8 @@ export class Game implements ToolHost {
 
   private select(s: Selection) {
     if (s?.type !== this.selection?.type || s?.id !== this.selection?.id) { this.following = false; this.aptFamily = null; }
+    // the followers' town: picking someone or something closes the open windows (on a phone they would cover the card)
+    if (s && this.followers && (s.type !== this.selection?.type || s.id !== this.selection?.id)) { this.closeAllPanels(); this.followersUi?.collapseOnPhone(); }
     const eb = s?.type === 'building' ? this.buildings.get(s.id) : undefined;
     if (eb?.kind === 'embassy' && eb.built >= 1 && !this.cityOf(eb).ai && this.routeEdit < 0) {
       // the embassy has its own window: nothing else opens with it
@@ -3327,6 +3329,7 @@ export class Game implements ToolHost {
 
   /** The camera flies to a follower and keeps them in view. */
   focusFollower(c: Citizen, view = 5, follow = true) {
+    this.closeAllPanels();
     const p = this.personPos(c);
     if (p) this.cam.flyTo(p.x, p.z, view, 1.6);
     this.select({ type: 'person', id: c.id });
