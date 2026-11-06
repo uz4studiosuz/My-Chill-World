@@ -4193,4 +4193,10 @@ export const UZ: Record<string, string> = {
   "Download the list": "Ro'yxatni yuklab olish",
   "{n} already live here: {list}": "{n} tasi allaqachon bor: {list}",
   "{n} followers in the file": "Faylda {n} obunachi",
+  "Name tags over the town": "Shahar ustidagi ism yorliqlari",
+  "Find yourself and press ★: with \"Only ★\" the town shows only your name (and your friends' names).": "O'zingizni toping va ★ ni bosing: \"Faqat ★\" tanlansa, shaharda faqat sizning (va do'stlaringizning) nomi ko'rinadi.",
+  "Mark (only on this device)": "Belgilash (faqat shu qurilmada)",
+  "Only ★": "Faqat ★",
+  "Mark yourself first: find your nickname and press ★": "Avval o'zingizni belgilang: nikingizni toping va ★ ni bosing",
+  "🏠 Here is {nick} — press ★ in the list to mark them": "🏠 Mana {nick} — belgilash uchun ro'yxatda ★ ni bosing",
 };

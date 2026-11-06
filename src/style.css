@@ -3066,3 +3066,11 @@ body.fol-viewer .fol-panel { max-height: calc(100vh - 80px); }
 .fol-edit { margin: 2px 0 6px; border-color: rgba(255,200,74,.35); }
 .fol-edit .fol-row-btns .fol-cta { flex: 1; padding: 8px; }
 
+
+/* visitors mark themselves with a star */
+.fol-row:has(.fol-star) { grid-template-columns: 30px 1fr auto; }
+.fol-star { font-size: 18px; color: var(--muted); }
+.fol-star.on { color: #ffc84a; }
+.fol-star:hover { color: #ffc84a; }
+
+.vip-money { background: linear-gradient(135deg, #ffd166, #ff9d5c); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 900; letter-spacing: .03em; }

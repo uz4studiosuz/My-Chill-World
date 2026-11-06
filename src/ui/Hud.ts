@@ -194,6 +194,8 @@ const BASE_HINTS: Partial<Record<ToolId, string>> = {
 
 export interface HudStats {
   money: number; iron: number; daily: number; stone: number; wood: number; food: number; foodDaily: number;
+  /** Money without limit (the followers' town): shown as VIP instead of a sum. */
+  vip?: boolean;
   powered: number; water: number; population: number; workers: number; workforce: number;
   /** Jobs nobody fills yet in the town's workplaces. */
   vacancies: number;
@@ -1052,7 +1054,7 @@ export class Hud {
 
   setStats(s: HudStats) {
     const sign = s.daily >= 0 ? '+' : '';
-    this.stat.money.innerHTML = `$${fmt(s.money)} <small class="${s.daily >= 0 ? 'pos' : 'neg'}">${sign}${fmt(s.daily)}</small>`;
+    this.stat.money.innerHTML = s.vip ? `<b class="vip-money">♾ VIP</b>` : `$${fmt(s.money)} <small class="${s.daily >= 0 ? 'pos' : 'neg'}">${sign}${fmt(s.daily)}</small>`;
     this.stat.city.textContent = `${s.cityName} ▾`;
     this.stat.stone.textContent = fmt(s.stone);
     this.stat.wood.textContent = fmt(s.wood);

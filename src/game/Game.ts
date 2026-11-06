@@ -1102,7 +1102,8 @@ export class Game implements ToolHost {
       if (i < steps - 1 && performance.now() - frameStart > 24) break;
     }
     this.festivities(dt);
-    if (this.followers) { this.settleFollowers(); this.updateSpot(dt); }
+    // the followers' town is VIP: its money and materials never run out, whatever is built
+    if (this.followers) { this.settleFollowers(); this.updateSpot(dt); this.creativeStock(); }
     this.waterLife.update(total > 0 ? Math.min(dt * this.speed, 0.5) : 0, this.terrain.frozen, seasonOf(monthOf(this.eco.day)) === 'summer', this.nightness);
     this.effects.update(dt);
     this.weather.update(dt, total, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
@@ -4720,7 +4721,7 @@ export class Game implements ToolHost {
     if (this.desk?.visible && this.petitionTick % 24 === 0 && !busy && !(document.activeElement instanceof HTMLInputElement)) this.desk.render();
     const mine = (c: Citizen) => this.cityOfCitizen(c) === e.active;
     const counts = this.pop.counts(mine);
-    this.hud!.setStats({
+    this.hud!.setStats({ vip: this.followers,
       cityName: e.city.name, cities: e.cities.size, happiness: e.city.happiness,
       money: e.money, iron: e.iron, daily: e.city.balance.net, stone: e.stone, wood: e.wood, food: e.food, bricks: e.city.bricks,
       goods: ([['bricks', 'Bricks'], ['planks', 'Planks'], ['coal', 'Coal'], ['grain', 'Grain'], ['flour', 'Flour'], ['milk', 'Milk'], ['feed', 'Corn feed'], ['cotton', 'Cotton'], ['garments', 'Clothes'], ['furniture', 'Furniture']] as [Res, string][]).map(([k, l]) => [k, l, e.city[k]] as [string, string, number]),
@@ -7388,7 +7389,7 @@ export class Game implements ToolHost {
     for (const c of this.eco.cities.values()) {
       if (c.ai) continue;
       c.money = Math.max(c.money, 1_000_000);
-      for (const r of ['stone', 'wood', 'iron', 'bricks', 'food', 'planks'] as const) c[r] = Math.max(c[r], 50_000);
+      for (const r of ['stone', 'wood', 'iron', 'bricks', 'steel', 'food', 'planks'] as const) c[r] = Math.max(c[r], 50_000);
     }
   }
 

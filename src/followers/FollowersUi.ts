@@ -16,6 +16,8 @@ const MARK_KEY = 'mcw_followers_marked';
 const TEXTS_KEY = 'mcw_studio_texts';
 type Texts = { counter: string; person: string; cta: string };
 const PACE_KEY = 'mcw_showcase_pace';
+const TAGMODE_KEY = 'mcw_tag_mode';
+type TagMode = 'all' | 'marked' | 'none';
 /** The film shows at most this many marked followers (the newest). */
 const MAX_SHOW = 20;
 type Pace = 'normal' | 'fast' | 'turbo';
@@ -67,6 +69,8 @@ export class FollowersUi {
   private bannerKind = '';
   private captionAt = -99;
   private showTags = true;
+  /** Whose name tags show over the town: everyone's, only the marked (★ — yourself, your friends), or nobody's. */
+  private tagMode: TagMode = (['all', 'marked', 'none'].includes(localStorage.getItem(TAGMODE_KEY) ?? '') ? localStorage.getItem(TAGMODE_KEY) : 'all') as TagMode;
   private studioOn = false;
   private tour = true;
   private tourT = 0;
@@ -222,12 +226,11 @@ export class FollowersUi {
     const bar = el('div', 'fol-listbar');
     const sortBtn = button(this.newest ? t('Newest first') : t('A–Z'), () => { this.newest = !this.newest; sortBtn.textContent = this.newest ? t('Newest first') : t('A–Z'); this.listSig = ''; this.renderList(); }, 'fol-chip2');
     sortBtn.title = t('Order');
-    const onlyBtn = button(`☑ ${t('Marked')}`, () => { this.onlyMarked = !this.onlyMarked; onlyBtn.classList.toggle('on', this.onlyMarked); this.listSig = ''; this.renderList(); }, `fol-chip2${this.onlyMarked ? ' on' : ''}`);
+    const onlyBtn = button(`${admin ? '☑' : '★'} ${t('Marked')}`, () => { this.onlyMarked = !this.onlyMarked; onlyBtn.classList.toggle('on', this.onlyMarked); this.listSig = ''; this.renderList(); }, `fol-chip2${this.onlyMarked ? ' on' : ''}`);
     onlyBtn.title = t('Only the marked');
-    bar.append(sortBtn);
+    bar.append(sortBtn, onlyBtn);
     if (admin) {
       bar.append(
-        onlyBtn,
         button(`+${MAX_SHOW} ${t('newest')}`, () => this.markNewest(), 'fol-chip2'),
         button(t('Clear'), () => { this.marked.clear(); this.saveMarks(); this.listSig = ''; this.renderList(); }, 'fol-chip2 ghost'),
       );
@@ -235,10 +238,8 @@ export class FollowersUi {
     this.list = el('div', 'fol-list');
     people.append(bar, this.list);
     if (!admin) {
-      const tools = el('div', 'fol-row-btns');
-      const tagBtn = button(`🏷️ ${t('Name tags')}`, () => { this.showTags = !this.showTags; tagBtn.classList.toggle('on', this.showTags); }, `fol-btn${this.showTags ? ' on' : ''}`);
-      tools.append(tagBtn);
-      people.append(tools, el('div', 'fol-foot', `👀 ${t('Watching mode: the town lives on by itself — only its admin builds here')}`));
+      people.append(el('div', 'fol-label', t('Name tags over the town')), this.tagSeg(), el('div', 'fol-hint', t('Find yourself and press ★: with "Only ★" the town shows only your name (and your friends\' names).')));
+      people.append(el('div', 'fol-foot', `👀 ${t('Watching mode: the town lives on by itself — only its admin builds here')}`));
     }
     body.append(people);
 
@@ -269,8 +270,8 @@ export class FollowersUi {
     }
     this.videoBtn = button('', () => void this.startShowcase(), 'fol-cta');
     const tools = el('div', 'fol-row-btns');
-    const tagBtn = button(`🏷️ ${t('Name tags')}`, () => { this.showTags = !this.showTags; tagBtn.classList.toggle('on', this.showTags); }, `fol-btn${this.showTags ? ' on' : ''}`);
-    tools.append(tagBtn, button(`🎬 ${t('Open the studio')}`, () => this.setStudio(true), 'fol-btn'));
+    tools.append(button(`🎬 ${t('Open the studio')}`, () => this.setStudio(true), 'fol-btn'));
+    pane.append(el('div', 'fol-label', t('Name tags over the town')), this.tagSeg());
     pane.append(seg, this.videoBtn, el('div', 'fol-hint', t('Up to {n} marked followers, newest first: each one is lit up at home with their name, then the call to follow. It is saved as an MP4 by itself (turn on 9:16 in the studio for Reels).', { n: MAX_SHOW })), tools);
     return pane;
   }
@@ -292,7 +293,8 @@ export class FollowersUi {
     const c = this.game.findFollower(text);
     if (c) {
       this.game.focusFollower(c);
-      this.flash(t('🏠 Here is {nick}', { nick: at(c.fol!) }));
+      const admin = isAdmin() && !this.game.viewOnly;
+      this.flash(admin || this.marked.has(c.fol!) ? t('🏠 Here is {nick}', { nick: at(c.fol!) }) : t('🏠 Here is {nick} — press ★ in the list to mark them', { nick: at(c.fol!) }), '', 4);
       return;
     }
     // not a follower: maybe the admin key (checked by the server, never kept in the game's files)
@@ -561,6 +563,17 @@ export class FollowersUi {
       text.append(name, el('div', 'fol-meta', [t('{n} years old', { n: info.age }), wish || info.work].filter(Boolean).join(' · ')));
       row.append(ava, text);
       row.addEventListener('click', () => this.game.focusFollower(c));
+      if (!admin) {
+        const on = this.marked.has(c.fol!);
+        const star = button(on ? '★' : '☆', () => {
+          if (this.marked.has(c.fol!)) this.marked.delete(c.fol!); else this.marked.add(c.fol!);
+          this.saveMarks();
+          this.listSig = '';
+          this.renderList();
+        }, `fol-icon fol-star${on ? ' on' : ''}`);
+        star.title = t('Mark (only on this device)');
+        row.append(star);
+      }
       if (admin) {
         const box = el('input') as HTMLInputElement;
         box.type = 'checkbox';
@@ -589,6 +602,24 @@ export class FollowersUi {
     if (shown.length > 200) this.list.append(el('div', 'fol-empty', t('…and {n} more — search above', { n: shown.length - 200 })));
   }
 
+  /** Everyone's name tags, only the marked ones (★), or none. */
+  private tagSeg() {
+    const seg = el('div', 'fol-seg small');
+    const btns: HTMLButtonElement[] = [];
+    for (const [id, label] of [['all', `🏷️ ${t('All')}`], ['marked', `★ ${t('Only ★')}`], ['none', `🚫 ${t('Hide')}`]] as const) {
+      const b = button(label, () => {
+        this.tagMode = id;
+        localStorage.setItem(TAGMODE_KEY, id);
+        for (const x of btns) x.classList.toggle('on', x === b);
+        if (id === 'marked' && !this.marked.size) this.flash(t('Mark yourself first: find your nickname and press ★'), 'warn', 4);
+      }, `fol-seg-btn${this.tagMode === id ? ' on' : ''}`);
+      b.type = 'button';
+      btns.push(b);
+      seg.append(b);
+    }
+    return seg;
+  }
+
   /** A message in the middle of the screen (it shows in the film too). */
   flash(text: string, kind: 'big' | 'warn' | '' = '', seconds?: number) {
     this.banner.textContent = text;
@@ -605,13 +636,15 @@ export class FollowersUi {
     const view = game.cam.viewHalf;
     const used = new Set<string>();
     this.tagDraw = [];
-    if (this.showTags && view < 40) {
+    if (this.showTags && this.tagMode !== 'none' && view < 40) {
       const canvas = document.getElementById('game') as HTMLCanvasElement;
       const rect = canvas.getBoundingClientRect();
       const cam = game.viewCamera;
       // people inside a building share one tag (the household at home, the staff at work)
       const groups = new Map<string, { x: number; y: number; z: number; nicks: string[]; inside: boolean; home: boolean; gold: boolean }>();
+      const onlyMarked = this.tagMode === 'marked';
       for (const c of game.followerList()) {
+        if (onlyMarked && !this.marked.has(c.fol!)) continue;
         const p = game.followerPos(c);
         if (!p) continue;
         const inside = p.y > 0.42;
@@ -627,7 +660,7 @@ export class FollowersUi {
       const far = view > 18;
       const size = Math.max(10, Math.min(15, 17 - view * 0.25));
       for (const [key, g] of groups) {
-        if (far && !g.inside && !g.gold) continue;
+        if (far && !g.inside && !g.gold && !onlyMarked) continue;
         this.v.set(g.x, g.y, g.z).project(cam);
         if (this.v.z > 1 || Math.abs(this.v.x) > 1.05 || Math.abs(this.v.y) > 1.05) continue;
         const rx = (this.v.x * 0.5 + 0.5) * rect.width;
