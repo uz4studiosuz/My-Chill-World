@@ -16,7 +16,7 @@ import { Footpaths } from '../paths/Footpaths';
 import { Canals } from '../paths/Canals';
 import { Buildings, Building, rotToDir, SIDES } from '../buildings/Buildings';
 import { box, merge, shape } from '../utils/voxel';
-import { STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST, CABLE_COST, extraCost, defaultJobReq, sellable, TOWN_LEVELS, townLevel, UNLOCK_POP } from '../buildings/BuildingTypes';
+import { BATTERY, CLEAN_POWER, STORAGE, PENSION, BUS, CONCERT, CAR_PRICE, DEGREE_JOBS, SERVICE_FEE, TRADE_PRICE, BUILD_DAYS, VISIT_PRICE, SHOP_PRICE, POLLUTERS, CROPS, CropKind, BUILDINGS, BUSINESS_KINDS, CARS, JOB_PRIORITY, LAMP, RAIL_COST, RENT, MAX_GRAVES_PER_CEMETERY as GRAVES_PER_PLOT, BuildingKind, CEMETERY_UPGRADE, CITY_MIN_DISTANCE, LOAN, GRAVE_COST, MAX_GRAVES_PER_CEMETERY, QUARRY, AIR_TRADE, PIPE_COST, POLICE_RANGE, FIRE_RANGE, MILITARY, TRASH, TOURISM, FOOTBALL, CINEMA, DECOR, DECOR_RANGE, PATH_COST, BIKE, TUNNEL_COST, CABLE_COST, extraCost, defaultJobReq, sellable, TOWN_LEVELS, townLevel, UNLOCK_POP } from '../buildings/BuildingTypes';
 import { City, Economy, NEW_CITY_GRANT, START_GRANT } from '../sim/Economy';
 import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel, calendarYear } from '../sim/Calendar';
@@ -1102,8 +1102,8 @@ export class Game implements ToolHost {
       if (i < steps - 1 && performance.now() - frameStart > 24) break;
     }
     this.festivities(dt);
-    // the followers' town is VIP: its money and materials never run out, whatever is built
-    if (this.followers) { this.settleFollowers(); this.updateSpot(dt); this.creativeStock(); }
+    // the followers' town: VIP money, deferred work done once a frame, water and power kept right
+    if (this.followers) this.followersFrame(dt);
     this.waterLife.update(total > 0 ? Math.min(dt * this.speed, 0.5) : 0, this.terrain.frozen, seasonOf(monthOf(this.eco.day)) === 'summer', this.nightness);
     this.effects.update(dt);
     this.weather.update(dt, total, this.eco.timeOfDay, this.cam.target, this.cam.viewHalf);
@@ -3274,7 +3274,13 @@ export class Game implements ToolHost {
   private arriving: { nick: string; sex: Sex; age: number; home: number; want?: string; done: (c: Citizen) => void }[] = [];
 
   /** Everyone living in the followers' town (each is a real follower). */
-  followerList(): Citizen[] { return [...this.pop.citizens.values()].filter((c) => !!c.fol); }
+  followerList(): Citizen[] {
+    if (!this.folCache || this.folCacheSize !== this.pop.citizens.size) {
+      this.folCache = [...this.pop.citizens.values()].filter((c) => !!c.fol);
+      this.folCacheSize = this.pop.citizens.size;
+    }
+    return this.folCache.slice();
+  }
 
   /** Followers on their way (their house is going up). */
   get arrivingCount() { return this.arriving.length; }
@@ -3350,29 +3356,18 @@ export class Game implements ToolHost {
     for (let k = 0; k < N * N; k++) {
       if (!this.net.type[k]) continue;
       const x = k % N, z = (k / N) | 0;
-      // a street that ends here grows on later: the plot straight ahead of its end stays free for it
-      const ways = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dz]) => inBounds(x + dx, z + dz) && this.net.type[idx(x + dx, z + dz)]);
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const px = x + dx, pz = z + dz;
         if (!inBounds(px, pz) || this.net.type[idx(px, pz)] || this.buildings.occ[idx(px, pz)] !== -1) continue;
-        if (ways.length === 1 && ways[0][0] === -dx && ways[0][1] === -dz) continue;
-        // every sixth tile of a straight street keeps its sides free: a side street can branch off there later
-        if (ways.length === 2 && ways[0][0] === -ways[1][0] && ways[0][1] === -ways[1][1] && (ways[0][0] !== 0 ? x : z) % 6 === 0) continue;
+        if (this.keptForStreets(px, pz)) continue;
         plots.push({ x: px, z: pz, d: d(px, pz) + Math.random() * 3 });
       }
     }
     plots.sort((a, b) => a.d - b.d);
     for (const p of plots.slice(0, 400)) {
-      if (!this.checkPlace('house', p).ok) continue;
-      this.place('house', p);
-      const b = this.buildings.at(idx(p.x, p.z));
-      if (!b || b.kind !== 'house') continue;
-      // water and power reach the new home through a pipe and a cable under it
-      const fp = this.buildings.footprint('house', b.x, b.z);
-      this.pipes.add(fp); this.pipes.rebuild();
-      this.cables.add(fp); this.cables.rebuild();
-      this.networkChanged();
-      return b;
+      // water and power reach the new home through a pipe and a cable under it (laid out once this frame)
+      const b = this.quickPlace('house', p);
+      if (b) return b;
     }
     // every plot by the roads is taken: a new street is laid at once, and the house goes up beside it
     if (!grown && this.growStreet()) return this.followerHome(true);
@@ -3396,7 +3391,7 @@ export class Game implements ToolHost {
     for (let k = 0; k < N * N; k++) {
       if (!this.net.type[k] || this.net.isRing(k)) continue;
       const x = k % N, z = (k / N) | 0;
-      if (Math.abs(x - cx) + Math.abs(z - cz) > 90) continue;
+      if (Math.abs(x - cx) + Math.abs(z - cz) > 140) continue;
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const run: Tile[] = [];
         for (let step = 1; step <= 10; step++) {
@@ -3417,11 +3412,13 @@ export class Game implements ToolHost {
     if (!pick || !from) return false;
     this.net.buildPath([from, ...pick], ROAD_TWO_LANE);
     this.net.clearUndo();
-    this.pipes.add(pick); this.pipes.rebuild();
-    this.cables.add(pick); this.cables.rebuild();
+    this.pipes.add(pick);
+    this.cables.add(pick);
     this.terrain.clearTiles(pick.map((tl) => idx(tl.x, tl.z)));
     this.effects.pave(pick);
+    // the road graph must know the street at once (the next plots are looked for along it)
     this.networkChanged();
+    this.utilDirty = true;
     this.hud?.toast(t('A new street was laid for the new homes'));
     return true;
   }
@@ -3559,6 +3556,195 @@ export class Game implements ToolHost {
     (s.ring.material as THREE.MeshBasicMaterial).opacity = 0.95 * fade;
     (s.beam.material as THREE.MeshBasicMaterial).opacity = (0.12 + Math.sin(s.t * 3) * 0.04) * fade;
     if (s.left <= 0) s.group.visible = false;
+  }
+
+  // ---------- the followers' town: utilities and buildings by themselves ----------
+
+  /** Pipes and cables were added: lay them out once this frame. */
+  private utilDirty = false;
+  /** Jobs and schools are handed out again once this frame. */
+  private assignPending = false;
+  private autoUtilT = 3;
+  private folCache: Citizen[] | null = null;
+  private folCacheSize = -1;
+
+  /**
+   * Put a building down at once (the followers' town): no toasts and no full network rebuild per building — the
+   * roads, pipes and cables are brought up to date once, a moment later. Pipes and cables run under it.
+   */
+  private quickPlace(kind: BuildingKind, tl: Tile): Building | null {
+    if (!this.checkPlace(kind as PlaceKind, tl).ok) return null;
+    const { rot, access } = this.buildings.resolveOrientation(kind, tl.x, tl.z, 0);
+    const b = this.buildings.place(kind, tl.x, tl.z, { city: this.eco.active, rot, access });
+    const fp = this.buildings.footprint(kind, tl.x, tl.z);
+    this.terrain.clearTiles(fp.map((f) => idx(f.x, f.z)));
+    this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[kind].size * 0.5, 8);
+    this.pipes.add(fp);
+    this.cables.add(fp);
+    this.utilDirty = this.assignPending = this.netPending = true;
+    return b;
+  }
+
+  /**
+   * Land kept free so the streets can grow (the followers' town builds by itself): the tile straight past the end of
+   * a street, and the two sides of every sixth tile of a straight street (a side street branches off there).
+   */
+  private keptForStreets(px: number, pz: number) {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = px - dx, z = pz - dz;
+      if (!inBounds(x, z) || !this.net.type[idx(x, z)]) continue;
+      const ways = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([ax, az]) => inBounds(x + ax, z + az) && this.net.type[idx(x + ax, z + az)]);
+      if (ways.length === 1 && ways[0][0] === -dx && ways[0][1] === -dz) return true;
+      if (ways.length === 2 && ways[0][0] === -ways[1][0] && ways[0][1] === -ways[1][1] && ways[0][0] !== dx && ways[0][1] !== dz && (ways[0][0] !== 0 ? x : z) % 6 === 0) return true;
+    }
+    return false;
+  }
+
+  /** Free places by the roads for a building of this kind, the nearest to the town hall first. */
+  private plotsFor(kind: BuildingKind, limit = 500): Tile[] {
+    const s = BUILDINGS[kind].size;
+    const hall = this.buildings.townHall(this.eco.active);
+    const cx = hall?.x ?? N / 2, cz = hall?.z ?? N / 2;
+    const seen = new Set<number>();
+    const out: { x: number; z: number; d: number }[] = [];
+    for (let k = 0; k < N * N; k++) {
+      if (!this.net.type[k]) continue;
+      const x = k % N, z = (k / N) | 0;
+      if (Math.abs(x - cx) + Math.abs(z - cz) > 150) continue;
+      // the footprint touches the road on one of its sides
+      const cands: [number, number][] = [];
+      for (let o = 0; o < s; o++) cands.push([x + 1, z - o], [x - s, z - o], [x - o, z + 1], [x - o, z - s]);
+      for (const [tx, tz] of cands) {
+        if (!inBounds(tx, tz) || !inBounds(tx + s - 1, tz + s - 1)) continue;
+        const key = idx(tx, tz);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        let ok = true;
+        for (let dz = 0; dz < s && ok; dz++) for (let dx = 0; dx < s; dx++) { const kk = idx(tx + dx, tz + dz); if (this.net.type[kk] || this.buildings.occ[kk] !== -1 || !this.map.isLand(kk) || this.keptForStreets(tx + dx, tz + dz)) { ok = false; break; } }
+        if (ok) out.push({ x: tx, z: tz, d: Math.abs(tx - cx) + Math.abs(tz - cz) + Math.random() * 4 });
+      }
+    }
+    return out.sort((a, b) => a.d - b.d).slice(0, limit);
+  }
+
+  /** Build one of this kind where it fits (a new street is laid when nothing fits). */
+  private autoPlace(kind: BuildingKind): Building | null {
+    for (let round = 0; round < 2; round++) {
+      for (const p of this.plotsFor(kind)) { const b = this.quickPlace(kind, p); if (b) return b; }
+      if (round === 0 && !this.growStreet()) break;
+    }
+    return null;
+  }
+
+  /** How the town is served: water, power, jobs (for the admin's town tab). */
+  townCheck() {
+    const city = this.eco.city;
+    const homes = this.buildings.list.filter((b) => !b.removed && b.city === city.id && BUILDINGS[b.kind].units && b.built >= 1);
+    const people = this.followerList();
+    const workers = people.filter((c) => this.pop.canWork(c));
+    let jobs = 0;
+    for (const b of this.buildings.list) if (!b.removed && b.city === city.id && b.built >= 1) jobs += BUILDINGS[b.kind].jobs;
+    return {
+      people: people.length, homes: homes.length,
+      water: Math.round(city.water * 100), dry: homes.filter((h) => (this.life.homeWater.get(h.id) ?? 0) < 0.5).length,
+      power: Math.round(city.powered * 100), dark: homes.filter((h) => !h.powered).length,
+      jobless: workers.filter((c) => c.job < 0 && c.want !== 'none').length, openJobs: Math.max(0, jobs - workers.filter((c) => c.job >= 0).length),
+    };
+  }
+
+  /**
+   * Water and power for every home: pipes and cables under every road and building, then enough water towers
+   * and clean power (solar farms) for the people and the buildings. Returns how many were built.
+   */
+  autoUtilities(): { towers: number; plants: number } {
+    const city = this.eco.city;
+    // the mains: under every road and every building of the town
+    const lay: Tile[] = [];
+    for (let k = 0; k < N * N; k++) if (this.net.type[k] && (!this.pipes.tiles[k] || !this.cables.tiles[k])) lay.push({ x: k % N, z: (k / N) | 0 });
+    for (const b of this.buildings.list) {
+      if (b.removed || b.city !== city.id) continue;
+      for (const f of this.buildings.footprint(b.kind, b.x, b.z)) { const k = idx(f.x, f.z); if (!this.pipes.tiles[k] || !this.cables.tiles[k]) lay.push(f); }
+    }
+    if (lay.length) { this.pipes.add(lay); this.cables.add(lay); this.utilDirty = this.netPending = true; }
+    // water: a tower serves 160 people (half as many while nobody works there)
+    const own = this.buildings.list.filter((b) => !b.removed && b.city === city.id);
+    const people = this.followerList().length;
+    let water = own.filter((b) => b.kind === 'watertower').reduce((a, b) => a + BUILDINGS.watertower.water * (b.workers > 0 ? 1 : 0.5), 0);
+    let towers = 0;
+    while (water < people * 1.15 + 20 && towers < 8) { if (!this.autoPlace('watertower')) break; water += BUILDINGS.watertower.water * 0.5; towers++; }
+    // power: what every building asks for, from plants that need nobody (wind and sun) — with a reserve
+    let need = 0, have = 0;
+    for (const b of own) {
+      const d = BUILDINGS[b.kind];
+      need += d.energy * (b.kind === 'house' ? b.level || 1 : 1);
+      if (d.power) have += CLEAN_POWER[b.kind] || b.workers > 0 ? d.power : 0;
+    }
+    need += towers * BUILDINGS.watertower.energy;
+    // the sun shines about half the day: twice the power in the day, and batteries that carry the town through the night
+    const solar = own.filter((b) => b.kind === 'solarfarm').length * BUILDINGS.solarfarm.power;
+    let plants = 0;
+    while ((have < need * 1.2 + 10 || solar + plants * BUILDINGS.solarfarm.power < need * 2) && plants < 40) {
+      if (!this.autoPlace('solarfarm')) break;
+      have += BUILDINGS.solarfarm.power;
+      plants++;
+    }
+    const batteries = own.filter((b) => b.kind === 'battery').length;
+    for (let n = batteries; n < Math.ceil((need * 0.5) / BATTERY.capacity) && plants < 60; n++) { if (!this.autoPlace('battery')) break; plants++; }
+    return { towers, plants };
+  }
+
+  /**
+   * Build what the town needs for its people — shops, schools, a hospital, police, firemen, parks, fun, work —
+   * of every kind, by how many live here (at most `max` buildings a press; press again for more).
+   */
+  autoBuild(max = 30): { built: number; more: boolean } {
+    const people = this.followerList();
+    const P = people.length;
+    const own = this.buildings.list.filter((b) => !b.removed && b.city === this.eco.active);
+    const count = (k: BuildingKind) => own.filter((b) => b.kind === k).length;
+    // [kind, one per this many people, from this many people on]
+    const plan: [BuildingKind, number, number][] = [
+      ['grocery', 60, 1], ['bakery', 150, 20], ['market', 200, 40], ['clothes', 140, 30], ['pharmacy', 200, 40], ['supermarket', 300, 120],
+      ['teahouse', 120, 20], ['restaurant', 200, 60], ['barber', 160, 30], ['kiosk', 120, 20],
+      ['kindergarten', 250, 40], ['school', 150, 10], ['college', 350, 80], ['university', 600, 200],
+      ['hospital', 300, 20], ['police', 220, 20], ['firestation', 260, 20],
+      ['park', 50, 1], ['playground', 90, 10], ['fountain', 120, 10], ['flowerbed', 70, 5], ['gym', 220, 50], ['cinema', 300, 80],
+      ['stadium', 600, 200], ['mosque', 350, 60], ['bank', 350, 80], ['gasstation', 300, 60], ['carmarket', 450, 120], ['hotel', 500, 150],
+      ['office', 150, 30], ['factory', 220, 60], ['farm', 120, 10],
+    ];
+    let built = 0;
+    for (const [kind, per, from] of plan) {
+      if (built >= max) break;
+      if (!BUILDINGS[kind] || P < from) continue;
+      const want = Math.max(1, Math.ceil(P / per));
+      for (let n = count(kind); n < want && built < max; n++) { if (!this.autoPlace(kind)) break; built++; }
+    }
+    // work for everyone who wants it: workplaces of several kinds until the jobs are enough
+    const work: BuildingKind[] = ['office', 'grocery', 'bakery', 'factory', 'market', 'teahouse', 'clothes', 'barber'];
+    let open = this.townCheck();
+    let w = 0;
+    while (open.jobless > open.openJobs && built < max) {
+      const k = work[w++ % work.length];
+      if (!this.autoPlace(k)) { if (w > work.length * 2) break; continue; }
+      built++;
+      open = { ...open, openJobs: open.openJobs + BUILDINGS[k].jobs };
+    }
+    const u = this.autoUtilities();
+    return { built: built + u.towers + u.plants, more: built >= max };
+  }
+
+  /** Called every frame in the followers' town: the deferred work, and (for the admin) water and power kept right. */
+  private followersFrame(dt: number) {
+    this.folCache = null;
+    this.settleFollowers();
+    this.updateSpot(dt);
+    this.creativeStock();
+    if (this.utilDirty) { this.utilDirty = false; this.pipes.rebuild(); this.cables.rebuild(); }
+    if (this.assignPending) { this.assignPending = false; this.pop.assign(this.buildings); }
+    if (!this.viewOnly) {
+      this.autoUtilT -= dt;
+      if (this.autoUtilT <= 0) { this.autoUtilT = 8; this.autoUtilities(); }
+    }
   }
 
   /** Hearts and fireworks over a follower's new home. */
@@ -6445,6 +6631,7 @@ export class Game implements ToolHost {
 
   /** Morning paper: yesterday's news, the richest family and the biggest problem. */
   private morningPaper() {
+    if (this.followers) return;
     const city = this.eco.city;
     const pops = this.life.populationByCity();
     const pop = pops.get(city.id) ?? 0;

@@ -16,6 +16,8 @@ const MARK_KEY = 'mcw_followers_marked';
 const TEXTS_KEY = 'mcw_studio_texts';
 type Texts = { counter: string; person: string; cta: string };
 const PACE_KEY = 'mcw_showcase_pace';
+/** At most this many name tags at once (the ones nearest the middle of the screen). */
+const MAX_TAGS = 140;
 const TAGMODE_KEY = 'mcw_tag_mode';
 type TagMode = 'all' | 'marked' | 'none';
 /** The film shows at most this many marked followers (the newest). */
@@ -106,7 +108,9 @@ export class FollowersUi {
   private markBtn!: HTMLButtonElement;
   private videoBtn?: HTMLButtonElement;
   private sub!: HTMLSpanElement;
-  private tab: 'people' | 'add' | 'video' = 'people';
+  private tab: 'people' | 'add' | 'town' | 'video' = 'people';
+  private townBox?: HTMLDivElement;
+  private townT = 0;
   private newest = true;
   /** A row of the list is being edited (the list waits). */
   private editing = false;
@@ -209,7 +213,7 @@ export class FollowersUi {
     if (admin) {
       const tabs = el('div', 'fol-tabs');
       const tabBtns: HTMLButtonElement[] = [];
-      for (const [id, label] of [['people', t('People')], ['add', t('Add')], ['video', t('Video')]] as const) {
+      for (const [id, label] of [['people', t('People')], ['add', t('Add')], ['town', t('Town')], ['video', t('Video')]] as const) {
         const b = button(label, () => { this.tab = id; for (const x of tabBtns) x.classList.toggle('on', x === b); for (const [k, p] of Object.entries(panes)) p.hidden = k !== id; }, `fol-tab${this.tab === id ? ' on' : ''}`);
         tabBtns.push(b);
         tabs.append(b);
@@ -239,14 +243,20 @@ export class FollowersUi {
     people.append(bar, this.list);
     if (!admin) {
       people.append(el('div', 'fol-label', t('Name tags over the town')), this.tagSeg(), el('div', 'fol-hint', t('Find yourself and press ★: with "Only ★" the town shows only your name (and your friends\' names).')));
+      const play = el('a', 'fol-play') as HTMLAnchorElement;
+      play.href = './';
+      play.append(el('span', 'fol-play-ico', '🎮'), el('span', 'fol-play-text', ''), el('span', 'fol-play-go', '▶'));
+      (play.children[1] as HTMLElement).append(el('b', '', t('Build your own town!')), el('small', '', t('Make a new world, explore it and play — free, in the browser')));
+      people.append(play);
       people.append(el('div', 'fol-foot', `👀 ${t('Watching mode: the town lives on by itself — only its admin builds here')}`));
     }
     body.append(people);
 
     if (admin) {
       panes.add = this.buildAdmin();
+      panes.town = this.buildTownPane();
       panes.video = this.buildVideoPane();
-      body.append(panes.add, panes.video);
+      body.append(panes.add, panes.town, panes.video);
       for (const [k, p] of Object.entries(panes)) p.hidden = k !== this.tab;
     }
 
@@ -254,6 +264,44 @@ export class FollowersUi {
     this.saveMarks();
     // the panel is not the game: clicks and keys stay in it
     for (const ev of ['pointerdown', 'wheel', 'keydown']) this.panel.addEventListener(ev, (e) => e.stopPropagation());
+  }
+
+  /** The town tab: water, power and work at a glance, and the buttons that set them right. */
+  private buildTownPane() {
+    const pane = el('div', 'fol-pane');
+    this.townBox = el('div', 'fol-checks');
+    const fix = button(`🔧 ${t('Fill water and power')}`, () => {
+      const r = this.game.autoUtilities();
+      this.flash(r.towers || r.plants ? t('Built {w} water towers and {p} solar farms; every road and building has pipes and cables', { w: r.towers, p: r.plants }) : t('Water and power are fine: every road and building has pipes and cables'), '', 5);
+      this.townT = 0.3;
+      this.queueSave();
+    }, 'fol-cta');
+    const build = button(`🏗️ ${t('Build what the town needs')}`, () => {
+      const r = this.game.autoBuild(30);
+      this.flash(r.built ? t('{n} buildings went up for the people', { n: r.built }) + (r.more ? ` · ${t('press again for more')}` : '') : t('The town has what it needs for now'), '', 5);
+      this.townT = 0.3;
+      this.queueSave();
+    }, 'fol-cta alt');
+    pane.append(el('div', 'fol-label', t('How the town is served')), this.townBox, fix, build,
+      el('div', 'fol-hint', t('Water and power are also checked by themselves every few seconds. "Build what the town needs" adds shops, schools, a hospital, police, firemen, parks, fun and work — of every kind, by how many people live here (up to 30 at a press).')));
+    this.renderTown();
+    return pane;
+  }
+
+  private renderTown() {
+    if (!this.townBox) return;
+    const c = this.game.townCheck();
+    const row = (ico: string, label: string, value: string, bad: boolean) => {
+      const r = el('div', `fol-check-row${bad ? ' bad' : ''}`);
+      r.append(el('span', '', ico), el('span', 'fol-check-l', label), el('b', '', value));
+      return r;
+    };
+    this.townBox.replaceChildren(
+      row('👥', t('People'), `${c.people} · ${t('{n} homes', { n: c.homes })}`, false),
+      row('💧', t('Water'), c.dry ? `${c.water}% · ${t('{n} homes without', { n: c.dry })}` : `${c.water}%`, c.water < 95 || c.dry > 0),
+      row('⚡', t('Electricity'), c.dark ? `${c.power}% · ${t('{n} homes without', { n: c.dark })}` : `${c.power}%`, c.power < 95 || c.dark > 0),
+      row('💼', t('Work'), c.jobless ? t('{n} without work · {m} free jobs', { n: c.jobless, m: c.openJobs }) : t('everyone works · {m} free jobs', { m: c.openJobs }), c.jobless > c.openJobs),
+    );
   }
 
   /** The video tab: how fast the marked are shown, the button that films them, the studio. */
@@ -659,12 +707,15 @@ export class FollowersUi {
       // when the camera is far, only the households and the newest followers
       const far = view > 18;
       const size = Math.max(10, Math.min(15, 17 - view * 0.25));
+      const onScreen: { key: string; g: typeof groups extends Map<string, infer V> ? V : never; rx: number; ry: number; d: number }[] = [];
       for (const [key, g] of groups) {
         if (far && !g.inside && !g.gold && !onlyMarked) continue;
         this.v.set(g.x, g.y, g.z).project(cam);
         if (this.v.z > 1 || Math.abs(this.v.x) > 1.05 || Math.abs(this.v.y) > 1.05) continue;
-        const rx = (this.v.x * 0.5 + 0.5) * rect.width;
-        const ry = (-this.v.y * 0.5 + 0.5) * rect.height;
+        onScreen.push({ key, g, rx: (this.v.x * 0.5 + 0.5) * rect.width, ry: (-this.v.y * 0.5 + 0.5) * rect.height, d: (g.gold ? -1 : 0) + Math.hypot(this.v.x, this.v.y) });
+      }
+      if (onScreen.length > MAX_TAGS) onScreen.sort((a, b) => a.d - b.d).length = MAX_TAGS;
+      for (const { key, g, rx, ry } of onScreen) {
         let d = this.tags.get(key);
         if (!d) { d = el('div', 'fol-tag'); this.tagLayer.append(d); this.tags.set(key, d); }
         const text = g.inside
@@ -889,6 +940,8 @@ export class FollowersUi {
     this.updateTags();
     this.listT -= dt;
     if (this.listT <= 0) { this.listT = 1; this.renderList(); }
+    this.townT -= dt;
+    if (this.townT <= 0) { this.townT = 2; if (this.tab === 'town' && !this.panel.classList.contains('folded')) this.renderTown(); }
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) this.banner.classList.remove('show'); }
     // a visitor's clock keeps to the town's real time; now and then they hear of a newer town
     this.syncT -= dt;

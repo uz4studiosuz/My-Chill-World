@@ -3074,3 +3074,23 @@ body.fol-viewer .fol-panel { max-height: calc(100vh - 80px); }
 .fol-star:hover { color: #ffc84a; }
 
 .vip-money { background: linear-gradient(135deg, #ffd166, #ff9d5c); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 900; letter-spacing: .03em; }
+
+/* no newspaper in the followers town */
+body.followers-town .side-act[data-panel="news"] { display: none !important; }
+
+/* the town tab: what serves the town */
+.fol-tabs { grid-template-columns: repeat(4, 1fr); }
+.fol-checks { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 12px; background: rgba(255,255,255,.04); }
+.fol-check-row { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 6px; padding: 4px 2px; font-size: 12.5px; }
+.fol-check-row b { font-weight: 700; color: var(--good); text-align: right; }
+.fol-check-row.bad b { color: #ffb36b; }
+.fol-check-l { color: var(--muted); }
+.fol-cta.alt { background: linear-gradient(135deg, #6fb6ff, #4b7fe0) !important; color: #fff !important; }
+/* visitors: play the game yourselves */
+.fol-play { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; text-decoration: none; color: #2b1600; background: linear-gradient(135deg, #ffd166, #ff9d5c); box-shadow: 0 6px 18px rgba(255,157,92,.25); transition: transform .12s, filter .15s; }
+.fol-play:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.fol-play-ico { font-size: 24px; text-align: center; }
+.fol-play-text { display: flex; flex-direction: column; line-height: 1.25; }
+.fol-play-text b { font-size: 13.5px; }
+.fol-play-text small { font-size: 11px; opacity: .8; }
+.fol-play-go { font-size: 16px; font-weight: 900; }
