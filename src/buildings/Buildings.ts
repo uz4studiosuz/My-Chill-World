@@ -351,7 +351,7 @@ export class Buildings {
     return out;
   }
 
-  check(kind: BuildingKind, x: number, z: number): PlaceCheck {
+  check(kind: BuildingKind, x: number, z: number, allowRoadless = false): PlaceCheck {
     const def = BUILDINGS[kind];
     for (const t of this.footprint(kind, x, z)) {
       if (!inBounds(t.x, t.z)) return { ok: false, reason: 'Out of the map' };
@@ -366,7 +366,7 @@ export class Buildings {
     if (kind === 'hydro' && !this.footprint(kind, x, z).some((tl) => this.map.isShore(tl.x, tl.z))) return { ok: false, reason: 'A dam must stand on the bank of a river or lake' };
     if (kind === 'coalmine' && this.map.mountainsNear(x, z, 3) < 3) return { ok: false, reason: 'A coal mine must be next to mountains' };
     if (kind === 'woodcutter' && this.ctx.treesNear(cx, cz, 7) < 6) return { ok: false, reason: 'A woodcutter needs a forest nearby' };
-    if (def.needsRoad && this.findAccess(kind, x, z).access < 0) return { ok: false, reason: 'Needs a road next to it' };
+    if (def.needsRoad && !allowRoadless && this.findAccess(kind, x, z).access < 0) return { ok: false, reason: 'Needs a road next to it' };
     return { ok: true };
   }
 

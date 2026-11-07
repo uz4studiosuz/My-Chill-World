@@ -4460,7 +4460,7 @@ export class Life {
 
   /** Why a construction site is not progressing (null when builders are on it). */
   siteProblem(b: Building): string | null {
-    if (this.crewSize(b) > 0 || SELF_BUILT[b.kind]) return null;
+    if (this.followers || this.crewSize(b) > 0 || SELF_BUILT[b.kind]) return null;
     const yards = this.c.buildings.list.filter((y) => y.kind === 'construction' && y.city === b.city);
     if (!yards.length) return 'No builders — build a Construction Company';
     if (!yards.some((y) => y.built >= 1)) return 'Waiting for the Construction Company to be finished';

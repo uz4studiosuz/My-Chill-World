@@ -1843,15 +1843,16 @@ export class Game implements ToolHost {
     }
     const host = this.investTown(kind, tl);
     const def = BUILDINGS[kind];
+    const allowRoadless = this.followers && !this.viewOnly;
     const mv = this.moving && this.moving.kind === kind ? this.moving : null;
     if (mv) {
-      const r = this.buildings.withoutOcc(mv, () => this.buildings.check(kind, tl.x, tl.z));
+      const r = this.buildings.withoutOcc(mv, () => this.buildings.check(kind, tl.x, tl.z, allowRoadless));
       if (!r.ok) return { ok: false, reason: t(r.reason!) };
       const price = Math.round(def.money * 0.25);
       if (this.cityOf(mv).money < price) return { ok: false, reason: t('Not enough money — needs ${n}', { n: price }) };
       return { ok: true, money: price };
     }
-    const r = this.buildings.check(kind, tl.x, tl.z);
+    const r = this.buildings.check(kind, tl.x, tl.z, allowRoadless);
     if (!r.ok) return { ok: false, reason: t(r.reason!) };
     // your buildings can't hang on a neighbour town's streets
     const acc = BUILDINGS[kind].needsRoad ? this.buildings.findAccess(kind, tl.x, tl.z).access : -1;
@@ -4643,7 +4644,7 @@ export class Game implements ToolHost {
     { const ex = extraCost(b.kind); if (ex.bricks) cost.push([t('Bricks'), `${ex.bricks}`]); if (ex.steel) cost.push([t('Steel'), `${ex.steel}`]); }
     if (d.wood) cost.push([t('Wood'), `${d.wood}`]);
     if (d.iron) cost.push([t('Iron'), `${d.iron}`]);
-    cost.push([t('Size'), `${d.size}×${d.size}`], [t('Needs a road'), d.needsRoad ? t('Yes') : t('No')], [t('Build time'), t('{n} hours', { n: Math.round(BUILD_DAYS[d.size] * 24 * 10) / 10 })]);
+    cost.push([t('Size'), `${d.size}×${d.size}`], [t('Needs a road'), d.needsRoad && !this.followers ? t('Yes') : t('No')], [t('Build time'), t('{n} hours', { n: Math.round(BUILD_DAYS[d.size] * 24 * 10) / 10 })]);
     const work: [string, string][] = [];
     if (d.jobs) {
       const pay = d.salary * (city.wages[b.kind] ?? 1);
