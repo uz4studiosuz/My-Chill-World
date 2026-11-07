@@ -1,5 +1,8 @@
 /** Uzbek (Latin) translations, keyed by the English UI string. */
 export const UZ: Record<string, string> = {
+  '{n} followers': '{n} obunachi',
+  'Built {w} water towers and {p} power facilities': '{w} ta suv minorasi va {p} ta elektr inshooti qurildi',
+  'Take {nick} off the list?': "{nick} ro'yxatdan o'chirilsinmi?",
   // ---- menu ----
   'Build roads, grow your town.': "Yo'l qur, shahringni o'stir.",
   'Continue': 'Davom etish',

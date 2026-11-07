@@ -13,6 +13,7 @@ export interface InspectorView {
   badgeColor: string;
   title: string;
   subtitle: string;
+  summary?: [string, string][];
   bars?: InspectorBar[];
   rows?: [string, string, ('good' | 'bad')?][];
   /** Extra titled blocks of rows (city overview). */
@@ -174,6 +175,17 @@ export class Inspector {
     head.append(badge, titles, x);
     this.root.appendChild(head);
 
+    let first = head;
+    if (v.summary?.length) {
+      first = el('div', 'ins-grid ins-summary');
+      for (const [label, value] of v.summary) {
+        const k = el('span', 'k'), v = el('span', 'v');
+        k.textContent = label;
+        v.textContent = value;
+        first.append(k, v);
+      }
+      this.root.appendChild(first);
+    }
     if (v.passport) this.root.appendChild(passportCard(v.passport));
     if (v.seats) this.root.appendChild(this.seatPlan(v.seats));
 
@@ -265,7 +277,7 @@ export class Inspector {
         acts.appendChild(b);
       }
       // the buttons go at the top, right under the title: they are seen without scrolling
-      head.after(acts);
+      first.after(acts);
     }
     this.root.classList.add('show');
     this.root.scrollTop = panelScroll;

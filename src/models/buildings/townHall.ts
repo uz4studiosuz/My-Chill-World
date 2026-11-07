@@ -7,7 +7,7 @@ import { GLASS } from './_shared';
  * flags on the roof and a flag pole on the square. The front row (z ≈ 0.68) stays free for parked cars.
  */
 export function townHallGeometry(): THREE.BufferGeometry {
-  const wall = '#eee6d4', roof = '#3567c4', trim = '#d8cdb5', stone = '#c9c1ae';
+  const wall = '#eee6d4', roof = '#3567c4', trim = '#d8cdb5', stone = '#c9c1ae', gold = '#efbc55';
   const parts: THREE.BufferGeometry[] = [
     // square and podium with steps
     box(1.94, 0.02, 0.6, 0, 0.01, 0.66, '#9d9d9a'),
@@ -25,7 +25,7 @@ export function townHallGeometry(): THREE.BufferGeometry {
     // dome on a drum, clock tower and spire
     shape('cylinder', 0.5, 0.16, 0.5, 0, 0.98, -0.22, wall, 'y', 20),
     ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => { const a = (i / 8) * Math.PI * 2; return box(0.05, 0.1, 0.02, Math.cos(a) * 0.25, 0.98, -0.22 + Math.sin(a) * 0.25, GLASS); }),
-    shape('dome', 0.52, 0.3, 0.52, 0, 1.06, -0.22, roof, 'y', 20),
+    shape('dome', 0.52, 0.3, 0.52, 0, 1.06, -0.22, gold, 'y', 20),
     box(0.22, 0.26, 0.22, 0, 1.44, -0.22, wall),
     ...[[0, 0.115], [0, -0.115]].map(([dx, dz]) => shape('cylinder', 0.14, 0.14, 0.012, dx, 1.46, -0.22 + dz, '#ffffff', 'z', 18)),
     ...[[0, 0.123], [0, -0.123]].map(([dx, dz]) => box(0.012, 0.06, 0.006, dx, 1.48, -0.22 + dz, '#26292e')),
@@ -44,5 +44,5 @@ export function townHallGeometry(): THREE.BufferGeometry {
     for (const x of [-0.3, 0.3]) parts.push(box(0.12, 0.16, 0.02, x, 0.32 + row * 0.26, 0.195, GLASS));
     for (const x of [-0.72, -0.52, 0.52, 0.72]) parts.push(box(0.1, 0.14, 0.02, x, 0.24 + row * 0.22, 0.185, GLASS));
   }
-  return merge(parts);
+  return merge(parts).scale(1, 1.4, 1);
 }

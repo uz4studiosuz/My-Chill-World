@@ -283,7 +283,7 @@ export class FollowersUi {
     this.townBox = el('div', 'fol-checks');
     const fix = button(`🔧 ${t('Fill water and power')}`, () => {
       const r = this.game.autoUtilities();
-      this.flash(r.towers || r.plants ? t('Built {w} water towers and {p} solar farms; every road and building has pipes and cables', { w: r.towers, p: r.plants }) : t('Water and power are fine: every road and building has pipes and cables'), '', 5);
+      this.flash(r.towers || r.plants ? t('Built {w} water towers and {p} power facilities', { w: r.towers, p: r.plants }) : t('Water and power are fine: every road and building has pipes and cables'), '', 5);
       this.townT = 0.3;
       this.queueSave();
     }, 'fol-cta');
@@ -535,7 +535,7 @@ export class FollowersUi {
       const p = r.home.mesh.position;
       this.game.lookAt(p.x, p.z, 5.5, 1.8);
     }
-    if (!quiet) this.flash(r.fresh ? t('🏗️ A house for {nick} is going up…', { nick: at(nick) }) : t('🔑 {nick} gets the keys to a house…', { nick: at(nick) }), 'big');
+    if (!quiet) this.flash(t('🔑 {nick} gets the keys to a house…', { nick: at(nick) }), 'big');
     this.listSig = '';
     return true;
   }
@@ -682,7 +682,8 @@ export class FollowersUi {
           this.saveMarks();
         });
         const x = button('×', () => {
-          if (!confirm(t('Take {nick} off the list? Their home is pulled down.', { nick: at(info.nick) }))) return;
+          const prompt = this.game.homeOf(c)?.kind === 'house' ? 'Take {nick} off the list? Their home is pulled down.' : 'Take {nick} off the list?';
+          if (!confirm(t(prompt, { nick: at(info.nick) }))) return;
           this.game.removeFollower(info.nick);
           this.listSig = '';
           this.queueSave();

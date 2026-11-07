@@ -562,17 +562,18 @@ export class Life {
     return (c.total - c.bridges) * ROAD_UPKEEP + c.bridges * BRIDGE_UPKEEP;
   }
 
-  /** Empty houses (of one city, or all). */
-  freeHomes(city?: number) {
+  /** One entry per vacant dwelling, after household and arrival reservations. */
+  freeHomes(city?: number, reserved: readonly number[] = []) {
     const { buildings, pop } = this.c;
     const used = new Map<number, number>();
     for (const f of pop.families.values()) used.set(f.home, (used.get(f.home) ?? 0) + 1);
+    for (const id of reserved) used.set(id, (used.get(id) ?? 0) + 1);
     // homes promised to families still on the road with their moving truck
     for (const [h, n] of this.incoming) used.set(h, (used.get(h) ?? 0) + n);
     const out: Building[] = [];
     for (const b of buildings.list) {
       const units = BUILDINGS[b.kind].units;
-      if (!units || b.built < 1 || (city !== undefined && b.city !== city)) continue;
+      if (!units || b.removed || b.built < 1 || (city !== undefined && b.city !== city)) continue;
       for (let i = used.get(b.id) ?? 0; i < units; i++) out.push(b);
     }
     return out;

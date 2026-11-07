@@ -3133,3 +3133,11 @@ body.portrait-916 .cap-head { max-width: calc(100vh * 9 / 16 * 0.9); }
 .fol-pick-btn.on { background: rgba(255,255,255,.1); color: var(--text); }
 body.studio-mode .fol-pick { display: none; }
 @media (max-width: 760px) { .fol-pick { bottom: 120px; } }
+
+.fol-status { display: flex; align-items: center; gap: 5px; flex: none; }
+.fol-status .fol-count { font-weight: 750; color: var(--accent); }
+body.followers-town .topbar .res-more { display: inline-flex !important; }
+body.followers-town .m-date { display: none; }
+body.followers-town .res-pop { z-index: 50; }
+body.followers-town.ui2 .topbar .chips { flex: none; order: 0; width: auto; }
+.ins-summary { margin: 6px 0; }

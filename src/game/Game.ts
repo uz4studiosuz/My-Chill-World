@@ -628,6 +628,7 @@ export class Game implements ToolHost {
     this.followersUi?.dispose();
     this.followersUi = this.followers ? new FollowersUi(this) : undefined;
     this.hud = new Hud(document.getElementById('ui')!, {
+      followers: this.followers,
       setTool: (tl) => this.setTool(tl),
       undo: () => this.undo(),
       rotate: (dir) => this.cam.rotate((dir * Math.PI) / 2),
@@ -2244,6 +2245,7 @@ export class Game implements ToolHost {
     const season = seasonBlend(this.eco.day, tod);
     const day = smooth(0.22, 0.3, tod) * (1 - smooth(0.74, 0.84, tod));
     this.nightness = 1 - day;
+    const light = this.followers ? 0.32 + day * 0.68 : day;
     const dark = Math.max(0, (0.85 - day) / 0.85);
     nightLevel.value = dark;
     this.traffic.setNight(dark);
@@ -2252,9 +2254,9 @@ export class Game implements ToolHost {
     const rain = this.weather.rainingAt(this.cam.target.x, this.cam.target.z) ? 0.35 : 0;
     const winter = season.snow * 0.15;
     // nights are dark and bluish (moonlight) so windows, lamps and headlights stand out
-    this.sun.intensity = (0.16 + 2.09 * day) * (1 - rain - winter) + this.weather.flash * 4;
+    this.sun.intensity = (0.16 + 2.09 * light) * (1 - rain - winter) + this.weather.flash * 4;
     this.sun.color.copy(SUN_DAY).lerp(SUN_LOW, Math.min(1, low)).lerp(MOON, 1 - day);
-    this.hemi.intensity = (0.32 + 1.23 * day) * (1 - rain * 0.5) + this.weather.flash * 2;
+    this.hemi.intensity = (0.32 + 1.23 * light) * (1 - rain * 0.5) + this.weather.flash * 2;
     this.hemi.color.copy(HEMI_DAY).lerp(HEMI_NIGHT, 1 - day);
     // fog: thick on foggy mornings, white in a blizzard, a warm haze in a heatwave
     const mood = this.life.weatherMood;
@@ -2268,7 +2270,7 @@ export class Game implements ToolHost {
       fog.far = 140 - this.fogLevel * 50;
     } else this.scene.fog = null;
     const bg = this.scene.background as THREE.Color;
-    bg.copy(SKY_NIGHT).lerp(SKY_DAY, day);
+    bg.copy(SKY_NIGHT).lerp(SKY_DAY, this.followers ? 0.12 + 0.88 * day : day);
     if (rain) bg.lerp(SKY_RAIN, 0.5 * day);
     if (this.weather.flash > 0) bg.lerp(new THREE.Color('#ffffff'), this.weather.flash * 0.6);
   }
@@ -2344,7 +2346,7 @@ export class Game implements ToolHost {
     if (s?.type !== this.selection?.type || s?.id !== this.selection?.id) { this.following = false; this.aptFamily = null; }
     // the followers' town: picking someone or something closes the open windows (on a phone they would cover the card)
     if (s && this.followers && (s.type !== this.selection?.type || s.id !== this.selection?.id)) { this.closeAllPanels(); this.followersUi?.collapseOnPhone(); }
-    if (this.followers) this.cardHeld = s?.type === 'person';
+    this.cardHeld = false;
     const eb = s?.type === 'building' ? this.buildings.get(s.id) : undefined;
     if (eb?.kind === 'embassy' && eb.built >= 1 && !this.cityOf(eb).ai && this.routeEdit < 0) {
       // the embassy has its own window: nothing else opens with it
@@ -3343,7 +3345,7 @@ export class Game implements ToolHost {
     this.cam.flyTo(x, z, view, seconds);
   }
 
-  /** The followers' town: the picked person's card waits for the 'Info' button. */
+  /** Whether the picked follower’s card was closed with the Info toggle. */
   private cardHeld = false;
 
   /** The follower picked now (if a person is picked), and whether their card is open. */
@@ -3362,15 +3364,25 @@ export class Game implements ToolHost {
   /** Close the person's card (the film shows its own caption). */
   clearSelection() { this.select(null); }
 
-  /** A home for a new follower: an empty house, or a new house on a free plot by a road near the town centre. */
+  /** Fill vacant flats first, then use an empty house or build beside a road. */
   private followerHome(grown = false): Building | null {
     const city = this.eco.active;
-    const taken = new Set(this.arriving.map((a) => a.home));
-    const free = this.buildings.list.filter((b) => b.kind === 'house' && b.city === city && !b.removed && !taken.has(b.id) && !this.pop.familyAt(b.id));
+    const reserved = this.arriving.map((a) => a.home);
     const hall = this.buildings.townHall(city);
     const cx = hall?.x ?? N / 2, cz = hall?.z ?? N / 2;
     const d = (x: number, z: number) => Math.abs(x - cx) + Math.abs(z - cz);
-    if (free.length) return free.sort((a, b) => d(a.x, a.z) - d(b.x, b.z))[0];
+    const ready = this.life.freeHomes(city, reserved);
+    const flats = ready.filter((b) => BUILDINGS[b.kind].units > 1);
+    if (flats.length) return flats.reduce((near, b) => d(b.x, b.z) < d(near.x, near.z) ? b : near);
+    const free = this.buildings.list.filter((b) => b.kind === 'house' && b.city === city && !b.removed && !reserved.includes(b.id) && !this.pop.familyAt(b.id));
+    if (free.length) {
+      const home = free.sort((a, b) => d(a.x, a.z) - d(b.x, b.z))[0];
+      if (home.built < 1) {
+        home.built = 1;
+        this.buildings.onBuilt(home);
+      }
+      return home;
+    }
     // a free plot beside a road, the nearest to the town hall first (a little jitter keeps the streets from filling in a line)
     const plots: { x: number; z: number; d: number }[] = [];
     for (let k = 0; k < N * N; k++) {
@@ -3465,13 +3477,18 @@ export class Game implements ToolHost {
     const queue = this.arriving;
     const moved: [typeof queue[number], Citizen][] = [];
     this.arriving = [];
+    const displaced: typeof queue = [];
     for (const a of queue) {
       const home = this.buildings.get(a.home);
-      if (!home || home.removed) { const again = this.followerHome(); if (again) this.arriving.push({ ...a, home: again.id }); continue; }
+      if (!home || home.removed) { displaced.push(a); continue; }
       if (home.built < 1 && !all) { this.arriving.push(a); continue; }
       const c = this.pop.addFollower(home.id, a.nick, a.sex, a.age);
       if (a.want) c.want = a.want;
       moved.push([a, c]);
+    }
+    for (const a of displaced) {
+      const again = this.followerHome();
+      this.arriving.push(again ? { ...a, home: again.id } : a);
     }
     if (!moved.length) return;
     this.pop.assign(this.buildings);
@@ -3527,7 +3544,7 @@ export class Game implements ToolHost {
       this.pop.families.delete(f.id);
       // their house goes too: the town has as many homes as followers
       const home = this.buildings.get(f.home);
-      if (home && !home.removed && BUILDINGS[home.kind].units && !this.pop.familyAt(home.id)) this.destroyBuilding(home, false);
+      if (home?.kind === 'house' && !home.removed && !this.pop.familyAt(home.id)) this.destroyBuilding(home, false);
     }
     this.pop.assign(this.buildings);
     this.refreshHud();
@@ -3617,7 +3634,7 @@ export class Game implements ToolHost {
   private quickPlace(kind: BuildingKind, tl: Tile): Building | null {
     if (!this.checkPlace(kind as PlaceKind, tl).ok) return null;
     const { rot, access } = this.buildings.resolveOrientation(kind, tl.x, tl.z, 0);
-    const b = this.buildings.place(kind, tl.x, tl.z, { city: this.eco.active, rot, access });
+    const b = this.buildings.place(kind, tl.x, tl.z, { city: this.eco.active, rot, access, built: kind === 'house' ? 1 : undefined });
     const fp = this.buildings.footprint(kind, tl.x, tl.z);
     this.terrain.clearTiles(fp.map((f) => idx(f.x, f.z)));
     this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[kind].size * 0.5, 8);
@@ -3719,15 +3736,23 @@ export class Game implements ToolHost {
     for (const b of own) {
       const d = BUILDINGS[b.kind];
       need += d.energy * (b.kind === 'house' ? b.level || 1 : 1);
-      if (d.power) have += CLEAN_POWER[b.kind] || b.workers > 0 ? d.power : 0;
+      if (CLEAN_POWER[b.kind] || b.workers > 0) {
+        const factor = b.kind === 'solarfarm' ? 0.5 : b.kind === 'windturbine' ? 0.7 : 1;
+        have += d.power * factor;
+      }
     }
     need += towers * BUILDINGS.watertower.energy;
-    // the sun shines about half the day: twice the power in the day, and batteries that carry the town through the night
-    const solar = own.filter((b) => b.kind === 'solarfarm').length * BUILDINGS.solarfarm.power;
+    let solar = own.filter((b) => b.kind === 'solarfarm').length;
+    let wind = own.filter((b) => b.kind === 'windturbine').length;
     let plants = 0;
-    while ((have < need * 1.2 + 10 || solar + plants * BUILDINGS.solarfarm.power < need * 2) && plants < 40) {
-      if (!this.autoPlace('solarfarm')) break;
-      have += BUILDINGS.solarfarm.power;
+    while (have < need * 1.2 + 10 && plants < 40) {
+      let kind: 'solarfarm' | 'windturbine' = solar < 1 + Math.floor(wind / 3) ? 'solarfarm' : 'windturbine';
+      if (!this.autoPlace(kind)) {
+        if (kind !== 'solarfarm' || !this.autoPlace('windturbine')) break;
+        kind = 'windturbine';
+      }
+      if (kind === 'solarfarm') solar++; else wind++;
+      have += BUILDINGS[kind].power * (kind === 'solarfarm' ? 0.5 : 0.7);
       plants++;
     }
     const batteries = own.filter((b) => b.kind === 'battery').length;
@@ -3840,7 +3865,7 @@ export class Game implements ToolHost {
   private trimEmptyHomes() {
     const coming = new Set(this.arriving.map((a) => a.home));
     for (const b of [...this.buildings.list]) {
-      if (b.removed || !BUILDINGS[b.kind].units || coming.has(b.id) || this.pop.familyAt(b.id)) continue;
+      if (b.removed || b.kind !== 'house' || coming.has(b.id) || this.pop.familyAt(b.id)) continue;
       this.destroyBuilding(b, false);
     }
     this.pop.assign(this.buildings);
@@ -4084,7 +4109,6 @@ export class Game implements ToolHost {
     if (s.type === 'person') {
       const c = this.pop.citizens.get(s.id);
       if (!c) { this.hud?.toast(t('This person is no longer with us')); return this.select(null); }
-      // the followers' town shows the person first (lit up); their card opens with the 'Info' button
       if (this.cardHeld) { this.inspector.hide(); return; }
       return this.inspector.show(this.personView(c));
     }
@@ -4107,6 +4131,12 @@ export class Game implements ToolHost {
       ? (view.actions ?? []).filter((a) => a.icon === 'info' || a.icon === 'people' || a.icon === 'house' || a.icon === 'roads' || a.icon === 'coin')
       : [...(view.actions ?? []), ...this.buildingActions(b)];
     if (foreign && !view.actions.some((a) => a.icon === 'info')) view.actions.push({ label: t('Info'), icon: 'info', onClick: () => this.showInfo(b) });
+    if (b.kind === 'house' || flats) {
+      const residents = [...this.pop.families.values()].filter((f) => f.home === b.id && (!aptFam || f.id === aptFam.id))
+        .flatMap((f) => this.pop.members(f).map((c) => c.fol ? '@' + c.fol : c.name));
+      view.summary = [[t('Residents'), residents.slice(0, 4).join(', ') + (residents.length > 4 ? ' +' + (residents.length - 4) : '') || '0'],
+        [t('Power'), b.powered ? t('Yes') : t('No')], [t('Road'), b.access >= 0 ? t('Connected') : t('No road access')]];
+    }
     view.rows = [[t('Owner'), this.ownerText(b)], ...(view.rows ?? [])];
     if (b.kind === 'migration') {
       const arr = this.cityOf(b).arrivals ?? [];
@@ -4462,6 +4492,7 @@ export class Game implements ToolHost {
     ] : [];
     return {
       key: `p${c.id}`,
+      summary: [[t('Doing'), t(c.activity)], [t('Profession'), this.professionOf(c)], [t('Home'), home ? t(BUILDINGS[home.kind].name) : t('No home')]],
       passport,
       sections: [{ title: t('Personal details'), rows: personal }, ...(work.length ? [{ title: t('Work and money'), rows: work }] : [])],
       badge: this.personIcon(c),
@@ -4527,7 +4558,7 @@ export class Game implements ToolHost {
       people: families.map((f, i) => {
         const m = this.pop.members(f);
         return {
-          id: -1, icon: '👪', name: t('{name} family', { name: f.surname }),
+          id: -1, icon: '👪', name: f.surname ? t('{name} family', { name: f.surname }) : m.map((c) => c.fol ? '@' + c.fol : c.name).join(', '),
           detail: `${t('Flat {n}', { n: i + 1 })} · ${t('{n} people', { n: m.length })} · $${Math.floor(f.money).toLocaleString('en-US')}`,
           warn: m.some((c) => c.hunger < 25 || c.health < 50),
           onClick: () => { this.aptFamily = f.id; this.refreshInspector(); },
@@ -4557,7 +4588,7 @@ export class Game implements ToolHost {
       key: `b${b.id}f${f.id}`,
       badge: inFlat ? '🏢' : '🏠',
       badgeColor: KIND_BADGE[b.kind][1],
-      title: t('{name} family', { name: f.surname }),
+      title: f.surname ? t('{name} family', { name: f.surname }) : t(BUILDINGS[b.kind].name),
       subtitle: inFlat ? `${t('Apartment Block')} · ${t('{n} people', { n: people.length })}` : t('{n} people', { n: people.length }),
       actions: inFlat ? [{ label: t('Back to the building'), icon: 'office', onClick: () => { this.aptFamily = null; this.refreshInspector(); } }] : undefined,
       bars: [
@@ -4953,6 +4984,8 @@ export class Game implements ToolHost {
     const mine = (c: Citizen) => this.cityOfCitizen(c) === e.active;
     const counts = this.pop.counts(mine);
     this.hud!.setStats({ vip: this.followers,
+      followerCount: this.followers ? this.followerList().length : undefined,
+      weatherIcon: this.followers && this.weather.rainingAt(this.cam.target.x, this.cam.target.z) ? (this.weather.kind === 'snow' ? '❄️' : '🌧️') : undefined,
       cityName: e.city.name, cities: e.cities.size, happiness: e.city.happiness,
       money: e.money, iron: e.iron, daily: e.city.balance.net, stone: e.stone, wood: e.wood, food: e.food, bricks: e.city.bricks,
       goods: ([['bricks', 'Bricks'], ['planks', 'Planks'], ['coal', 'Coal'], ['grain', 'Grain'], ['flour', 'Flour'], ['milk', 'Milk'], ['feed', 'Corn feed'], ['cotton', 'Cotton'], ['garments', 'Clothes'], ['furniture', 'Furniture']] as [Res, string][]).map(([k, l]) => [k, l, e.city[k]] as [string, string, number]),
@@ -8166,10 +8199,11 @@ export class Game implements ToolHost {
     this.terrain.clearTiles(s.cleared);
     queueMicrotask(() => this.dropSteel());
     this.terrain.loadStumps(s.stumps);
+    const followerHomes = new Set(this.followers ? s.population?.filter((f) => f.members.some((c) => c.fol)).map((f) => f.home) : []);
     for (const b of s.buildings) {
       // the side it faced when it was placed (turned with R), if a road is still there
       const dir = b.rot === undefined ? 0 : Math.max(0, SIDES.findIndex((sd) => Math.abs(Math.atan2(Math.sin(sd.rot - b.rot!), Math.cos(sd.rot - b.rot!))) < 0.01));
-      const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.built, level: b.level, owner: b.owner, preferredDir: dir });
+      const nb = this.buildings.place(b.kind, b.x, b.z, { stored: b.stored, animate: false, id: b.id, city: b.city, built: b.kind === 'house' && followerHomes.has(b.id) ? 1 : b.built, level: b.level, owner: b.owner, preferredDir: dir });
       if (b.wageF !== undefined) nb.wageF = b.wageF;
       if (b.raise !== undefined) nb.raise = b.raise;
       if (b.forSale) nb.forSale = b.forSale;

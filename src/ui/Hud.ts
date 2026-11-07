@@ -196,6 +196,8 @@ export interface HudStats {
   money: number; iron: number; daily: number; stone: number; wood: number; food: number; foodDaily: number;
   /** Money without limit (the followers' town): shown as VIP instead of a sum. */
   vip?: boolean;
+  followerCount?: number;
+  weatherIcon?: string;
   powered: number; water: number; population: number; workers: number; workforce: number;
   /** Jobs nobody fills yet in the town's workplaces. */
   vacancies: number;
@@ -217,6 +219,7 @@ export interface HudStats {
 }
 
 export interface HudHandlers {
+  followers: boolean;
   setTool: (t: ToolId) => void;
   undo: () => void;
   rotate: (dir: number) => void;
@@ -457,6 +460,15 @@ export class Hud {
     resMore.innerHTML = `${icon('dots')}<span class="v"></span>`;
     (resMore.querySelector('.v') as HTMLElement).textContent = t('More');
     resMore.addEventListener('click', (e) => { e.stopPropagation(); this.toggleResPop(); });
+    if (h.followers) {
+      const status = el('div', 'fol-status');
+      status.append(this.chip.day, this.followerCounter);
+      this.chip.day.classList.remove('sec');
+      chips.replaceChildren();
+      top.appendChild(status);
+      resMore.title = t('All resources');
+      resMore.setAttribute('aria-label', t('All resources'));
+    }
     chips.appendChild(resMore);
     document.addEventListener('pointerdown', (e) => { if (!this.resPop.contains(e.target as Node) && !resMore.contains(e.target as Node)) this.resPop.classList.remove('show'); }, true);
     top.appendChild(chips);
@@ -666,6 +678,7 @@ export class Hud {
 
   private logBtn?: HTMLButtonElement;
   /** Phones: the date and the time in a small tag under the top bar. */
+  private followerCounter = el('span', 'chip fol-count');
   private mDate = el('button', 'm-date');
   private onlineBtn?: HTMLButtonElement;
 
@@ -882,7 +895,7 @@ export class Hud {
     if (!s || !this.resPop.classList.contains('show')) return;
     const f = (v: number) => Math.floor(v).toLocaleString('en-US');
     const main: [string, IconName, string, string, string?, boolean?][] = [
-      ['money', 'r_money', 'Money', `$${f(s.money)}`, `${s.daily >= 0 ? '+' : '−'}$${f(Math.abs(s.daily))}/${t('day')}`, s.daily < 0],
+      ['money', 'r_money', 'Money', s.vip ? '♾ VIP' : `$${f(s.money)}`, `${s.daily >= 0 ? '+' : '−'}$${f(Math.abs(s.daily))}/${t('day')}`, s.daily < 0],
       ['food', 'r_food', 'Food', f(s.food), `${s.foodDaily >= 0 ? '+' : ''}${f(s.foodDaily)}/${t('day')}`, s.food < s.population * 2],
       ['stone', 'r_stone', 'Stone', f(s.stone)],
       ['wood', 'r_wood', 'Wood', f(s.wood), undefined, s.wood < 15],
@@ -1071,8 +1084,14 @@ export class Hud {
     this.stat.happy.textContent = `${Math.round(s.happiness)}%`;
     this.chip.happy.classList.toggle('warn', s.happiness < 45);
     const mins = Math.floor(s.timeOfDay * 24 * 60);
-    this.stat.day.textContent = `${s.seasonIcon} ${s.dateText} · ${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+    const clock = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+    this.stat.day.textContent = `${s.seasonIcon} ${s.dateText} · ${clock}`;
     if (this.mDate.textContent !== this.stat.day.textContent) this.mDate.textContent = this.stat.day.textContent;
+    if (s.followerCount !== undefined) {
+      const phase = s.timeOfDay < 0.25 || s.timeOfDay >= 0.78 ? '🌙' : '☀️';
+      this.stat.day.textContent = `${s.dateText} · ${clock} ${phase}${s.weatherIcon || ''}`;
+      this.followerCounter.textContent = t('{n} followers', { n: s.followerCount });
+    }
     this.dayBar.style.width = `${Math.round(s.timeOfDay * 100)}%`;
     this.lastMoney = s.money;
     this.lastStone = s.stone;
