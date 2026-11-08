@@ -144,14 +144,14 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], gazebo: ['⛱️', '#8a5a35'], pond: ['🦆', '#4a95cf'], clocktower: ['🕰️', '#b9654a'], flagpole: ['🚩', '#4f9a3e'], planter: ['🪴', '#e85a7a'], archway: ['⛩️', '#3f86c4'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
 };
 
-const PROFESSIONS: Partial<Record<BuildingKind, [string, string?]>> = {
+const PROFESSIONS: Partial<Record<BuildingKind, string[]>> = {
   townhall: ['Civil servant'], office: ['Clerk', 'Manager'], school: ['School staff', 'Teacher'], university: ['University staff', 'Professor'], college: ['College staff', 'Lecturer'],
-  warehouse: ['Storekeeper'], bikefactory: ['Bicycle maker', 'Engineer'], migration: ['Migration officer', 'Office manager'], concerthall: ['Stage hand', 'Conductor'], casino: ['Croupier', 'Casino manager'], mosque: ['Muezzin', 'Imam'], themepark: ['Ride operator', 'Park manager'], bigpark: ['Gardener'], gym: ['Fitness coach'], teahouse: ['Waiter', 'Cook'], barber: ['Barber', 'Stylist'],
+  warehouse: ['Storekeeper'], bikefactory: ['Bicycle maker', 'Engineer'], migration: ['Migration officer', 'Office manager'], concerthall: ['Stage hand', 'Conductor'], casino: ['Croupier', 'Casino manager'], mosque: ['Muezzin', 'Imam'], themepark: ['Ride operator', 'Park manager'], bigpark: ['Gardener'], gym: ['Boxer', 'Fitness coach'], teahouse: ['Cook', 'Waiter'], barber: ['Barber', 'Stylist'],
   hospital: ['Nurse', 'Doctor'], market: ['Seller'], carmarket: ['Car salesman'], bank: ['Cashier', 'Banker'], gasstation: ['Pump attendant'],
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
-  farm: ['Farmer'], orchard: ['Fruit grower'], greenhouse: ['Greenhouse grower', 'Agronomist'], eldercare: ['Carer', 'Nurse'], restaurant: ['Waiter', 'Chef'], zoo: ['Zookeeper', 'Vet'], forestry: ['Forester'], apiary: ['Beekeeper'], poultry: ['Poultry farmer'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
+  farm: ['Farmer'], orchard: ['Fruit grower'], greenhouse: ['Greenhouse grower', 'Agronomist'], eldercare: ['Carer', 'Nurse'], restaurant: ['Chef', 'Cook', 'Waiter'], zoo: ['Zookeeper', 'Vet'], forestry: ['Forester'], apiary: ['Beekeeper'], poultry: ['Poultry farmer'], ranch: ['Herdsman'], woodcutter: ['Lumberjack'],
   powerplant: ['Power operator', 'Power engineer'], watertower: ['Water technician'], weddinghall: ['Registrar'], park: ['Gardener'],
-  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], airport: ['Airport staff', 'Pilot'], military: ['Soldier', 'Officer'], pharmacy: ['Pharmacist'], dairy: ['Dairy worker', 'Cheese maker'], supermarket: ['Cashier', 'Store manager'], brickworks: ['Brick maker'], steelmill: ['Steelworker', 'Engineer'], sewage: ['Plant operator'], coalmine: ['Coal miner'], coalplant: ['Power operator', 'Power engineer'], hydro: ['Dam operator', 'Power engineer'], landfill: ['Garbage collector'], recycling: ['Recycling worker', 'Engineer'], mill: ['Miller'], bakery: ['Baker'], sawmill: ['Sawyer'], battery: ['Technician'], kiosk: ['Barista'], dairyshop: ['Shop assistant', 'Dairy seller'], garage: ['Car park attendant'], embassy: ['Diplomat', 'Ambassador'], metro: ['Metro worker', 'Train driver'], stadium: ['Groundskeeper', 'Football coach'], cinema: ['Projectionist'], academy: ['Coach', 'Academician'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
+  police: ['Police officer', 'Police chief'], kindergarten: ['Nanny', 'Teacher'], hotel: ['Hotel clerk', 'Hotel manager'], windturbine: ['Technician', 'Power engineer'], solarfarm: ['Technician', 'Power engineer'], trainstation: ['Railway worker', 'Station master'], ironmine: ['Miner', 'Mining engineer'], fishery: ['Fisherman'], quarry: ['Quarryman'], firestation: ['Firefighter'], busdepot: ['Bus driver'], airport: ['Airport staff', 'Pilot'], military: ['Soldier', 'Officer'], pharmacy: ['Pharmacist'], dairy: ['Dairy worker', 'Cheese maker'], supermarket: ['Cashier', 'Store manager'], brickworks: ['Brick maker'], steelmill: ['Steelworker', 'Engineer'], sewage: ['Plant operator'], coalmine: ['Coal miner'], coalplant: ['Power operator', 'Power engineer'], hydro: ['Dam operator', 'Power engineer'], landfill: ['Garbage collector'], recycling: ['Recycling worker', 'Engineer'], mill: ['Miller'], bakery: ['Baker'], sawmill: ['Sawyer'], battery: ['Technician'], kiosk: ['Barista'], dairyshop: ['Shop assistant', 'Dairy seller'], garage: ['Car park attendant'], embassy: ['Diplomat', 'Ambassador'], metro: ['Metro worker', 'Train driver'], stadium: ['Footballer', 'Football coach', 'Groundskeeper'], cinema: ['Projectionist'], academy: ['Coach', 'Academician'], grocery: ['Shop assistant'], clothes: ['Shop assistant', 'Tailor'], cemetery: ['Gravedigger'], parking: ['Parking attendant'],
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -4327,8 +4327,36 @@ export class Game implements ToolHost {
 
   private professionOf(c: Citizen) {
     const b = c.job >= 0 ? this.buildings.get(c.job) : undefined;
-    const p = b && PROFESSIONS[b.kind];
-    if (p) return t(c.skill === 2 && p[1] ? p[1] : p[0]);
+    if (b) {
+      if (b.kind === 'stadium') {
+        if (c.skill === 2) return t('Football coach');
+        if (Math.abs(c.id) % 5 === 0) return t('Groundskeeper');
+        return t('Footballer');
+      }
+      if (b.kind === 'gym') {
+        if (c.skill === 2) return t('Fitness coach');
+        if (Math.abs(c.id) % 2 === 0) return t('Boxer');
+        return t('Fitness coach');
+      }
+      if (b.kind === 'restaurant') {
+        if (c.skill === 2) return t('Chef');
+        if (c.skill === 1 || Math.abs(c.id) % 2 === 0) return t('Cook');
+        return t('Waiter');
+      }
+      if (b.kind === 'teahouse') {
+        if (c.skill >= 1 || Math.abs(c.id) % 2 === 0) return t('Cook');
+        return t('Waiter');
+      }
+      const p = PROFESSIONS[b.kind];
+      if (p && p.length) {
+        if (c.skill === 2 && p.length > 1) return t(p[p.length - 1]);
+        if (p.length > 2) {
+          const idx = Math.abs(c.id) % (p.length - 1);
+          return t(p[idx]);
+        }
+        return t(p[0]);
+      }
+    }
     if (c.school >= 0) return ['university', 'college'].includes(this.buildings.get(c.school)?.kind ?? '') ? t('Student') : t('Pupil');
     if (c.age >= 18 && c.skill === 2) return t('Graduate');
     if (c.age >= 18 && c.skill === 1) return t('Tradesman');
@@ -4651,7 +4679,7 @@ export class Game implements ToolHost {
       work.push([t('Jobs'), `${b.workers}/${d.jobs}`], [t('Wage'), `${money(pay)}/${t('day')}${city.wages[b.kind] ? ` (${city.wageAuto ? t('auto') : t('manual')})` : ''}`],
         [t('Paid by'), d.publicJob ? t('Town hall') : owner ? t('{family} family', { family: owner.surname }) : t('The business')]);
       const jobs = PROFESSIONS[b.kind];
-      if (jobs) work.push([t('Professions'), jobs.filter(Boolean).map((j) => t(j!)).join(', ')]);
+      if (jobs) work.push([t('Professions'), [...new Set(jobs.filter(Boolean).map((j) => t(j!)))].join(', ')]);
     }
     const nums: [string, string][] = [];
     if (d.energy) nums.push([t('Electricity use'), kw(d.energy * (b.kind === 'house' ? b.level : 1))]);
@@ -5779,8 +5807,8 @@ export class Game implements ToolHost {
     }
     const profList = [...prof.entries()].sort((a, b) => b[1].length - a[1].length);
     tabs.push({ id: 'professions', label: t('Professions'), sections: [
-      { title: t('People by profession'), bars: profList.slice(0, 18).map(([k, l], i) => [k, l.length, C[i % C.length], `${l.length}`] as [string, number, string, string]) },
-      ...profList.slice(0, 12).map(([k, l]) => ({ title: `${k} · ${l.length}`, rows: l.slice(0, 12).map((c) => [`${c.name} ${this.pop.families.get(c.family)?.surname ?? ''}`, `${t('{n} years', { n: Math.floor(c.age) })}${c.job >= 0 ? ` · $${Math.round(this.pop.wage(c, this.buildings.get(c.job)))}/${t('day')}` : ''}`] as [string, string]) }) as ReportSection),
+      { title: t('People by profession'), bars: profList.slice(0, 36).map(([k, l], i) => [k, l.length, C[i % C.length], `${l.length}`] as [string, number, string, string]) },
+      ...profList.slice(0, 24).map(([k, l]) => ({ title: `${k} · ${l.length}`, rows: l.slice(0, 16).map((c) => [`${c.name} ${this.pop.families.get(c.family)?.surname ?? ''}`, `${t('{n} years', { n: Math.floor(c.age) })}${c.job >= 0 ? ` · $${Math.round(this.pop.wage(c, this.buildings.get(c.job)))}/${t('day')}` : ''}`] as [string, string]) }) as ReportSection),
     ] });
     // ---- jobs: sectors, diplomas, wages ----
     const sector = new Map<string, [number, number]>();
