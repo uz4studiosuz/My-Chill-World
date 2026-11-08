@@ -13,6 +13,7 @@ import { Online } from './online/Online';
 import { renderThumbnails } from './models/catalog';
 import { getLang, setLang, t } from './i18n/i18n';
 import { sound } from './audio/Sound';
+import { loadWorld, saveWorld, isAdmin } from './followers/store';
 
 const THUMB_IDS = ['college', 'eldercare', 'restaurant', 'zoo', 'pier', 'forestry', 'greenhouse', 'apiary', 'poultry', 'road', 'roundabout', 'path', 'path_stone', 'path_brick', 'path_gravel', 'path_wood', 'canal', 'house', 'watertower', 'school', 'weddinghall', 'office', 'parking', 'woodcutter', 'powerplant', 'farm', 'orchard', 'ranch', 'quarry', 'townhall', 'apartment', 'kindergarten', 'hotel', 'windturbine', 'solarfarm', 'trainstation', 'grocery', 'clothes', 'ironmine', 'fishery', 'police', 'firestation', 'busdepot', 'busstop', 'park', 'hospital', 'university', 'market', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'cemetery', 'stadium', 'cinema', 'academy', 'playground', 'fountain', 'flowerbed', 'statue', 'bench', 'lamppost', 'sapling', 'roadsign', 'airport', 'military', 'landfill', 'recycling', 'mill', 'bakery', 'sawmill', 'battery', 'kiosk', 'dairyshop', 'garage', 'metro', 'cctv', 'levee', 'embassy', 'pharmacy', 'dairy', 'supermarket', 'brickworks', 'steelmill', 'sewage', 'coalmine', 'coalplant', 'hydro', 'casino', 'mosque', 'themepark', 'bigpark', 'gym', 'teahouse', 'barber', 'concerthall', 'warehouse', 'tower15', 'tower30', 'tower50', 'bikefactory', 'migration', 'gazebo', 'pond', 'clocktower', 'flagpole', 'planter', 'archway', 'litroad', 'rail', 'pipe', 'cable', 'tunnel', 'zone_res', 'zone_com', 'zone_ind', 'zone_none'];
 
@@ -177,7 +178,6 @@ async function boot() {
   if (isFollowers()) {
     // kept in the project (written on the owner's computer, read by everyone else)
     menu.showLoading(t("Opening the followers' town…"));
-    const { loadWorld, saveWorld, isAdmin } = await import('./followers/store');
     const save = await loadWorld();
     if (save) save.meta.followers = true;
     const followersAdmin = isAdmin();

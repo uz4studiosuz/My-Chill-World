@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import pkg from './package.json';
+import pkg from './package.json' with { type: 'json' };
 
 /**
  * The followers' town (/followers) is kept in public/followers-data/world.json. Only the dev server on the owner's

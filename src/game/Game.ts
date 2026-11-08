@@ -3256,6 +3256,12 @@ export class Game implements ToolHost {
     if ((c.joy ?? -99) >= this.eco.day - 2) return ['🌳', 'That walk in the park did me good'];
     if (c.activity === 'Riding the bus') return ['🚌', 'Nice to ride the bus'];
     if (c.activity.includes('football')) return ['⚽', 'Come on, our team!'];
+    if (c.activity === 'At work') {
+      const prof = this.professionOf(c);
+      if (prof === t('Footballer')) return ['⚽', 'Preparing for the next match'];
+      if (prof === t('Boxer')) return ['🥊', 'Training hard in the gym'];
+      if (prof === t('Chef') || prof === t('Cook')) return ['🍲', 'Cooking delicious meals for our town'];
+    }
     if (c.activity === 'Playing') return ['🎈', 'Playing is fun!'];
     if (c.activity.endsWith('on a bench') || c.activity === 'Feeding the pigeons') return ['☕', 'What a lovely day'];
     if (c.paid) return ['💰', 'Got my wage today'];
