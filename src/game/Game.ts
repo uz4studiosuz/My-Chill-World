@@ -22,7 +22,7 @@ import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel, calendarYear } from '../sim/Calendar';
 import { Population, Citizen, Family, Sex } from '../people/Population';
 import { FollowersUi } from '../followers/FollowersUi';
-import { FOL_CITY, layFollowersCity } from '../followers/cityPlan';
+import { FOL_CITY, ORDINARY_FROM, PREMIUM_KINDS, layFollowersCity } from '../followers/cityPlan';
 import { townName } from '../people/names';
 import { sound } from '../audio/Sound';
 import { GoalContext, Goals } from '../sim/Goals';
@@ -94,6 +94,8 @@ export interface GameOptions {
   create?: { name: string; seed: number; calm?: boolean; towns?: number; creative?: boolean; id?: string; online?: WorldMeta['online']; followers?: boolean };
   /** The followers' town is opened by its admin (it lives through the days it was away); otherwise watched only. */
   followersAdmin?: boolean;
+  /** Followers of a town laid out with an older plan: they move into the new city at once. */
+  carry?: { nick: string; sex: Sex; age: number; vip?: boolean }[];
   thumbs?: Map<string, string>;
   /** Saved somewhere else than this device's world list (the followers' town is kept in the project). */
   onSave?: (s: WorldSave, now?: boolean) => void;
@@ -139,7 +141,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
   market: ['🛒', '#c98a3a'], carmarket: ['🚗', '#3a6fd1'], bank: ['🏦', '#b8952f'], gasstation: ['⛽', '#d9443b'],
   factory: ['🏭', '#6f7880'], carfactory: ['🚘', '#4a7fb5'], construction: ['🏗️', '#e8a33a'],
   pharmacy: ['💊', '#2e8b57'], dairy: ['🧀', '#3a6fd1'], supermarket: ['🛒', '#d9443b'], brickworks: ['🧱', '#a65e43'], steelmill: ['🏭', '#5d6670'], sewage: ['🚰', '#5f8fa0'], coalmine: ['⛏️', '#26292e'], coalplant: ['🏭', '#9aa3ab'], hydro: ['🌊', '#4fa3d1'],
-  tower15: ['🏢', '#c4553d'], tower30: ['🏢', '#3f6fb5'], tower50: ['🏙️', '#4f7d4a'], warehouse: ['📦', '#b9845a'], bikefactory: ['🚲', '#d9443b'], migration: ['🛂', '#3f6fb5'], concerthall: ['🎻', '#8a3a4a'], casino: ['🎰', '#3b2a55'], mosque: ['🕌', '#2f7fc1'], themepark: ['🎡', '#d9443b'], bigpark: ['🌳', '#4f8a3a'], gym: ['🏋️', '#f07167'], teahouse: ['🫖', '#2f7fc1'], barber: ['💈', '#d9443b'],
+  tower15: ['🏢', '#c4553d'], tower30: ['🏢', '#3f6fb5'], tower50: ['🏙️', '#4f7d4a'], skyscraper: ['💎', '#b8952f'], landmark: ['🗼', '#b8952f'], mall: ['🛍️', '#e85a7a'], arcade: ['🎮', '#8a3a9a'], warehouse: ['📦', '#b9845a'], bikefactory: ['🚲', '#d9443b'], migration: ['🛂', '#3f6fb5'], concerthall: ['🎻', '#8a3a4a'], casino: ['🎰', '#3b2a55'], mosque: ['🕌', '#2f7fc1'], themepark: ['🎡', '#d9443b'], bigpark: ['🌳', '#4f8a3a'], gym: ['🏋️', '#f07167'], teahouse: ['🫖', '#2f7fc1'], barber: ['💈', '#d9443b'],
   military: ['🪖', '#6b7a4a'], landfill: ['🗑️', '#7a6f5a'], recycling: ['♻️', '#4c9a52'], mill: ['🌾', '#c9b88a'], bakery: ['🍞', '#a65e43'], sawmill: ['🪚', '#8a5a35'], battery: ['🔋', '#3a6fd1'], kiosk: ['☕', '#d9443b'], dairyshop: ['🥛', '#3b78c2'], greenhouse: ['🍅', '#4e9a3c'], eldercare: ['🧓', '#8a6fb5'], restaurant: ['🍽️', '#7a3b2e'], zoo: ['🦒', '#2f7a3a'], pier: ['🎣', '#3b78c2'], forestry: ['🌲', '#3f7a3a'], apiary: ['🍯', '#e0a020'], poultry: ['🥚', '#b8452f'], garage: ['🅿️', '#2f6fd6'], embassy: ['🤝', '#3b78c2'], metro: ['🚇', '#d9443b'], cctv: ['📹', '#5d6670'], levee: ['🧱', '#8d8a83'],
   airport: ['✈️', '#3a6fd1'], stadium: ['⚽', '#4f9a3e'], cinema: ['🎬', '#b0478f'], academy: ['🏛️', '#2d4f8a'], playground: ['🛝', '#e85a3a'], fountain: ['⛲', '#4fa3d1'],
   flowerbed: ['🌷', '#e85a7a'], statue: ['🗿', '#9a7b4f'], gazebo: ['⛱️', '#8a5a35'], pond: ['🦆', '#4a95cf'], clocktower: ['🕰️', '#b9654a'], flagpole: ['🚩', '#4f9a3e'], planter: ['🪴', '#e85a7a'], archway: ['⛩️', '#3f86c4'], bench: ['🪑', '#8a5a35'], lamppost: ['💡', '#d9a92a'], sapling: ['🌳', '#4f8a3a'], roadsign: ['🚸', '#3a6fd1'],
@@ -620,6 +622,12 @@ export class Game implements ToolHost {
       if (opts.save) this.followersCatchUp(opts.save.meta.updated, !!opts.followersAdmin);
       // as many homes as followers: the empty homes of the starter village go (once; later the admin may build more)
       if (!this.meta.homesTrimmed) { this.trimEmptyHomes(); this.meta = { ...this.meta, homesTrimmed: true }; }
+      // the followers of the town before the new plan move into the new city (nobody is lost)
+      if (opts.carry?.length) {
+        for (const f of opts.carry) if (!this.addFollower(f.nick, f.sex, f.age, undefined, undefined, !!f.vip).ok && f.vip) this.addFollower(f.nick, f.sex, f.age);
+        this.settleFollowers(true);
+        console.info(`[followers] ${this.followerList().length} followers moved into the new city`);
+      }
     }
   }
 
@@ -3287,7 +3295,7 @@ export class Game implements ToolHost {
   // ---------- the followers' town ----------
 
   /** Followers waiting for their new house to go up (they move in when it is finished). */
-  private arriving: { nick: string; sex: Sex; age: number; home: number; want?: string; done: (c: Citizen) => void }[] = [];
+  private arriving: { nick: string; sex: Sex; age: number; home: number; want?: string; vip?: boolean; done: (c: Citizen) => void }[] = [];
 
   /** Everyone living in the followers' town (each is a real follower). */
   followerList(): Citizen[] {
@@ -3375,19 +3383,23 @@ export class Game implements ToolHost {
   /** Close the person's card (the film shows its own caption). */
   clearSelection() { this.select(null); }
 
-  /** Fill vacant flats first, then use an empty house or build beside a road. */
-  private followerHome(grown = false): Building | null {
-    // the big city: a free flat in the block nearest the town hall, found without listing every free flat
-    if (this.meta.folCity && !grown) { const flat = this.followerFlat(); if (flat) return flat; }
+  /**
+   * Fill vacant flats first, then use an empty house or build beside a road. In the big city a premium follower gets a
+   * luxury building of their own in the centre, and an ordinary one a house in the housing districts (away from it).
+   */
+  private followerHome(grown = false, vip = false): Building | null {
+    if (this.meta.folCity && vip) return this.premiumHome();
     const city = this.eco.active;
     const reserved = this.arriving.map((a) => a.home);
     const hall = this.buildings.townHall(city);
     const cx = hall?.x ?? N / 2, cz = hall?.z ?? N / 2;
-    const d = (x: number, z: number) => Math.abs(x - cx) + Math.abs(z - cz);
+    const far = (x: number, z: number) => !this.meta.folCity || Math.max(Math.abs(x - cx), Math.abs(z - cz)) >= ORDINARY_FROM;
+    // in the big city ordinary followers fill the housing districts from their inner edge outwards
+    const d = (x: number, z: number) => (this.meta.folCity ? Math.max(Math.abs(x - cx), Math.abs(z - cz)) * 2 : 0) + Math.abs(x - cx) + Math.abs(z - cz);
     const ready = this.life.freeHomes(city, reserved);
-    const flats = ready.filter((b) => BUILDINGS[b.kind].units > 1);
+    const flats = ready.filter((b) => BUILDINGS[b.kind].units > 1 && !PREMIUM_KINDS.has(b.kind) && far(b.x, b.z));
     if (flats.length) return flats.reduce((near, b) => d(b.x, b.z) < d(near.x, near.z) ? b : near);
-    const free = this.buildings.list.filter((b) => b.kind === 'house' && b.city === city && !b.removed && !reserved.includes(b.id) && !this.pop.familyAt(b.id));
+    const free = this.buildings.list.filter((b) => b.kind === 'house' && b.city === city && !b.removed && far(b.x, b.z) && !reserved.includes(b.id) && !this.pop.familyAt(b.id));
     if (free.length) {
       const home = free.sort((a, b) => d(a.x, a.z) - d(b.x, b.z))[0];
       if (home.built < 1) {
@@ -3404,7 +3416,7 @@ export class Game implements ToolHost {
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const px = x + dx, pz = z + dz;
         if (!inBounds(px, pz) || this.net.type[idx(px, pz)] || this.buildings.occ[idx(px, pz)] !== -1) continue;
-        if (this.keptForStreets(px, pz)) continue;
+        if (this.keptForStreets(px, pz) || !far(px, pz)) continue;
         plots.push({ x: px, z: pz, d: d(px, pz) + Math.random() * 3 });
       }
     }
@@ -3468,40 +3480,48 @@ export class Game implements ToolHost {
     return true;
   }
 
-  /**
-   * A home for a new follower in the big city: a free flat in the block nearest the town hall (the city fills from
-   * the middle out), or null when every flat is taken.
-   */
-  private followerFlat(): Building | null {
+  /** A premium follower's home: a luxury building in the centre nobody owns yet, the nearest to the town hall. */
+  private premiumHome(): Building | null {
     const city = this.eco.active;
-    const used = new Map<number, number>();
-    for (const f of this.pop.families.values()) used.set(f.home, (used.get(f.home) ?? 0) + 1);
-    for (const a of this.arriving) used.set(a.home, (used.get(a.home) ?? 0) + 1);
+    const taken = new Set<number>(this.arriving.map((a) => a.home));
+    for (const f of this.pop.families.values()) taken.add(f.home);
     const hall = this.buildings.townHall(city);
     const cx = hall?.x ?? N / 2, cz = hall?.z ?? N / 2;
     const d = (b: Building) => Math.hypot(b.x - cx, b.z - cz);
     let best: Building | null = null;
     for (const b of this.buildings.list) {
-      const units = BUILDINGS[b.kind].units;
-      if (!units || b.removed || b.built < 1 || b.city !== city || (used.get(b.id) ?? 0) >= units) continue;
+      if (!PREMIUM_KINDS.has(b.kind) || b.removed || b.built < 1 || b.city !== city || taken.has(b.id)) continue;
       if (!best || d(b) < d(best)) best = b;
     }
     return best;
+  }
+
+  /** Premium homes in the town: how many there are, how many have an owner, how many premium followers live here. */
+  premiumStats() {
+    const owned = new Set<number>(this.arriving.map((a) => a.home));
+    for (const f of this.pop.families.values()) owned.add(f.home);
+    let total = 0, taken = 0;
+    for (const b of this.buildings.list) {
+      if (!PREMIUM_KINDS.has(b.kind) || b.removed || b.city !== this.eco.active) continue;
+      total++;
+      if (owned.has(b.id)) taken++;
+    }
+    return { total, taken, free: total - taken, people: this.followerList().filter((c) => c.vip).length };
   }
 
   /**
    * A new follower comes to live in the town: they get a home of their own (an empty house, or a new one that goes
    * up in seconds) and move in when it is ready.
    */
-  addFollower(nickIn: string, sex: Sex, age: number, done: (c: Citizen) => void = () => {}, want?: string): { ok: true; home: Building; fresh: boolean } | { ok: false; reason: string } {
+  addFollower(nickIn: string, sex: Sex, age: number, done: (c: Citizen) => void = () => {}, want?: string, vip = false): { ok: true; home: Building; fresh: boolean } | { ok: false; reason: string } {
     const nick = nickIn.replace(/^@/, '').trim().slice(0, 30);
     if (!nick) return { ok: false, reason: t('Type a nickname') };
     if (this.nickTaken(nick)) return { ok: false, reason: t('@{nick} already lives here', { nick }) };
     const before = this.buildings.list.length;
-    const home = this.followerHome();
-    if (!home) return { ok: false, reason: t('No room for a new house — lay a new road first') };
+    const home = this.followerHome(false, vip);
+    if (!home) return { ok: false, reason: vip && this.meta.folCity ? t('Every premium building has an owner — build another luxury skyscraper') : t('No room for a new house — lay a new road first') };
     // they move in on the next frame (or when the new house is finished)
-    this.arriving.push({ nick, sex, age: Math.max(1, Math.min(99, Math.round(age))), home: home.id, want: want || undefined, done });
+    this.arriving.push({ nick, sex, age: Math.max(1, Math.min(99, Math.round(age))), home: home.id, want: want || undefined, vip: vip || undefined, done });
     return { ok: true, home, fresh: this.buildings.list.length > before };
   }
 
@@ -3518,10 +3538,11 @@ export class Game implements ToolHost {
       if (home.built < 1 && !all) { this.arriving.push(a); continue; }
       const c = this.pop.addFollower(home.id, a.nick, a.sex, a.age);
       if (a.want) c.want = a.want;
+      if (a.vip) c.vip = true;
       moved.push([a, c]);
     }
     for (const a of displaced) {
-      const again = this.followerHome();
+      const again = this.followerHome(false, !!a.vip);
       this.arriving.push(again ? { ...a, home: again.id } : a);
     }
     if (!moved.length) return;
@@ -3540,7 +3561,19 @@ export class Game implements ToolHost {
   }
 
   /** The admin changes a follower: nickname, boy or girl, age, chosen work. Returns an error, or null. */
-  editFollower(c: Citizen, ch: { nick?: string; sex?: Sex; age?: number; want?: string }): string | null {
+  editFollower(c: Citizen, ch: { nick?: string; sex?: Sex; age?: number; want?: string; vip?: boolean }): string | null {
+    // premium on or off: the follower moves to a luxury building in the centre, or to a house in the districts
+    if (ch.vip !== undefined && ch.vip !== !!c.vip) {
+      const f = this.pop.families.get(c.family);
+      const home = this.followerHome(false, ch.vip);
+      if (!home) return ch.vip ? t('Every premium building has an owner — build another luxury skyscraper') : t('No room for a new house — lay a new road first');
+      if (f) {
+        f.home = home.id;
+        if (home.built < 1) { home.built = 1; this.buildings.onBuilt(home); }
+        for (const m of this.pop.members(f)) if (m.state === 'home') m.at = home.id;
+      }
+      c.vip = ch.vip || undefined;
+    }
     if (ch.nick !== undefined) {
       const nick = ch.nick.replace(/^@/, '').replace(/\s+/g, '').slice(0, 30);
       if (!nick) return t('Type a nickname');
@@ -3907,7 +3940,7 @@ export class Game implements ToolHost {
 
   /** The followers' town never loses its people: a family whose home was lost gets another one. */
   private rehouseFollowers(f: Family): boolean {
-    const home = this.followerHome();
+    const home = this.followerHome(false, this.pop.members(f).some((c) => c.vip));
     if (!home) return false;
     f.home = home.id;
     return true;
@@ -8019,7 +8052,7 @@ export class Game implements ToolHost {
     const city = this.eco.found(townName(), START_GRANT);
     const roads: Tile[] = [];
     const lit: number[] = [];
-    const homes = layFollowersCity({
+    const premium = layFollowersCity({
       road: (tiles, on) => {
         this.net.buildPath(tiles, ROAD_TWO_LANE);
         roads.push(...tiles);
@@ -8039,7 +8072,7 @@ export class Game implements ToolHost {
     this.eco.active = city.id;
     this.net.clearUndo();
     this.cam.setState(0, 2, Math.PI / 4, 16);
-    console.info(`[followers] the city has ${this.buildings.list.length} buildings and ${homes} homes`);
+    console.info(`[followers] the city has ${this.buildings.list.length} buildings and ${premium} premium homes`);
   }
 
   private buildStarterTown(towns: number, slot?: number) {

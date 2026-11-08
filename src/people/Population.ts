@@ -76,6 +76,8 @@ export interface Citizen {
   lost?: boolean;
   /** A real follower of the game's page: their nickname (followers' town — only such people live there). */
   fol?: string;
+  /** A premium follower (paid): owns a luxury building in the city centre and lives there. */
+  vip?: boolean;
   /** The work chosen for a follower by the admin: a kind of workplace, 'none' (does not work) or unset (any). */
   want?: string;
 }
@@ -838,7 +840,7 @@ export class Population {
       members: this.members(f).map((c) => ({
         id: c.id, name: c.name, sex: c.sex, age: Math.round(c.age * 100) / 100, role: c.role, job: c.job, school: c.school,
         edu: c.edu, skill: c.skill, college: c.college, variant: c.variant, hunger: Math.round(c.hunger), health: Math.round(c.health),
-        story: c.story, fol: c.fol, want: c.want, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, trade: c.trade, gambled: c.gambled, lost: c.lost || undefined,
+        story: c.story, fol: c.fol, vip: c.vip || undefined, want: c.want, night: c.night, saw: c.saw || undefined, mom: c.mom, dad: c.dad, fame: c.fame, energy: c.energy === undefined ? undefined : Math.round(c.energy), faith: c.faith, prayed: c.prayed, joy: c.joy, trade: c.trade, gambled: c.gambled, lost: c.lost || undefined,
       })),
     }));
   }

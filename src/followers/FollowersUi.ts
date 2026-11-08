@@ -440,34 +440,50 @@ export class FollowersUi {
     ageBox.append(age, el('span', '', t('age')));
     row.append(seg, ageBox);
     const work = this.workSelect('');
+    // ordinary (free): a house in the housing districts · premium (paid): a luxury building of their own in the centre
+    let vip = false;
+    const tier = el('div', 'fol-seg small fol-tier');
+    const plain = button(`🏠 ${t('Ordinary (free)')}`, () => setTier(false), 'fol-seg-btn on');
+    const prem = button(`👑 ${t('Premium (paid)')}`, () => setTier(true), 'fol-seg-btn');
+    plain.type = prem.type = 'button';
+    tier.append(plain, prem);
+    const tierNote = el('div', 'fol-tier-note');
+    const setTier = (v: boolean) => {
+      vip = v;
+      plain.classList.toggle('on', !v);
+      prem.classList.toggle('on', v);
+      this.premiumNote(tierNote, v);
+    };
+    this.premiumNote(tierNote, false);
     const showLbl = el('label', 'fol-check');
     const show = el('input') as HTMLInputElement;
     show.type = 'checkbox';
     show.checked = true;
     showLbl.append(show, el('span', '', t('Show the move-in (camera flies there)')));
     const add = el('button', 'fol-cta', `＋ ${t('Add follower')}`);
-    form.append(nick, row, work, showLbl, add);
+    form.append(nick, row, tier, tierNote, work, showLbl, add);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (this.addOne(nick.value, sex, Number(age.value) || 20, show.checked, false, work.value)) { nick.value = ''; nick.focus(); }
+      if (this.addOne(nick.value, sex, Number(age.value) || 20, show.checked, false, work.value, vip)) { nick.value = ''; nick.focus(); this.premiumNote(tierNote, vip); }
     });
 
     // many at once: one per line — "nick, m, 22" (m/f, boy/girl, yigit/qiz)
     const many = el('details', 'fol-card fol-many');
     many.append(el('summary', '', t('Add many at once')));
     const area = el('textarea') as HTMLTextAreaElement;
-    area.placeholder = 'ali_007, m, 21\naziza.uz, f, 19\nsardor, m, 25';
+    area.placeholder = 'ali_007, m, 21\naziza.uz, f, 19\nsardor, m, 25, premium';
     many.append(area, button(t('Add all'), () => {
       let n = 0;
       const bad: string[] = [];
       const twice: string[] = [];
       for (const line of area.value.split(/\n/)) {
-        const [nk, sx, ag] = line.split(/[,;\t]/).map((x) => x.trim());
+        const [nk, sx, ag, tierText] = line.split(/[,;\t]/).map((x) => x.trim());
         if (!nk) continue;
         // already living here (or on their way): not added again
         if (this.game.hasFollower(nk)) { twice.push(at(nk.replace(/^@/, ''))); continue; }
         const s: Sex = /^(f|w|girl|qiz|ayol|female|q)/i.test(sx ?? '') ? 'f' : 'm';
-        if (this.addOne(nk, s, Number(ag) || 18 + Math.floor(Math.random() * 12), false, true)) n++; else bad.push(line.trim());
+        const isVip = /^(p|premium|vip|prem|👑)/i.test(tierText ?? '');
+        if (this.addOne(nk, s, Number(ag) || 18 + Math.floor(Math.random() * 12), false, true, undefined, isVip)) n++; else bad.push(line.trim());
       }
       area.value = bad.join('\n');
       this.flash([t('{n} followers are moving in', { n }),
@@ -497,11 +513,20 @@ export class FollowersUi {
     return pane;
   }
 
+  /** How many premium buildings there are and how many have an owner (under the ordinary / premium choice). */
+  private premiumNote(box: HTMLElement, vip: boolean) {
+    const p = this.game.premiumStats();
+    box.textContent = vip
+      ? t('👑 Premium buildings: {taken} of {total} have an owner · {free} free', p)
+      : t('🏠 Ordinary followers get a house in the housing districts, away from the centre');
+    box.classList.toggle('warn', vip && p.free === 0);
+  }
+
   /** The followers as a text file, one a line — "nickname, m/f, age" (the same lines "Add many" takes). */
   private downloadList() {
     const all = this.game.followerList().sort((a, b) => a.id - b.id);
     if (!all.length) { this.flash(t('Nobody lives here yet'), 'warn'); return; }
-    const text = all.map((c) => `${c.fol}, ${c.sex}, ${Math.floor(c.age)}`).join('\r\n') + '\r\n';
+    const text = all.map((c) => `${c.fol}, ${c.sex}, ${Math.floor(c.age)}${c.vip ? ', premium' : ''}`).join('\r\n') + '\r\n';
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
     a.download = `followers-${new Date().toISOString().slice(0, 10)}.txt`;
@@ -511,7 +536,7 @@ export class FollowersUi {
   }
 
   /** Bring one follower to the town (false when they can't come). */
-  private addOne(nickIn: string, sex: Sex, age: number, show: boolean, quiet = false, want?: string) {
+  private addOne(nickIn: string, sex: Sex, age: number, show: boolean, quiet = false, want?: string, vip = false) {
     if (this.game.viewOnly) return false;
     const nick = nickIn.replace(/^@/, '').replace(/\s+/g, '').slice(0, 30);
     if (nick && this.game.hasFollower(nick)) {
@@ -524,18 +549,18 @@ export class FollowersUi {
       this.marked.add(c.fol!);
       this.saveMarks();
       if (home && (show || !quiet)) this.game.celebrate(home);
-      if (!quiet) this.flash(t('🎉 {nick} moved into their new home!', { nick: at(c.fol!) }), 'big');
+      if (!quiet) this.flash(vip ? t('👑 {nick} moved into their luxury building!', { nick: at(c.fol!) }) : t('🎉 {nick} moved into their new home!', { nick: at(c.fol!) }), 'big');
       if (show) setTimeout(() => this.game.focusFollower(c, 4.5, false), 600);
       this.listSig = '';
       this.queueSave();
-    }, want);
+    }, want, vip);
     if (!r.ok) { if (!quiet) { this.flash(r.reason, 'warn'); sound.play('error'); } return false; }
     home = r.home;
     if (show) {
       const p = r.home.mesh.position;
       this.game.lookAt(p.x, p.z, 5.5, 1.8);
     }
-    if (!quiet) this.flash(t('🔑 {nick} gets the keys to a house…', { nick: at(nick) }), 'big');
+    if (!quiet) this.flash(vip ? t('👑 {nick} gets the keys to a luxury building in the centre…', { nick: at(nick) }) : t('🔑 {nick} gets the keys to a house…', { nick: at(nick) }), 'big');
     this.listSig = '';
     return true;
   }
@@ -602,16 +627,21 @@ export class FollowersUi {
     const r2 = el('div', 'fol-addrow');
     r2.append(seg, ageBox);
     const work = this.workSelect(c.want ?? '');
+    const vipLbl = el('label', 'fol-check');
+    const vipBox = el('input') as HTMLInputElement;
+    vipBox.type = 'checkbox';
+    vipBox.checked = !!c.vip;
+    vipLbl.append(vipBox, el('span', '', `👑 ${t('Premium (owns a luxury building in the centre)')}`));
     const btns = el('div', 'fol-row-btns');
     const save = el('button', 'fol-cta', t('Save')) as HTMLButtonElement;
     const close = () => { this.editing = false; this.listSig = ''; this.renderList(); };
     btns.append(save, button(t('Cancel'), close, 'fol-btn ghost'));
-    card.append(name, r2, work, btns);
+    card.append(name, r2, work, vipLbl, btns);
     for (const ev of ['click', 'pointerdown']) card.addEventListener(ev, (e) => e.stopPropagation());
     card.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); });
     card.addEventListener('submit', (e) => {
       e.preventDefault();
-      const err = this.game.editFollower(c, { nick: name.value, sex, age: Number(age.value) || Math.floor(c.age), want: work.value });
+      const err = this.game.editFollower(c, { nick: name.value, sex, age: Number(age.value) || Math.floor(c.age), want: work.value, vip: vipBox.checked });
       if (err) { this.flash(err, 'warn'); sound.play('error'); return; }
       if (c.fol !== nick) {
         if (this.marked.delete(nick)) { this.marked.add(c.fol!); this.saveMarks(); }
@@ -637,7 +667,7 @@ export class FollowersUi {
     this.count.textContent = String(total);
     this.sub.textContent = this.marked.size ? t('{n} live here · {m} marked', { n: total, m: this.marked.size }) : t('{n} live here', { n: total });
     const admin = isAdmin() && !this.game.viewOnly;
-    const sig = `${admin}|${q}|${this.newest}|${this.onlyMarked}|${[...this.marked].join(',')}|${shown.map((c) => `${c.id}:${c.job}:${c.school}`).join(',')}`;
+    const sig = `${admin}|${shown.filter((c) => c.vip).length}|${q}|${this.newest}|${this.onlyMarked}|${[...this.marked].join(',')}|${shown.map((c) => `${c.id}:${c.job}:${c.school}`).join(',')}`;
     if (sig === this.listSig) return;
     this.listSig = sig;
     this.list.replaceChildren();
@@ -651,6 +681,7 @@ export class FollowersUi {
       const ava = el('span', `fol-ava ${c.sex === 'f' ? 'f' : 'm'}`, info.nick.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 1).toUpperCase() || '@');
       const text = el('div', 'fol-text');
       const name = el('div', 'fol-nick', at(info.nick));
+      if (c.vip) name.prepend(el('span', 'fol-vip', '👑'));
       if ((this.fresh.get(c.fol!) ?? -1) > this.clock) name.append(el('span', 'fol-new', t('new')));
       // the chosen work, and where they work until it is built (or has room)
       const wantName = c.want && c.want !== 'none' ? this.game.workChoices().find((w) => w.kind === c.want)?.name ?? '' : '';

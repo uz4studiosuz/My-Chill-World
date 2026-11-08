@@ -54,6 +54,10 @@ export const ITEMS: ToolItem[] = [
   b('tower15', 'buildings', '15 families', 'Eight floors, fifteen flats. Families pay rent to the owner.', 'office'),
   b('tower30', 'buildings', '30 families', 'Twelve floors, thirty flats — many homes on a small plot. Uses a lot of electricity.', 'office'),
   b('tower50', 'buildings', '50 families (3×3)', 'Sixteen floors and fifty flats: a whole neighbourhood in one tower. Needs iron and lots of power.', 'office'),
+  b('skyscraper', 'buildings', 'Premium home (1 owner)', 'A luxury glass skyscraper for one premium owner: golden canopy, penthouse, a spire or a rooftop pool.', 'office'),
+  b('landmark', 'buildings', 'Premium home (1 owner, 3×3)', 'The tallest tower in town, owned by one premium owner: golden tiers, a sky deck and a spire.', 'office'),
+  b('mall', 'business', '20 jobs (3×3)', 'A big shopping mall under a glass dome: dozens of shops in one building.', 'coin'),
+  b('arcade', 'business', '6 jobs · fun', 'A game centre in neon lights: video games, claw machines and VR.', 'coin'),
   b('house', 'buildings', 'One family', 'Home for one family (up to 10 people). Needs a road.', 'house'),
   b('watertower', 'buildings', 'Water for 160', 'Clean drinking water. Without it people get sick.', 'watertower'),
   b('park', 'buildings', 'Green space', 'A park with a pond and benches. People recover faster in a green town.', 'orchard'),
@@ -167,9 +171,9 @@ export const CATS: { id: Category; label: string; icon: IconName }[] = [
 /** The most needed things first in every tab (a new player finds them at once); the rest keep their order. */
 const PRIORITY: Record<string, string[]> = {
   roads: ['road', 'pipe', 'cable', 'litroad', 'path', 'roundabout', 'rail', 'tunnel', 'canal', 'path_stone', 'path_brick', 'path_gravel', 'path_wood', 'zone_res', 'zone_com', 'zone_ind', 'zone_none'],
-  buildings: ['zoo', 'house', 'watertower', 'apartment', 'park', 'parking', 'cemetery', 'garage', 'embassy', 'bigpark', 'tower15', 'tower30', 'tower50'],
+  buildings: ['zoo', 'house', 'watertower', 'apartment', 'park', 'parking', 'cemetery', 'garage', 'embassy', 'bigpark', 'tower15', 'tower30', 'tower50', 'skyscraper', 'landmark'],
   services: ['eldercare', 'school', 'college', 'kindergarten', 'hospital', 'police', 'firestation', 'sewage', 'landfill', 'weddinghall', 'busstop', 'busdepot', 'pharmacy', 'mosque', 'university', 'recycling', 'metro', 'cctv', 'levee', 'academy', 'stadium', 'concerthall', 'migration', 'military'],
-  business: ['construction', 'grocery', 'market', 'bakery', 'supermarket', 'clothes', 'dairyshop', 'kiosk', 'restaurant', 'gasstation', 'bank', 'office', 'hotel', 'carmarket', 'teahouse', 'barber', 'gym', 'cinema', 'casino', 'themepark'],
+  business: ['construction', 'grocery', 'market', 'bakery', 'supermarket', 'clothes', 'dairyshop', 'kiosk', 'restaurant', 'gasstation', 'bank', 'office', 'hotel', 'carmarket', 'teahouse', 'barber', 'gym', 'cinema', 'casino', 'themepark', 'mall', 'arcade'],
   production: ['farm', 'woodcutter', 'forestry', 'quarry', 'powerplant', 'orchard', 'ranch', 'greenhouse', 'poultry', 'apiary', 'windturbine', 'solarfarm', 'battery', 'fishery', 'warehouse', 'mill', 'sawmill', 'brickworks', 'dairy', 'ironmine', 'factory', 'coalmine', 'coalplant', 'steelmill', 'bikefactory', 'carfactory', 'hydro', 'trainstation', 'airport'],
 };
 {

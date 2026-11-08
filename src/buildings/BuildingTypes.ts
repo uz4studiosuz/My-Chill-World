@@ -5,7 +5,8 @@ export type BuildingKind =
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
   | 'military' | 'landfill' | 'recycling' | 'mill' | 'bakery' | 'sawmill' | 'battery' | 'kiosk' | 'dairyshop' | 'greenhouse' | 'apiary' | 'poultry' | 'eldercare' | 'restaurant' | 'zoo' | 'pier' | 'forestry' | 'garage' | 'metro' | 'cctv' | 'levee' | 'embassy'
   | 'pharmacy' | 'dairy' | 'supermarket' | 'brickworks' | 'steelmill' | 'sewage' | 'coalmine' | 'coalplant' | 'hydro'
-  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway' | 'college';
+  | 'tower15' | 'tower30' | 'tower50' | 'warehouse' | 'concerthall' | 'casino' | 'mosque' | 'themepark' | 'bigpark' | 'gym' | 'teahouse' | 'barber' | 'bikefactory' | 'migration' | 'gazebo' | 'pond' | 'clocktower' | 'flagpole' | 'planter' | 'archway' | 'college'
+  | 'skyscraper' | 'landmark' | 'mall' | 'arcade';
 
 
 /** How a building's workers behave while at work. */
@@ -169,6 +170,13 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   gym: def({ kind: 'gym', name: 'Gym', size: 1, money: 900, stone: 10, iron: 6, jobs: 2, salary: 13, energy: 2 }),
   teahouse: def({ kind: 'teahouse', name: 'Teahouse', size: 2, money: 1100, stone: 15, wood: 25, jobs: 4, salary: 12, energy: 2 }),
   barber: def({ kind: 'barber', name: 'Barber Shop', size: 1, money: 400, stone: 6, wood: 6, jobs: 2, salary: 11, energy: 1 }),
+  skyscraper: def({ kind: 'skyscraper', name: 'Luxury Skyscraper', size: 2, money: 30000, stone: 300, wood: 20, iron: 160, housing: 10, units: 1, upkeep: 20, energy: 40,
+    slots: [[-0.6, 0.78, 0], [0.6, 0.78, 0]] }),
+  landmark: def({ kind: 'landmark', name: 'City Tower', size: 3, money: 60000, stone: 500, wood: 30, iron: 300, housing: 10, units: 1, upkeep: 35, energy: 70,
+    slots: [[-1.1, 1.25, 0], [1.1, 1.25, 0]] }),
+  mall: def({ kind: 'mall', name: 'Shopping Mall', size: 3, money: 9000, stone: 150, wood: 40, iron: 60, jobs: 20, salary: 15, upkeep: 6, energy: 14, revenue: 320,
+    slots: [[-1.2, 1.25, 0], [-0.8, 1.25, 0], [0.8, 1.25, 0], [1.2, 1.25, 0]] }),
+  arcade: def({ kind: 'arcade', name: 'Game Centre', size: 2, money: 3500, stone: 50, wood: 15, iron: 15, jobs: 6, salary: 13, upkeep: 3, energy: 8, revenue: 140 }),
   roadsign: def({ kind: 'roadsign', name: 'Road Signs', size: 1, money: 40, iron: 1, needsRoad: false }),
 };
 

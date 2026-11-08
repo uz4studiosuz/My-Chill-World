@@ -3141,3 +3141,10 @@ body.followers-town .m-date { display: none; }
 body.followers-town .res-pop { z-index: 50; }
 body.followers-town.ui2 .topbar .chips { flex: none; order: 0; width: auto; }
 .ins-summary { margin: 6px 0; }
+
+/* the followers' town: ordinary or premium followers */
+.fol-tier { margin-top: 2px; }
+.fol-tier .fol-seg-btn.on:last-child { background: linear-gradient(135deg, #f6d36b, #c9962c); color: #2b1d00; }
+.fol-tier-note { font-size: 12px; opacity: 0.8; line-height: 1.35; margin: 2px 2px 0; }
+.fol-tier-note.warn { color: #ffb15c; opacity: 1; }
+.fol-vip { margin-right: 4px; }

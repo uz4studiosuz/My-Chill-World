@@ -59,6 +59,9 @@ async function fromCloud(): Promise<WorldSave | null> {
   }
 }
 
+/** The followers of the newest town saved with an older plan (they move into the new city), when no new town is saved yet. */
+export let carried: { nick: string; sex: 'm' | 'f'; age: number; vip?: boolean }[] = [];
+
 /** When the town now shown was saved (to notice a newer one). */
 export let loadedAt = 0;
 
@@ -70,6 +73,13 @@ export async function loadWorld(): Promise<WorldSave | null> {
   const raw = await Promise.all([fromCloud(), fromFile()]);
   const [cloud, file] = raw.map(now);
   const best = cloud && file ? (cloud.meta.updated >= file.meta.updated ? cloud : file) : cloud ?? file;
+  if (!best) {
+    const old = raw.filter((x): x is WorldSave => !!x).sort((a, b) => b.meta.updated - a.meta.updated)[0];
+    carried = [];
+    for (const f of old?.population ?? []) for (const m of f.members) {
+      if (m.fol) carried.push({ nick: m.fol, sex: m.sex === 'f' ? 'f' : 'm', age: Math.max(1, Math.floor(m.age)), vip: (m as { vip?: boolean }).vip });
+    }
+  }
   // an old town set aside does not count as "a newer town is out"
   loadedAt = best?.meta.updated ?? Math.max(0, ...raw.map((s) => s?.meta.updated ?? 0));
   return best;

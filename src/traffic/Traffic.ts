@@ -569,10 +569,20 @@ export class Traffic {
     this.render();
   }
 
+  /** Room for as many signal poles as the town has (a big city has thousands of junction corners). */
+  private poleRoom = 1024;
+
   private placePoles() {
+    if (this.lamps.length > this.poleRoom) {
+      while (this.poleRoom < this.lamps.length) this.poleRoom *= 2;
+      for (const old of [this.poleMesh, this.lampMesh]) { this.group.remove(old); old.dispose(); }
+      this.poleMesh = this.makeMesh(this.poleMesh.geometry, this.poleMesh.material as THREE.Material, this.poleRoom);
+      this.lampMesh = this.makeMesh(this.lampMesh.geometry, this.lampMesh.material as THREE.Material, this.poleRoom);
+      this.lampMesh.setColorAt(0, RED);
+      this.lampMesh.castShadow = false;
+    }
     let n = 0;
     for (const l of this.lamps) {
-      if (n >= 1024) break;
       // pole on the right-hand corner where traffic travelling `travelBit` enters the junction
       const d = DIRS.find((x) => x.bit === l.travelBit)!;
       const cx = tileToWorld(l.tile % N), cz = tileToWorld((l.tile / N) | 0);
@@ -660,7 +670,7 @@ export class Traffic {
     this.truckMesh.instanceMatrix.needsUpdate = true;
     this.cargoMesh.instanceMatrix.needsUpdate = true;
 
-    for (let i = 0; i < this.lamps.length && i < 1024; i++) {
+    for (let i = 0; i < this.lamps.length && i < this.poleRoom; i++) {
       const l = this.lamps[i];
       const s = this.light(l.tile, l.travelBit);
       this.lampMesh.setColorAt(i, s === 'green' ? LIME : s === 'yellow' ? AMBER : RED);

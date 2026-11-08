@@ -1,14 +1,16 @@
 import { UZ } from './uz';
 
 export type Lang = 'en' | 'uz';
-const KEY = 'mcw_lang';
+// a new key: the old one was written at every start, so it held English for everyone (Uzbek is the default now)
+const KEY = 'mcw_lang2';
 
 let lang: Lang = (() => {
   try {
     const v = localStorage.getItem(KEY);
     if (v === 'en' || v === 'uz') return v;
   } catch { /* storage blocked */ }
-  return navigator.language?.toLowerCase().startsWith('uz') ? 'uz' : 'en';
+  // Uzbek unless the player chose English in the menu
+  return 'uz';
 })();
 
 export const getLang = () => lang;
