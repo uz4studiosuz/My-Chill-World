@@ -1,5 +1,6 @@
 import type { WorldSave } from '../save/SaveStore';
 import { Online } from '../online/Online';
+import { FOL_CITY } from './cityPlan';
 
 /**
  * The followers' town is kept in Supabase (table followers_world): everyone reads it, only the admin writes it
@@ -64,9 +65,13 @@ export let loadedAt = 0;
 /** The newest saved town (cloud or project file), or null for a fresh one. */
 export async function loadWorld(): Promise<WorldSave | null> {
   if (SANDBOX) return null;
-  const [cloud, file] = await Promise.all([fromCloud(), fromFile()]);
+  // a town saved before the city plan is set aside (the city is laid anew; the admin's first save replaces it)
+  const now = (s: WorldSave | null) => (s?.meta.folCity === FOL_CITY ? s : null);
+  const raw = await Promise.all([fromCloud(), fromFile()]);
+  const [cloud, file] = raw.map(now);
   const best = cloud && file ? (cloud.meta.updated >= file.meta.updated ? cloud : file) : cloud ?? file;
-  loadedAt = best?.meta.updated ?? 0;
+  // an old town set aside does not count as "a newer town is out"
+  loadedAt = best?.meta.updated ?? Math.max(0, ...raw.map((s) => s?.meta.updated ?? 0));
   return best;
 }
 

@@ -30,6 +30,8 @@ export interface WorldMeta {
   followers?: boolean;
   /** The followers' town had its empty homes taken away once (as many homes as followers since then). */
   homesTrimmed?: boolean;
+  /** The followers' town laid out as a big city (the plan's version): homes are flats in blocks, waiting for followers. */
+  folCity?: number;
 }
 
 export interface WorldSave {

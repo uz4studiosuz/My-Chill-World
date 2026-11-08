@@ -7,7 +7,7 @@ import { SKIN, SHIRTS, DRESSES } from '../models/people/_shared';
 import { DAY_SECONDS, DAYS_PER_YEAR, IS_TOUCH, MAP_SIZE } from '../config';
 import { DIRS, N, Tile, idx, inBounds, tileToWorld } from '../world/grid';
 import { WorldMap } from '../world/WorldMap';
-import { generateWorld } from '../world/WorldGen';
+import { generateFollowersWorld, generateWorld } from '../world/WorldGen';
 import { Terrain } from '../world/Terrain';
 import { walkPath } from '../people/WalkPath';
 import { BRIDGE_COST, ROAD_COST, ROAD_TWO_LANE, ROUNDABOUT_COST, RoadNetwork, isRingMid } from '../roads/RoadNetwork';
@@ -22,6 +22,7 @@ import { History } from '../sim/History';
 import { monthOf, seasonBlend, seasonOf, yearOf, growingSeason, dateLabel, calendarYear } from '../sim/Calendar';
 import { Population, Citizen, Family, Sex } from '../people/Population';
 import { FollowersUi } from '../followers/FollowersUi';
+import { FOL_CITY, layFollowersCity } from '../followers/cityPlan';
 import { townName } from '../people/names';
 import { sound } from '../audio/Sound';
 import { GoalContext, Goals } from '../sim/Goals';
@@ -354,6 +355,8 @@ export class Game implements ToolHost {
     this.meta = opts.save?.meta ?? {
       id: opts.create?.id ?? SaveStore.newId(), name: opts.create?.name ?? 'Demo', seed,
       day: 1, population: 100, money: 5000, updated: Date.now(), online: opts.create?.online, followers: opts.create?.followers || undefined,
+      // a new followers' town is laid out as a big city whose flats wait for the followers (no empty homes are trimmed)
+      ...(opts.create?.followers ? { folCity: FOL_CITY, homesTrimmed: true } : {}),
     };
     this.followers = !!this.meta.followers;
     this.onSave = opts.onSave;
@@ -371,7 +374,7 @@ export class Game implements ToolHost {
     this.sun.shadow.camera.far = 140;
     this.scene.add(this.sun, this.sun.target);
 
-    this.map = generateWorld(seed);
+    this.map = this.meta.followers && this.meta.folCity ? generateFollowersWorld(seed) : generateWorld(seed);
     this.terrain = new Terrain(this.map);
     // the land goes on past the map's edges, made like the map, all round the planet
     this.clouds = new CloudSea(this.map.seed);
@@ -543,6 +546,7 @@ export class Game implements ToolHost {
       this.life.rehouse = (f) => this.rehouseFollowers(f);
     }
     if (opts.save) this.loadSave(opts.save);
+    else if (this.followers && this.meta.folCity) this.buildFollowersCity();
     else this.buildStarterTown(this.followers ? 0 : opts.create?.towns ?? 2, opts.create?.online?.slot);
     // the starter village of a followers' town stands empty: its homes wait for the followers
     if (this.followers && !opts.save) { this.pop.citizens.clear(); this.pop.families.clear(); }
@@ -3373,6 +3377,8 @@ export class Game implements ToolHost {
 
   /** Fill vacant flats first, then use an empty house or build beside a road. */
   private followerHome(grown = false): Building | null {
+    // the big city: a free flat in the block nearest the town hall, found without listing every free flat
+    if (this.meta.folCity && !grown) { const flat = this.followerFlat(); if (flat) return flat; }
     const city = this.eco.active;
     const reserved = this.arriving.map((a) => a.home);
     const hall = this.buildings.townHall(city);
@@ -3460,6 +3466,27 @@ export class Game implements ToolHost {
     this.utilDirty = true;
     this.hud?.toast(t('A new street was laid for the new homes'));
     return true;
+  }
+
+  /**
+   * A home for a new follower in the big city: a free flat in the block nearest the town hall (the city fills from
+   * the middle out), or null when every flat is taken.
+   */
+  private followerFlat(): Building | null {
+    const city = this.eco.active;
+    const used = new Map<number, number>();
+    for (const f of this.pop.families.values()) used.set(f.home, (used.get(f.home) ?? 0) + 1);
+    for (const a of this.arriving) used.set(a.home, (used.get(a.home) ?? 0) + 1);
+    const hall = this.buildings.townHall(city);
+    const cx = hall?.x ?? N / 2, cz = hall?.z ?? N / 2;
+    const d = (b: Building) => Math.hypot(b.x - cx, b.z - cz);
+    let best: Building | null = null;
+    for (const b of this.buildings.list) {
+      const units = BUILDINGS[b.kind].units;
+      if (!units || b.removed || b.built < 1 || b.city !== city || (used.get(b.id) ?? 0) >= units) continue;
+      if (!best || d(b) < d(best)) best = b;
+    }
+    return best;
   }
 
   /**
@@ -7986,6 +8013,34 @@ export class Game implements ToolHost {
   }
 
   // ---------- world setup / saving ----------
+
+  /** The followers' city: the town hall on its grand square, the business district, housing districts and more (see cityPlan). */
+  private buildFollowersCity() {
+    const city = this.eco.found(townName(), START_GRANT);
+    const roads: Tile[] = [];
+    const lit: number[] = [];
+    const homes = layFollowersCity({
+      road: (tiles, on) => {
+        this.net.buildPath(tiles, ROAD_TWO_LANE);
+        roads.push(...tiles);
+        if (on) for (const tl of tiles) lit.push(idx(tl.x, tl.z));
+      },
+      put: (kind, x, z) => {
+        if (!this.buildings.check(kind, x, z).ok) return false;
+        this.buildings.place(kind, x, z, { animate: false, city: city.id });
+        return true;
+      },
+      paths: (tiles, style) => this.footpaths.add(tiles.filter((tl) => this.buildings.occ[idx(tl.x, tl.z)] === -1 && !this.net.type[idx(tl.x, tl.z)]), style),
+    });
+    const cleared = roads.map((tl) => idx(tl.x, tl.z));
+    for (const b of this.buildings.list) for (const f of this.buildings.footprint(b.kind, b.x, b.z)) cleared.push(idx(f.x, f.z));
+    this.terrain.clearTiles(cleared);
+    this.lights.setLit(lit, true);
+    this.eco.active = city.id;
+    this.net.clearUndo();
+    this.cam.setState(0, 2, Math.PI / 4, 16);
+    console.info(`[followers] the city has ${this.buildings.list.length} buildings and ${homes} homes`);
+  }
 
   private buildStarterTown(towns: number, slot?: number) {
     const capital = this.eco.found(townName(), START_GRANT);

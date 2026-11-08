@@ -431,7 +431,12 @@ export class Terrain {
           continue;
         }
 
-        const forest = fbm(x * 0.07 + 100, z * 0.07 + 100, seed + 3);
+        // land kept clear (city land, beaches): only grass
+        if (map.clear[k]) {
+          if (map.arid[k] < 0.6 && rnd() < 0.3) tufts.push({ m: mat(jx(), 0, jz(), 0.7 + rnd() * 0.6), tile: k, color: pick(TUFT_GRASS) });
+          continue;
+        }
+        const forest = fbm(x * 0.07 + 100, z * 0.07 + 100, seed + 3) + map.woods[k];
         const centre = Math.hypot(x - N / 2, z - N / 2) < 14 ? 0.15 : 1;
         const ar = map.arid[k];
         const steppe = smoothstep(0.52, 0.58, ar), desert = smoothstep(0.6, 0.66, ar);

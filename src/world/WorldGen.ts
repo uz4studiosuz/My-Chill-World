@@ -137,3 +137,44 @@ export function pickSeed(tries = 12): number {
   }
   return best;
 }
+
+/** Half the width of the followers' city land: a flat, dry square in the middle of the map (room for ~100 000 homes). */
+export const FOL_FLAT = 108;
+
+/**
+ * The followers' world: a wide flat square of city land in the middle, and round it a wild ring — the sea with
+ * sandy beaches to the south and east, mountains to the north and west, thick woods and a few lakes in between.
+ */
+export function generateFollowersWorld(seed: number): WorldMap {
+  const map = new WorldMap(seed);
+  const c = N / 2;
+  for (let z = 0; z < N; z++) {
+    for (let x = 0; x < N; x++) {
+      const k = idx(x, z);
+      const dx = x + 0.5 - c, dz = z + 0.5 - c;
+      const d = Math.max(Math.abs(dx), Math.abs(dz));
+      map.arid[k] = 0.18 + fbm(x * 0.02, z * 0.02, seed + 61, 2) * 0.12;
+      if (d <= FOL_FLAT + 3) { map.clear[k] = 1; continue; }
+      const wob = (fbm(x * 0.035, z * 0.035, seed + 5, 3) - 0.5) * 26;
+      const wob2 = (fbm(x * 0.05 + 300, z * 0.05 + 300, seed + 9, 3) - 0.5) * 22;
+      // the sea: along the south and the east edge
+      const sea = Math.max(dz - (FOL_FLAT + 22 + wob), dx - (FOL_FLAT + 26 + wob));
+      if (sea > 0) { map.water[k] = 1; continue; }
+      // a sandy beach along the sea
+      if (sea > -4) { map.arid[k] = 0.72; map.clear[k] = 1; continue; }
+      // the mountains: along the north and the west edge, rising towards the map's edge
+      const hill = Math.max(-dz - (FOL_FLAT + 14 + wob2), -dx - (FOL_FLAT + 16 + wob2));
+      if (hill > 0) {
+        const ridge = fbm(x * 0.09, z * 0.09, seed + 41, 3);
+        map.height[k] = Math.max(1, Math.min(10, Math.floor(hill * 0.42 + ridge * 4 - 0.5)));
+        map.cold[k] = Math.max(0, Math.min(0.8, (map.height[k] - 4) / 6));
+        continue;
+      }
+      // lakes in the woods
+      if (fbm(x * 0.045 + 800, z * 0.045 + 800, seed + 21, 3) > 0.69 && d > FOL_FLAT + 8) { map.water[k] = 1; continue; }
+      // thick woods between the city and the wild
+      map.woods[k] = Math.min(0.3, (d - FOL_FLAT - 3) * 0.04);
+    }
+  }
+  return map;
+}

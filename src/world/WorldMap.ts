@@ -9,6 +9,10 @@ export class WorldMap {
   readonly arid = new Float32Array(N * N);
   /** 0 = mild, 1 = cold north (long winters, snow stays longer, short growing season). */
   readonly cold = new Float32Array(N * N);
+  /** 1 = land kept clear: no trees, rocks or bushes grow there (the followers' city land and its beaches). */
+  readonly clear = new Uint8Array(N * N);
+  /** Added to the forest noise: the woods grow thicker here (the wild ring round the followers' city). */
+  readonly woods = new Float32Array(N * N);
 
   /** Climate of a tile as a word key: 'Cold north', 'Desert', 'Steppe' or 'Mild'. */
   climate(k: number) {
