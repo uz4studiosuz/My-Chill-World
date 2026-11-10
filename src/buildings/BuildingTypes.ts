@@ -1,5 +1,5 @@
 export type BuildingKind =
-  | 'townhall' | 'house' | 'office' | 'school' | 'parking' | 'weddinghall' | 'watertower'
+  | 'townhall' | 'house' | 'office' | 'lawoffice' | 'school' | 'parking' | 'weddinghall' | 'watertower'
   | 'quarry' | 'woodcutter' | 'powerplant' | 'farm' | 'orchard' | 'ranch' | 'cemetery'
   | 'kindergarten' | 'hotel' | 'windturbine' | 'solarfarm' | 'trainstation' | 'apartment' | 'cemeteryext' | 'ironmine' | 'fishery' | 'police' | 'firestation' | 'busdepot' | 'busstop' | 'grocery' | 'clothes' | 'park' | 'hospital' | 'university' | 'market' | 'carmarket' | 'bank' | 'gasstation' | 'factory' | 'carfactory' | 'construction'
   | 'stadium' | 'cinema' | 'academy' | 'playground' | 'fountain' | 'flowerbed' | 'statue' | 'bench' | 'lamppost' | 'sapling' | 'roadsign' | 'airport'
@@ -67,6 +67,7 @@ export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   townhall: def({ kind: 'townhall', name: 'Town Hall', size: 2, money: 2500, stone: 60, wood: 40, jobs: 8, salary: 16, publicJob: true, energy: 4, slots: [[-0.8, 0.68, 0], [-0.52, 0.68, 0], [0.45, 0.68, 0]] }),
   house: def({ kind: 'house', name: 'House', size: 1, money: 300, stone: 10, wood: 15, housing: 10, units: 1, energy: 2, slots: [[0.2, 0.35, 0]] }),
   office: def({ kind: 'office', name: 'Office', size: 2, money: 1500, stone: 40, wood: 10, jobs: 24, salary: 20, upkeep: 4, energy: 6, revenue: 120, slots: [[-0.42, 0.72, 0], [-0.06, 0.72, 0], [0.3, 0.72, 0]] }),
+  lawoffice: def({ kind: 'lawoffice', name: 'Law Office', size: 2, money: 1800, stone: 40, wood: 15, jobs: 6, salary: 22, upkeep: 4, energy: 4, revenue: 140 }),
   school: def({ kind: 'school', name: 'School', size: 2, money: 1200, stone: 30, wood: 20, jobs: 4, salary: 16, publicJob: true, upkeep: 6, energy: 3, students: 60, slots: [[0.45, 0.72, 0], [0.78, 0.72, 0]] }),
   weddinghall: def({ kind: 'weddinghall', name: 'Wedding Hall', size: 1, money: 600, stone: 15, wood: 10, jobs: 1, salary: 14, publicJob: true, upkeep: 2, energy: 1 }),
   watertower: def({ kind: 'watertower', name: 'Water Tower', size: 1, money: 500, stone: 20, jobs: 1, salary: 12, publicJob: true, upkeep: 3, energy: 2, water: 160 }),
@@ -318,7 +319,7 @@ export const SHOP_PRICE: Record<string, [number, number]> = { grocery: [3, 8], c
 export const SHOP_SPEND = { market: 0.6, grocery: 0.5, clothes: 0.4 } as const;
 export type ShopKind = keyof typeof SHOP_SPEND;
 /** Businesses a family can own: they collect a share of the turnover as profit. */
-export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'dairyshop', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office', 'casino', 'teahouse', 'barber', 'gym', 'themepark', 'restaurant', 'zoo'];
+export const BUSINESS_KINDS: BuildingKind[] = ['market', 'grocery', 'dairyshop', 'clothes', 'carmarket', 'bank', 'gasstation', 'factory', 'carfactory', 'construction', 'office', 'lawoffice', 'casino', 'teahouse', 'barber', 'gym', 'themepark', 'restaurant', 'zoo'];
 /** Owner's share of the turnover (after the 20% business tax). */
 /** Share of a business's profit (after tax and the staff's wages) that the owning family keeps. */
 export const OWNER_SHARE = 0.5;

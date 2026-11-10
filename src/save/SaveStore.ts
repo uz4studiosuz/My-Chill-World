@@ -32,6 +32,8 @@ export interface WorldMeta {
   homesTrimmed?: boolean;
   /** The followers' town laid out as a big city (the plan's version): homes are flats in blocks, waiting for followers. */
   folCity?: number;
+  jsvrnb8Lawyer?: boolean;
+  powerConsolidated?: boolean;
 }
 
 export interface WorldSave {

@@ -79,6 +79,7 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'townhall', name: 'Town Hall', group: 'Buildings', desc: 'Heart of the town. Stores stone, employs 10.', make: () => mesh(buildingGeometry('townhall')) },
   { id: 'house', name: 'House', group: 'Buildings', desc: 'Home for 10 people.', make: () => mesh(buildingGeometry('house', 0)) },
   { id: 'house2', name: 'House (blue roof)', group: 'Buildings', desc: 'Every house gets a random colour scheme.', make: () => mesh(buildingGeometry('house', 5)) },
+  { id: 'lawoffice', name: 'Law Office', group: 'Buildings', desc: 'A workplace for lawyers.', make: () => mesh(buildingGeometry('lawoffice')) },
   { id: 'office', name: 'Office', group: 'Buildings', desc: '30 jobs. People commute here by car.', make: () => mesh(buildingGeometry('office')) },
   {
     id: 'parking', name: 'Parking Lot', group: 'Buildings', desc: '8 parking spaces. Cars stop here for a while.',

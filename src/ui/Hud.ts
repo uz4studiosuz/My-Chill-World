@@ -97,6 +97,7 @@ export const ITEMS: ToolItem[] = [
   b('carmarket', 'business', 'Sells cars', 'Families buy their cars here once they have saved enough.', 'car'),
   b('bank', 'business', 'Finance', 'Pays business tax to the town and employs skilled people.', 'coin'),
   b('gasstation', 'business', 'Fuel', 'Sells fuel to the town\'s drivers and pays business tax.', 'energy'),
+  b('lawoffice', 'business', '6 jobs', 'A law office where lawyers work.', 'office'),
   b('office', 'business', '24 jobs', 'Workplace with parking spaces in front.', 'office'),
   b('construction', 'business', 'Builders', 'Builders work here: they walk to every construction site and build it. Without a construction company nothing can be built (it can build itself and a Town Hall slowly).', 'quarry'),
   b('warehouse', 'production', '+2000 storage', 'Keeps the town\'s goods: every warehouse stores 2,000 more of each good (2,500 food). Without room, new harvests and goods spoil.', 'production'),

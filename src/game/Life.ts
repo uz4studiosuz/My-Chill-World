@@ -736,12 +736,12 @@ export class Life {
           if (CLEAN_POWER[b.kind]) {
             const sun = b.kind === 'hydro' ? 1 : b.kind === 'solarfarm' ? (eco.timeOfDay > 0.25 && eco.timeOfDay < 0.78 ? 1 : 0.1) : 0.7 + 0.3 * Math.sin(eco.day * 1.7 + eco.timeOfDay * 9);
             // wind and sun need nobody; a dam runs better with its staff
-            const p = d.power * (d.jobs ? Math.max(0.6, Math.min(1, b.workers / d.jobs)) : 1) * sun;
+            const p = d.power * (this.followers ? 10 : 1) * (d.jobs ? Math.max(0.6, Math.min(1, b.workers / d.jobs)) : 1) * sun;
             b.output = p;
             capacity += p;
             clean += p;
           } else {
-            const p = d.power * Math.min(1, b.workers / d.jobs) * (b.kind === 'coalplant' ? (city.coal > 0.5 ? 1 : 0) : city.wood > 0.5 ? 1 : 0);
+            const p = d.power * (this.followers ? 10 : 1) * Math.min(1, b.workers / d.jobs) * (b.kind === 'coalplant' ? (city.coal > 0.5 ? 1 : 0) : city.wood > 0.5 ? 1 : 0);
             b.output = p;
             capacity += p;
             if (p > 0) plants.push({ city, power: p, coal: b.kind === 'coalplant' });

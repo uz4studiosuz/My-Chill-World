@@ -6,7 +6,7 @@ import { WorldMap } from '../world/WorldMap';
 import { RoadNetwork, ROAD_RING } from '../roads/RoadNetwork';
 import { BUILDINGS, BUILD_DAYS, BuildingKind, MAX_GRAVES_PER_CEMETERY, CROPS, CropKind } from './BuildingTypes';
 import {
-  cropGeometry, farmGeometry, houseGeometry, officeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
+  cropGeometry, farmGeometry, houseGeometry, officeGeometry, lawOfficeGeometry, orchardGeometry, parkingGeometry, powerPlantGeometry,
   quarryGeometry, ranchGeometry, schoolGeometry, townHallGeometry, waterTowerGeometry, weddingHallGeometry, woodcutterGeometry,
   cemeteryGeometry, headstoneGeometry, graveOffset, policeGeometry, kindergartenGeometry, hotelGeometry, windTurbineGeometry, rotorGeometry, solarFarmGeometry, trainStationGeometry, apartmentGeometry, cemeteryExtGeometry, GRAVE_OFFSETS, ironMineGeometry, fisheryGeometry, fireStationGeometry, busDepotGeometry, busStopGeometry, groceryGeometry, clothesGeometry, parkGeometry, hospitalGeometry, universityGeometry, collegeGeometry, marketGeometry,
   carMarketGeometry, bankGeometry, gasStationGeometry, factoryGeometry, carFactoryGeometry, constructionGeometry,
@@ -179,6 +179,7 @@ export function buildingGeometry(kind: BuildingKind, variant = 0) {
   switch (kind) {
     case 'house': return houseGeometry(variant);
     case 'office': return officeGeometry();
+    case 'lawoffice': return lawOfficeGeometry();
     case 'school': return schoolGeometry();
     case 'parking': return parkingGeometry();
     case 'quarry': return quarryGeometry();

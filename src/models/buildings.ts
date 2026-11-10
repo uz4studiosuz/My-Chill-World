@@ -5,6 +5,7 @@ export * from './buildings/college';
 export * from './buildings/townHall';
 export * from './buildings/tower';
 export * from './buildings/office';
+export * from './buildings/lawOffice';
 export * from './buildings/parking';
 export * from './buildings/quarry';
 export * from './buildings/school';

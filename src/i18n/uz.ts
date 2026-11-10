@@ -3,6 +3,10 @@ export const UZ: Record<string, string> = {
   '{n} followers': '{n} obunachi',
   'Built {w} water towers and {p} power facilities': '{w} ta suv minorasi va {p} ta elektr inshooti qurildi',
   'Take {nick} off the list?': "{nick} ro'yxatdan o'chirilsinmi?",
+  'Law Office': 'Advokatura',
+  'Lawyer': 'Advokat',
+  '6 jobs': '6 ta ish o‘rni',
+  'A law office where lawyers work.': 'Advokatlar ishlaydigan advokatura binosi.',
   // ---- menu ----
   'Build roads, grow your town.': "Yo'l qur, shahringni o'stir.",
   'Continue': 'Davom etish',

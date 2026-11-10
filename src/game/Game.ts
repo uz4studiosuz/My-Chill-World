@@ -134,7 +134,7 @@ const LAYER_NOTE = {
 const kw = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(2)} ${t('MW')}` : `${Math.round(v * 10) / 10} ${t('kW')}`);
 
 const KIND_BADGE: Record<BuildingKind, [string, string]> = {
-  townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], school: ['🏫', '#d9714a'],
+  townhall: ['🏛️', '#3567c4'], house: ['🏠', '#c4553d'], office: ['🏢', '#4a7fb5'], lawoffice: ['⚖️', '#9a7540'], school: ['🏫', '#d9714a'],
   parking: ['🅿️', '#2f6fd6'], weddinghall: ['💒', '#d97a9a'], watertower: ['💧', '#4a8fbd'], quarry: ['⛏️', '#8d8a83'],
   woodcutter: ['🪓', '#8a5a35'], powerplant: ['⚡', '#a65e43'], farm: ['🌾', '#b8952f'], orchard: ['🍎', '#4f8a3a'], ranch: ['🐄', '#7a5a3c'],
   cemetery: ['🪦', '#4a4f57'], police: ['🚓', '#2d4f8a'], kindergarten: ['🧸', '#e8738f'], hotel: ['🏨', '#7d4a3a'], windturbine: ['🌬️', '#6fb6ff'], solarfarm: ['☀️', '#25406e'], trainstation: ['🚉', '#c98a5a'], apartment: ['🏢', '#8a6f5a'], cemeteryext: ['🪦', '#4a4f57'], ironmine: ['⚒️', '#7a5a4a'], fishery: ['🎣', '#3a7fb5'], firestation: ['🚒', '#c4553d'], busdepot: ['🚌', '#d9a92a'], busstop: ['🚏', '#3a6fd1'], grocery: ['🥖', '#4c9a52'], clothes: ['👕', '#b0478f'], park: ['🌳', '#4f8a3a'], hospital: ['🏥', '#d9443b'], university: ['🎓', '#7d4a3a'], college: ['📘', '#3a6fd1'],
@@ -148,7 +148,7 @@ const KIND_BADGE: Record<BuildingKind, [string, string]> = {
 };
 
 const PROFESSIONS: Partial<Record<BuildingKind, string[]>> = {
-  townhall: ['Civil servant'], office: ['Clerk', 'Manager'], school: ['School staff', 'Teacher'], university: ['University staff', 'Professor'], college: ['College staff', 'Lecturer'],
+  townhall: ['Civil servant'], office: ['Clerk', 'Manager'], lawoffice: ['Lawyer'], school: ['School staff', 'Teacher'], university: ['University staff', 'Professor'], college: ['College staff', 'Lecturer'],
   warehouse: ['Storekeeper'], bikefactory: ['Bicycle maker', 'Engineer'], migration: ['Migration officer', 'Office manager'], concerthall: ['Stage hand', 'Conductor'], casino: ['Croupier', 'Casino manager'], mosque: ['Muezzin', 'Imam'], themepark: ['Ride operator', 'Park manager'], bigpark: ['Gardener'], gym: ['Boxer', 'Fitness coach'], teahouse: ['Cook', 'Waiter'], barber: ['Barber', 'Stylist'],
   hospital: ['Nurse', 'Doctor'], market: ['Seller'], carmarket: ['Car salesman'], bank: ['Cashier', 'Banker'], gasstation: ['Pump attendant'],
   factory: ['Factory worker', 'Engineer'], carfactory: ['Auto assembler', 'Engineer'], construction: ['Builder', 'Site foreman'],
@@ -1352,7 +1352,7 @@ export class Game implements ToolHost {
         [t('Level'), `${g.level || 1}`],
         ...(d.jobs ? [[t('Jobs'), `${d.jobs}`] as [string, string]] : []),
         ...(d.units ? [[t('Homes'), t('{n} families', { n: d.units * (g.level || 1) })] as [string, string]] : []),
-        ...(d.power ? [[t('Power'), `${d.power} kW`] as [string, string]] : []),
+        ...(d.power ? [[t('Power'), `${d.power * (this.followers ? 10 : 1)} kW`] as [string, string]] : []),
         [t('Size'), `${d.size}×${d.size}`],
       ],
       actions: [
@@ -1459,6 +1459,7 @@ export class Game implements ToolHost {
       // followers whose house is still going up move in only when the page is left (not at every autosave)
       if (this.followers && leaving) this.settleFollowers(true);
       const data = this.toSave();
+      if (this.followers) data.meta.updated = Date.now();
       if (this.onSave) { this.onSave(data, manual || leaving || urgent); if (manual) this.hud?.toast(t('Game saved')); return; }
       SaveStore.save(data);
       // online: the town is kept in the cloud too, so it opens the same on any device (at most once a minute,
@@ -3805,7 +3806,7 @@ export class Game implements ToolHost {
       need += d.energy * (b.kind === 'house' ? b.level || 1 : 1);
       if (CLEAN_POWER[b.kind] || b.workers > 0) {
         const factor = b.kind === 'solarfarm' ? 0.5 : b.kind === 'windturbine' ? 0.7 : 1;
-        have += d.power * factor;
+        have += d.power * factor * (this.followers ? 10 : 1);
       }
     }
     need += towers * BUILDINGS.watertower.energy;
@@ -3819,7 +3820,7 @@ export class Game implements ToolHost {
         kind = 'windturbine';
       }
       if (kind === 'solarfarm') solar++; else wind++;
-      have += BUILDINGS[kind].power * (kind === 'solarfarm' ? 0.5 : 0.7);
+      have += BUILDINGS[kind].power * (kind === 'solarfarm' ? 0.5 : 0.7) * (this.followers ? 10 : 1);
       plants++;
     }
     const batteries = own.filter((b) => b.kind === 'battery').length;
@@ -3878,8 +3879,46 @@ export class Game implements ToolHost {
     if (this.assignPending) { this.assignPending = false; this.pop.assign(this.buildings); }
     if (!this.viewOnly) {
       this.autoUtilT -= dt;
-      if (this.autoUtilT <= 0) { this.autoUtilT = 8; this.autoUtilities(); }
+      if (this.autoUtilT <= 0) {
+        this.autoUtilT = 8;
+        this.applyFollowerRequests();
+        this.autoUtilities();
+      }
     }
+  }
+
+  /** Apply the requested town changes once, and keep later admin edits intact. */
+  private applyFollowerRequests() {
+    let changed = false;
+    if (!this.meta.powerConsolidated) {
+      for (const kind of ['solarfarm', 'windturbine', 'powerplant', 'coalplant', 'hydro'] as BuildingKind[]) {
+        const plants = this.buildings.list.filter((b) => !b.removed && b.city === this.eco.active && b.kind === kind);
+        plants.sort((a, b) => Number(b.built >= 1) - Number(a.built >= 1) || b.workers - a.workers);
+        for (const plant of plants.slice(Math.ceil(plants.length / 10))) this.destroyBuilding(plant, false);
+      }
+      this.meta.powerConsolidated = true;
+      changed = true;
+    }
+    if (!this.meta.jsvrnb8Lawyer) {
+      const citizen = this.followerList().find((c) => c.fol?.toLowerCase() === 'jsvrnb8');
+      if (citizen && this.pop.canWork(citizen)) {
+        const home = this.homeOf(citizen);
+        const office = this.buildings.list.find((b) => !b.removed && b.city === home?.city && b.kind === 'lawoffice'
+          && [...this.pop.citizens.values()].filter((c) => c.job === b.id).length < BUILDINGS.lawoffice.jobs)
+          ?? this.autoPlace('lawoffice');
+        if (office) {
+          if (office.built < 1) { office.built = 1; this.buildings.onBuilt(office); }
+          citizen.want = 'lawoffice';
+          citizen.job = -1;
+          this.pop.assign(this.buildings);
+          if (citizen.job === office.id || this.buildings.get(citizen.job)?.kind === 'lawoffice') {
+            this.meta.jsvrnb8Lawyer = true;
+            changed = true;
+          }
+        }
+      }
+    }
+    if (changed) this.save(false, false, true);
   }
 
   /** Hearts and fireworks over a follower's new home. */
@@ -4749,7 +4788,7 @@ export class Game implements ToolHost {
     }
     const nums: [string, string][] = [];
     if (d.energy) nums.push([t('Electricity use'), kw(d.energy * (b.kind === 'house' ? b.level : 1))]);
-    if (d.power) nums.push([t('Electricity made'), `${kw(b.output ?? 0)} / ${kw(d.power)}`]);
+    if (d.power) nums.push([t('Electricity made'), `${kw(b.output ?? 0)} / ${kw(d.power * (this.followers ? 10 : 1))}`]);
     if (d.food) nums.push([t('Food output'), t('up to {n}/day', { n: d.food })]);
     if (d.water) nums.push([t('Water for'), t('{n} people', { n: d.water })]);
     if (d.students) nums.push([t('Places'), `${d.students}`]);
@@ -5266,7 +5305,7 @@ export class Game implements ToolHost {
           [t('Covered'), `${Math.round(city.powered * 100)}%`, city.powered > 0.95 ? t('enough power') : t('power shortage'), city.powered > 0.95],
           [t('Batteries'), this.life.batteryCap ? `${kw(this.life.batteryCharge)} / ${kw(this.life.batteryCap)}` : '—', t('stored for the night')],
         ] },
-        { title: t('Power plants'), rows: plants.length ? plants.map((b) => [t(BUILDINGS[b.kind].name), `${kw(b.output ?? 0)} / ${kw(BUILDINGS[b.kind].power)} · ${b.workers}/${BUILDINGS[b.kind].jobs}`, (b.output ?? 0) > 0] as [string, string, boolean]) : [[t('None — build one'), '—', false]] },
+        { title: t('Power plants'), rows: plants.length ? plants.map((b) => [t(BUILDINGS[b.kind].name), `${kw(b.output ?? 0)} / ${kw(BUILDINGS[b.kind].power * (this.followers ? 10 : 1))} · ${b.workers}/${BUILDINGS[b.kind].jobs}`, (b.output ?? 0) > 0] as [string, string, boolean]) : [[t('None — build one'), '—', false]] },
         { title: t('Who uses power (by kind)'), rows: [...users.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, v]) => [t(k), kw(v)] as [string, string]) },
         { title: t('Every building'), rows: own.filter((b) => BUILDINGS[b.kind].energy).map((b) => [b, BUILDINGS[b.kind].energy * (b.kind === 'house' ? b.level : 1)] as const)
           .sort((a, b) => b[1] - a[1]).slice(0, 30).map(([b, v]) => [`${t(BUILDINGS[b.kind].name)} #${b.id}`, `${kw(v)} · ${b.powered ? '✓' : `✗ ${t('No power')}`}`, b.powered] as [string, string, boolean]) },
@@ -5496,7 +5535,7 @@ export class Game implements ToolHost {
           sections: [
             { title: t('Supply'), bars: [[t('Demand covered'), city.powered, `${Math.round(city.powered * 100)}%`], ...(this.life.batteryCap ? [[t('Batteries charged'), this.life.batteryCharge / this.life.batteryCap, `${Math.round(this.life.batteryCharge)}/${this.life.batteryCap}`] as [string, number, string]] : [])] },
             { title: t('Fuel'), rows: [[t('Wood in stock'), n(city.wood)], [t('Coal in stock'), n(city.coal)]] },
-            { title: t('Power plants'), rows: plants.length ? plants.map((b) => [t(BUILDINGS[b.kind].name), `${kw(b.output ?? 0)} / ${kw(BUILDINGS[b.kind].power)} · ${staffed(b)}`, b.workers > 0 || BUILDINGS[b.kind].power ? 'good' : 'bad'] as [string, string, ('good' | 'bad')?]) : [[t('None — build one'), '—', 'bad']] },
+            { title: t('Power plants'), rows: plants.length ? plants.map((b) => [t(BUILDINGS[b.kind].name), `${kw(b.output ?? 0)} / ${kw(BUILDINGS[b.kind].power * (this.followers ? 10 : 1))} · ${staffed(b)}`, b.workers > 0 || BUILDINGS[b.kind].power ? 'good' : 'bad'] as [string, string, ('good' | 'bad')?]) : [[t('None — build one'), '—', 'bad']] },
             { title: t('Biggest users'), rows: [...users.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [t(k), kw(v)]) },
           ],
         };
