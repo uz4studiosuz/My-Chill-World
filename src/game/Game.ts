@@ -2061,16 +2061,16 @@ export class Game implements ToolHost {
 
   // ---------- internals ----------
 
-  private destroyBuilding(b: Building, refund: boolean) {
+  private destroyBuilding(b: Building, refund: boolean, deferNetwork = false) {
     if (b.removed) return;
     for (const id of b.ext ?? []) { const e = this.buildings.get(id); if (e) { this.buildings.remove(e); } }
     const own = this.eco.cities.get(b.city);
     if (refund && own) this.eco.add(own, 'money', Math.floor(BUILDINGS[b.kind].money / 2), 'Demolition refunds');
-    this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.5, 18, refund ? undefined : ['#3a2a20', '#6b6b6b', '#ff7a1a']);
+    if (!deferNetwork) this.effects.puff(b.mesh.position.x, b.mesh.position.z, BUILDINGS[b.kind].size * 0.5, 18, refund ? undefined : ['#3a2a20', '#6b6b6b', '#ff7a1a']);
     this.buildings.remove(b);
-    this.life.buildingRemoved(b);
+    this.life.buildingRemoved(b, deferNetwork);
     if (this.selection?.type === 'building' && this.selection.id === b.id) this.select(null);
-    if (!refund) this.networkChanged();
+    if (!refund && !deferNetwork) this.networkChanged();
   }
 
   private checkRoundabout(tl: Tile): CheckResult {
@@ -3538,6 +3538,7 @@ export class Game implements ToolHost {
       if (!home || home.removed) { displaced.push(a); continue; }
       if (home.built < 1 && !all) { this.arriving.push(a); continue; }
       const c = this.pop.addFollower(home.id, a.nick, a.sex, a.age);
+      this.folCache = null;
       if (a.want) c.want = a.want;
       if (a.vip) c.vip = true;
       moved.push([a, c]);
@@ -3608,6 +3609,7 @@ export class Game implements ToolHost {
     if (c.walker) this.walkers.dismiss(c.walker);
     const f = this.pop.families.get(c.family);
     this.pop.removeCitizen(c, 'left');
+    this.folCache = null;
     if (f && !f.members.length) {
       this.pop.families.delete(f.id);
       // their house goes too: the town has as many homes as followers
@@ -3870,7 +3872,6 @@ export class Game implements ToolHost {
 
   /** Called every frame in the followers' town: the deferred work, and (for the admin) water and power kept right. */
   private followersFrame(dt: number) {
-    this.folCache = null;
     this.settleFollowers();
     this.updateSpot(dt);
     this.updatePickRing(dt);
@@ -3891,10 +3892,18 @@ export class Game implements ToolHost {
   private applyFollowerRequests() {
     let changed = false;
     if (!this.meta.powerConsolidated) {
+      let removed = false;
       for (const kind of ['solarfarm', 'windturbine', 'powerplant', 'coalplant', 'hydro'] as BuildingKind[]) {
         const plants = this.buildings.list.filter((b) => !b.removed && b.city === this.eco.active && b.kind === kind);
         plants.sort((a, b) => Number(b.built >= 1) - Number(a.built >= 1) || b.workers - a.workers);
-        for (const plant of plants.slice(Math.ceil(plants.length / 10))) this.destroyBuilding(plant, false);
+        for (const plant of plants.slice(Math.ceil(plants.length / 10))) {
+          this.destroyBuilding(plant, false, true);
+          removed = true;
+        }
+      }
+      if (removed) {
+        this.pop.assign(this.buildings);
+        this.networkChanged(false);
       }
       this.meta.powerConsolidated = true;
       changed = true;

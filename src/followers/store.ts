@@ -130,10 +130,10 @@ async function flush() {
     }
     if (secret && (urgent || Date.now() - cloudAt > 45_000)) {
       urgent = false;
-      cloudAt = Date.now();
       const people = s.population.reduce((a, f) => a + f.members.length, 0);
       const err = await Online.followersPush(secret, s.meta.updated, json, people);
-      if (err) errors.push(err); else { wrote = true; loadedAt = s.meta.updated; }
+      if (err) { cloudAt = 0; errors.push(err); }
+      else { cloudAt = Date.now(); wrote = true; loadedAt = s.meta.updated; }
     }
     if (errors.length) listener('error', errors.join(' · '));
     else if (wrote) listener('saved');

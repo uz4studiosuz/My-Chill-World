@@ -4692,7 +4692,7 @@ export class Life {
   }
 
   /** A building was removed: send people home, free spots, rehouse the family. */
-  buildingRemoved(b: Building) {
+  buildingRemoved(b: Building, deferRebuild = false) {
     const { pop, buildings } = this.c;
     for (const key of [...this.spots.keys()]) {
       if (!key.startsWith(`${b.id}:`)) continue;
@@ -4724,8 +4724,10 @@ export class Life {
         }
       }
     }
-    pop.assign(buildings);
-    this.rebuildGrid();
+    if (!deferRebuild) {
+      pop.assign(buildings);
+      this.rebuildGrid();
+    }
   }
 }
 
